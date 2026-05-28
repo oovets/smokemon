@@ -1,6 +1,36 @@
 smokemon - passive+active network monitor (macOS, local). fping/netstat/curl/mtr/
 iperf3/system_profiler -> SQLite(WAL) -> plotext TUI / matplotlib PNG. launchd daemons.
-~25 MB RSS, <1% of one core avg. CHANGELOG (newest first, all 2026-05-28):
+~25 MB RSS, <1% of one core avg.
+
+== TUI (smoke / smokelive; colors stripped here, normally green/orange/red) ==
+
+  internet (1.1.1.1)   median now 4 ms · spread (gray) min–max · avg loss 2%
+  ┌────────────────────────────────────────────────────────────────────┐
+47┤ ⢕⢕ median  ⢰        ⢠  ⣄ ⢀ ⣀⡄⣶  ⢸    ⣄        •       •⡆⡀          │
+38┤ •• loss    ⢸⣀     ⣠⣠⢸⢰ ⣿ ⢸ ⣿⡇⣿  ⣸⣀⡄ ⣀⣿    ⢀   ⡇⣴⣦⢸   ⣀•⡇⡇  ⡀ ⡆⡀  ⢀ │
+29┤⣿⣠⣼⢰⡇ ⡇⢰⣇⢸⣿⢀⣾⣿ ⡄ ⣦ ⣿⣿•⣼⢸⣿⣦⢸ ⣿⡇⣿⡀⢰⣿⣿⡇⣠⣿⣿⢰⡄  ⢸   ⡇⣿⣿⢸ ⢰⡇⣿⢸⡇⡇⣴ ⡇⢸⣿⣷  ⢸⢰│
+20┤⣿⣿⣿⣿⣷⣼⣷⡿⣿⣾⣿⣿•⣿⣼⣧⣸⣿⣴⣿⣿•⡀⣼⣿⣿⣸⣠⣿⣷•⣷⣿⣿⢀⣿⣿⣿⣿⣿⣷⣴⡀⣼⣄⣄⡄⡇⣿⣿⣼⣄⣸⣇⣿⢸⣿⣿⣿⣦⡇⣾⣿⣿⡀⣠⣸⡾│
+ 2┤⣤•••⣤⣤•••⣤•••⣦⣤⣄⣤⣤••⣤•••••⣤⣤⣤•⣧•⣤••••⣤•⣤•⣠⣤⣤⣠••⣇⣄⣤⣠•⣤⣤•⣼•••⣤••••⣠•⣀⣄│
+  └┬──────────┬──────────┬───────────┬──────────┬──────────┬──────────┬┘
+ 14:05      14:25      14:45       15:05      15:25      15:45    16:05
+RTT ms
+
+               Bandwidth (Mbit/s) — passive, actual traffic
+  ┌────────────────────────────────────────────────────────────────────┐
+65┤ ⢕⢕ en0 down                  ⡆                                     │
+52┤ ⢕⢕ en0 up                    ⡇                                     │
+39┤ ⢕⢕ tailscale down            ⡇                ⡀       ⢀            │
+26┤ ⢕⢕ tailscale up     ⢀        ⡇       ⢀        ⡇       ⢸            │
+13┤        ⡇ ⢠ ⢀        ⣀  ⡆     ⡇  ⢀⢠ ⢀ ⢸⣀       ⡇       ⢠      ⡀     │
+ 0┤⣀⣀⣀⣀⣀⣀⣀⣀⣇⣀⣀⣀⣸⣀⣀⣀⣀⣀⣀⣀⣀⣿⣀⣀⣀⣀⣀⣀⣀⣀⣇⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣸⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀│
+  └┬──────────┬──────────┬───────────┬──────────┬──────────┬──────────┬┘
+ 14:05      14:25      14:45       15:05      15:25      15:45    16:05
+Mbit/s
+
+smokelive redraws this live; smokekiosk drops legend/axes/title (subtle gray frame).
+HTTP TTFB / mtr per-hop / WiFi RSSI+noise / iperf3 up+down panels stack below, same style.
+
+CHANGELOG (newest first, all 2026-05-28):
 
 == v0.8  PNG granularity ==
 - plot.py: figure width prop. to time span (~2 in/h, clamp 16-80") -> every 10s
