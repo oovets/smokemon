@@ -29,14 +29,18 @@ def _common(p: argparse.ArgumentParser) -> None:
 
 
 def _apply_window(args, win: str | None) -> str:
-    """Set args.hours/minutes from a window token; return a display label."""
+    """Set args.hours/minutes from a window token (Nh / Nm / bare minutes); return a label."""
     win = win or "15m"
+    num = win[:-1] if win[-1:] in ("h", "m") else win
+    try:
+        val = float(num)
+    except ValueError:
+        sys.exit(f"smoke: invalid window {win!r} — use e.g. 24h, 90m, or 30 (minutes)")
     if win.endswith("h"):
-        args.hours, args.minutes = float(win[:-1]), None
-        return f"{win[:-1]}h"
-    val = win[:-1] if win.endswith("m") else win
-    args.minutes = float(val)
-    return f"{val} min"
+        args.hours, args.minutes = val, None
+        return f"{num}h"
+    args.minutes = val
+    return f"{num} min"
 
 
 def _live(args, tui, kiosk: bool) -> int:
