@@ -75,6 +75,9 @@ def wifi_probe() -> dict | None:
     if not m:
         return None
     tx, ch, phy = _TXRATE_RE.search(text), _CHANNEL_RE.search(text), _PHY_RE.search(text)
+    # macOS Sonoma+ redacts BSSID without Location Services permission; the regex
+    # tolerates that by returning None when the field is not present in plain form.
+    bssid_m = re.search(r"BSSID:\s*([0-9a-fA-F:]{17})", text)
     return {
         "ssid": ssid,
         "channel": ch.group(1).strip() if ch else None,
@@ -82,4 +85,8 @@ def wifi_probe() -> dict | None:
         "rssi_dbm": int(m.group(1)),
         "noise_dbm": int(m.group(2)),
         "tx_rate_mbps": float(tx.group(1)) if tx else None,
+        "bssid": bssid_m.group(1).lower() if bssid_m else None,
+        "retry_count": None,
+        "discard_count": None,
+        "beacon_loss": None,
     }

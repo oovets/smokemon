@@ -15,11 +15,16 @@ def log(msg: str) -> None:
 
 
 def connect(path: str, timeout: float = 30, check_same_thread: bool = True) -> sqlite3.Connection:
+    """Open a SQLite connection with the minimal set of PRAGMAs that buy real value
+    without inflating RSS. Footprint matters: smokemon's own RSS is one of the metrics
+    it reports (host.py reads /proc/<pid>/stat field 21), so cache_size / mmap_size
+    tuning would both bloat the number and confuse the report. Defaults SQLite picks
+    for cache_size (~2 MB) are already fine for our workload."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
     conn = sqlite3.connect(path, timeout=timeout, check_same_thread=check_same_thread)
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA synchronous=NORMAL")
-    conn.execute("PRAGMA busy_timeout=10000")
+    conn.execute("PRAGMA journal_mode=WAL")     # concurrent read while a writer holds the file
+    conn.execute("PRAGMA synchronous=NORMAL")   # half the fsyncs of FULL; still durable on WAL
+    conn.execute("PRAGMA busy_timeout=10000")   # 10s grace before reads/writes raise OperationalError
     return conn
 
 

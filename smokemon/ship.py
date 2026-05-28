@@ -7,7 +7,6 @@ Default: drain once and exit (for a timer). Set SMOKEMON_SHIP_INTERVAL>0 to loop
 import json
 import sqlite3
 import sys
-import time
 import urllib.error
 import urllib.request
 

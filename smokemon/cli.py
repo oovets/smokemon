@@ -26,6 +26,8 @@ def _common(p: argparse.ArgumentParser) -> None:
     p.add_argument("--targets", help="comma-separated ping targets")
     p.add_argument("--panels", default="all", help=f"{','.join(config.PANELS)} or 'all'")
     p.add_argument("--node", help="filter to one node (required on a hub DB)")
+    p.add_argument("--cols", type=int, default=0,
+                   help="grid columns (0=auto: 2 cols if wide enough and >=3 panels)")
 
 
 def _apply_window(args, win: str | None) -> str:

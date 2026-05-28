@@ -1,17 +1,19 @@
 """HTTP/S timing via curl HEAD: DNS / TCP connect / TLS / TTFB / total, in ms."""
 
 import subprocess
+import time
 
 from .. import config, core, schema
 
 _FMT = ("code=%{http_code} dns=%{time_namelookup} conn=%{time_connect} "
         "tls=%{time_appconnect} ttfb=%{time_starttransfer} total=%{time_total}")
+_CURL = config.cli_path("SMOKEMON_CURL", "curl")
 
 
 def _probe(url: str) -> dict | None:
     try:
-        proc = subprocess.run([config.cli_path("SMOKEMON_CURL", "curl"), "-sI", "-o", "/dev/null",
-                               "--max-time", "10", "-w", _FMT, url], capture_output=True, text=True, timeout=15)
+        proc = subprocess.run([_CURL, "-sI", "-o", "/dev/null", "--max-time", "10", "-w", _FMT, url],
+                              capture_output=True, text=True, timeout=15)
     except Exception as e:  # noqa: BLE001
         core.log(f"curl error {url}: {e!r}")
         return None
@@ -24,7 +26,6 @@ def _probe(url: str) -> dict | None:
 
 
 def collect(conn) -> None:
-    import time
     ts = time.time()
     rows = [{"ts": ts, **r} for url in config.HTTP_URLS if (r := _probe(url))]
     if rows:

@@ -15,9 +15,15 @@ _lock = threading.Lock()  # serialize writes to the single sqlite connection
 _hub_cols: dict[str, set[str]] = {}
 
 
-def _insert_std(conn, table, node, columns, rows) -> dict[int, int]:
+def _insert_std(conn, table, node, columns, rows, need_id_map: bool = False) -> dict[int, int] | int:
     """Generic INSERT OR IGNORE; id -> src_id, node taken from the row's own node (with
-    payload node as fallback). Returns {src_id: hub_id} for rows actually inserted."""
+    payload node as fallback).
+
+    When need_id_map=True (ping_runs only): runs per-row execute() to capture lastrowid
+    and returns {src_id: hub_id} for rows actually inserted.
+
+    Otherwise: runs a single executemany() (much faster on Pi-class hardware) and returns
+    the number of rows actually inserted (computed via total_changes delta around the call)."""
     cols = _hub_cols[table]
     body = [c for c in columns if c not in ("id", "node") and c in cols]
     idx = [columns.index(c) for c in body]
@@ -25,13 +31,22 @@ def _insert_std(conn, table, node, columns, rows) -> dict[int, int]:
     node_i = columns.index("node") if "node" in columns else None
     insert_cols = body + ["node", "src_id"]
     sql = f"INSERT OR IGNORE INTO {table} ({','.join(insert_cols)}) VALUES ({','.join('?' * len(insert_cols))})"
-    new_map: dict[int, int] = {}
-    for r in rows:
+
+    def _row_args(r):
         row_node = r[node_i] if node_i is not None and r[node_i] is not None else node
-        cur = conn.execute(sql, [r[i] for i in idx] + [row_node, r[id_i]])
-        if cur.rowcount == 1:
-            new_map[r[id_i]] = cur.lastrowid
-    return new_map
+        return [r[i] for i in idx] + [row_node, r[id_i]]
+
+    if need_id_map:
+        new_map: dict[int, int] = {}
+        for r in rows:
+            cur = conn.execute(sql, _row_args(r))
+            if cur.rowcount == 1:
+                new_map[r[id_i]] = cur.lastrowid
+        return new_map
+
+    before = conn.total_changes
+    conn.executemany(sql, (_row_args(r) for r in rows))
+    return conn.total_changes - before
 
 
 def _insert_rtts(conn, columns, rows, run_map: dict[int, int]) -> int:
@@ -51,7 +66,7 @@ def ingest(payload: dict) -> dict:
             run_map: dict[int, int] = {}
             if "ping_runs" in tables:
                 t = tables["ping_runs"]
-                run_map = _insert_std(_conn, "ping_runs", node, t["columns"], t["rows"])
+                run_map = _insert_std(_conn, "ping_runs", node, t["columns"], t["rows"], need_id_map=True)
                 counts["ping_runs"] = len(run_map)
             if "ping_rtts" in tables:
                 t = tables["ping_rtts"]
@@ -60,7 +75,7 @@ def ingest(payload: dict) -> dict:
                 if table == "ping_runs" or table not in tables:
                     continue
                 t = tables[table]
-                counts[table] = len(_insert_std(_conn, table, node, t["columns"], t["rows"]))
+                counts[table] = _insert_std(_conn, table, node, t["columns"], t["rows"])
             _conn.commit()
         except Exception:
             _conn.rollback()

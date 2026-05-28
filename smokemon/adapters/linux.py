@@ -67,16 +67,40 @@ def _wifi_iface() -> str | None:
     return None
 
 
-def _noise(iface: str) -> int | None:
+def _wireless_stats(iface: str) -> dict:
+    """Parse /proc/net/wireless data row for `iface`. Returns noise + counters when
+    present; missing values become None. The data line for an interface has the layout:
+       face: status link level noise   nwid crypt frag retry misc   beacon
+    indices after the colon: 0=status 1=link 2=level 3=noise 4..8=discard 9=beacon."""
+    out: dict = {"noise_dbm": None, "retry_count": None, "discard_count": None, "beacon_loss": None}
     try:
         with open("/proc/net/wireless") as f:
             for line in f:
-                if line.strip().startswith(iface + ":"):
-                    noise = int(float(line.split()[3].rstrip(".")))
-                    return noise if noise > -256 else None
-    except (OSError, ValueError, IndexError):
-        return None
-    return None
+                if not line.strip().startswith(iface + ":"):
+                    continue
+                cols = line.split(":", 1)[1].split()
+                try:
+                    noise = int(float(cols[3].rstrip(".")))
+                    out["noise_dbm"] = noise if noise > -256 else None
+                except (IndexError, ValueError):
+                    pass
+                try:
+                    out["retry_count"] = int(cols[7].rstrip("."))
+                except (IndexError, ValueError):
+                    pass
+                try:
+                    discard = sum(int(cols[i].rstrip(".")) for i in (4, 5, 6, 8))
+                    out["discard_count"] = discard
+                except (IndexError, ValueError):
+                    pass
+                try:
+                    out["beacon_loss"] = int(cols[9].rstrip("."))
+                except (IndexError, ValueError):
+                    pass
+                break
+    except OSError:
+        pass
+    return out
 
 
 def wifi_probe() -> dict | None:
@@ -96,11 +120,17 @@ def wifi_probe() -> dict | None:
         return m.group(1).strip() if m else None
 
     signal, txrate = s(r"signal:\s*(-?\d+)"), s(r"tx bitrate:\s*([\d.]+)")
+    bssid = s(r"Connected to ([0-9a-fA-F:]{17})")
+    extra = _wireless_stats(iface)
     return {
         "ssid": s(r"SSID:\s*(.+)"),
         "channel": s(r"freq:\s*(\d+)"),
         "phy_mode": None,
         "rssi_dbm": int(signal) if signal else None,
-        "noise_dbm": _noise(iface),
+        "noise_dbm": extra["noise_dbm"],
         "tx_rate_mbps": float(txrate) if txrate else None,
+        "bssid": bssid.lower() if bssid else None,
+        "retry_count": extra["retry_count"],
+        "discard_count": extra["discard_count"],
+        "beacon_loss": extra["beacon_loss"],
     }

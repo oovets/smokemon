@@ -1,4 +1,6 @@
-"""Text TUI renderer (plotext, braille). Panels: ping/net/http/mtr/wifi/iperf/host/disk."""
+"""Text TUI renderer (plotext, braille). Panels arranged on a configurable grid
+(default 2 cols when terminal is wide enough, 1 col otherwise). Same panel set as
+the PNG renderer: ping/net/http/mtr/wifi/iperf/host/disk/thermal/power/tcp/psi/freq."""
 
 import math
 import os
@@ -12,6 +14,11 @@ from .. import config, query
 
 ALL_PANELS = config.PANELS
 KIOSK = False
+
+PI_BIT_LABELS = {
+    0: "uv-now", 1: "freq-cap-now", 2: "throttled-now", 3: "soft-temp-now",
+    16: "uv-boot", 17: "freq-cap-boot", 18: "throttled-boot", 19: "soft-temp-boot",
+}
 
 
 def _L(s):
@@ -30,8 +37,8 @@ def _ylabel(s):
 
 def _ticks(since, until):
     span = until - since
-    fmt = "%H:%M" if span <= 86400 else "%m-%d %H:%M"  # never seconds
-    t = [since + span * i / 6 for i in range(7)]
+    fmt = "%H:%M" if span <= 86400 else "%m-%d %H:%M"
+    t = [since + span * i / 4 for i in range(5)]  # fewer ticks per panel in grid mode
     return t, [datetime.fromtimestamp(x).strftime(fmt) for x in t]
 
 
@@ -50,7 +57,15 @@ def _int_yticks(*lists):
         plt.yticks(ticks, [str(t) for t in ticks])
 
 
-def _build(selected, node, data):
+def _pi_bits_label(bits_list):
+    seen = 0
+    for b in bits_list:
+        if b is not None:
+            seen |= int(b)
+    return ", ".join(name for bit, name in PI_BIT_LABELS.items() if seen & (1 << bit))
+
+
+def _build(selected, data):  # noqa: C901
     panels = []
     if "ping" in selected:
         for name, d in sorted(data["ping"].items()):
@@ -64,8 +79,7 @@ def _build(selected, node, data):
                     plt.scatter(lt, lm, color="red", marker="braille", label=_L("loss"))
                 avg = sum(d["loss"]) / len(d["loss"]) if d["loss"] else 0.0
                 cur = d["med"][-1] if d["med"] else float("nan")
-                _title(f"{config.TARGET_LABELS.get(name, name)} ({name})   median now {cur:.1f} ms "
-                       f"· spread (gray) min–max · avg loss {avg:.1f}%")
+                _title(f"{config.TARGET_LABELS.get(name, name)} ({name})   {cur:.1f} ms . loss {avg:.1f}%")
                 _ylabel("RTT ms")
                 _int_yticks(d["min"], d["med"], d["max"])
             panels.append(draw)
@@ -74,7 +88,7 @@ def _build(selected, node, data):
             for iface, s in sorted(net.items()):
                 plt.plot(s["t"], s["in"], label=_L(f"{iface} down"), color="cyan", marker="braille")
                 plt.plot(s["t"], s["out"], label=_L(f"{iface} up"), color="orange", marker="braille")
-            _title("Bandwidth (Mbit/s) — passive, actual traffic")
+            _title("Bandwidth (Mbit/s)")
             _ylabel("Mbit/s")
             _int_yticks(*[s["in"] for s in net.values()], *[s["out"] for s in net.values()])
         panels.append(draw_net)
@@ -83,7 +97,7 @@ def _build(selected, node, data):
             for i, (url, d) in enumerate(sorted(http.items())):
                 plt.plot(d["t"], d["ttfb"], label=_L(query.host_label(url)),
                          color=config.HTTP_COLORS[i % len(config.HTTP_COLORS)], marker="braille")
-            _title("HTTP TTFB (ms) — time to first byte (DNS+TCP+TLS+server)")
+            _title("HTTP TTFB (ms)")
             _ylabel("ms")
             _int_yticks(*[d["ttfb"] for d in http.values()])
         panels.append(draw_http)
@@ -97,7 +111,7 @@ def _build(selected, node, data):
                              marker="braille")
                     if h["loss"]:
                         worst = max(worst, max(h["loss"]))
-                _title(f"mtr per-hop → {target}   (avg latency/hop, worst hop-loss {worst:.0f}%)")
+                _title(f"mtr -> {target}   worst hop-loss {worst:.0f}%")
                 _ylabel("ms")
                 _int_yticks(*[h["avg"] for h in hops.values()])
             panels.append(draw_mtr)
@@ -106,9 +120,14 @@ def _build(selected, node, data):
             plt.plot(w["t"], w["rssi"], label=_L("RSSI dBm"), color="green+", marker="braille")
             plt.plot(w["t"], w["noise"], label=_L("noise dBm"), color=240, marker="braille")
             tx = next((v for v in reversed(w["tx"]) if v is not None), None)
-            snr = (w["rssi"][-1] - w["noise"][-1]) if w["rssi"] and w["noise"] else None
-            extra = (f"SNR {snr:.0f} dB" if snr is not None else "") + (f" · tx {tx:.0f} Mbit/s" if tx else "")
-            _title(f"WiFi signal (dBm, higher=better)   {extra}")
+            snr = (w["rssi"][-1] - w["noise"][-1]) if w["rssi"] and w["noise"] \
+                  and w["rssi"][-1] is not None and w["noise"][-1] is not None else None
+            extras = []
+            if snr is not None: extras.append(f"SNR {snr:.0f} dB")
+            if tx: extras.append(f"tx {tx:.0f} Mbit/s")
+            roams = w.get("roams", 0); bssids = w.get("bssids_seen", 0)
+            if bssids > 1: extras.append(f"{roams} roams/{bssids} APs")
+            _title(f"WiFi   {' . '.join(extras)}")
             _ylabel("dBm")
             _int_yticks(w["rssi"], w["noise"])
         panels.append(draw_wifi)
@@ -116,28 +135,94 @@ def _build(selected, node, data):
         def draw_iperf(d=data["iperf"]):
             plt.plot(d["t"], d["down"], label=_L("down"), color="cyan", marker="braille")
             plt.plot(d["t"], d["up"], label=_L("up"), color="orange", marker="braille")
-            _title("iperf3 throughput (Mbit/s) — active test to peer")
+            _title("iperf3 (Mbit/s)")
             _ylabel("Mbit/s")
             _int_yticks(d["up"], d["down"])
         panels.append(draw_iperf)
     if "host" in selected and data["host"]:
         def draw_host(d=data["host"]):
-            plt.plot(d["t"], d["cpu"], label=_L("cpu %"), color="orange+", marker="braille")
-            plt.plot(d["t"], d["mem"], label=_L("mem %"), color="cyan", marker="braille")
+            plt.plot(d["t"], d["cpu"], label=_L("cpu%"), color="orange+", marker="braille")
+            plt.plot(d["t"], d["mem"], label=_L("mem%"), color="cyan", marker="braille")
+            if any(v is not None and v > 0 for v in d.get("swap", [])):
+                plt.plot(d["t"], d["swap"], label=_L("swap%"), color="magenta+", marker="braille")
             temp = next((v for v in reversed(d["temp"]) if v is not None), None)
-            _title(f"Host cpu/mem (%)   {f'temp {temp:.0f}°C' if temp is not None else ''}")
+            _title(f"host cpu/mem/swap (%)   {f'temp {temp:.0f}C' if temp is not None else ''}")
             _ylabel("%")
-            _int_yticks(d["cpu"], d["mem"])
+            _int_yticks(d["cpu"], d["mem"], d.get("swap", []))
         panels.append(draw_host)
     if "disk" in selected and data["disk"]:
         def draw_disk(disk=data["disk"]):
             for mount, d in sorted(disk.items()):
                 plt.plot(d["t"], d["used"], label=_L(mount), marker="braille")
-            _title("Disk used (%) per mount")
+            _title("disk used (%)")
             _ylabel("%")
             _int_yticks(*[d["used"] for d in disk.values()])
         panels.append(draw_disk)
+    if "thermal" in selected and data["thermal"]:
+        def draw_thermal(zones=data["thermal"]):
+            for zone, d in sorted(zones.items()):
+                plt.plot(d["t"], d["temp"], label=_L(zone), marker="braille")
+            _title("thermal zones (degC)")
+            _ylabel("degC")
+            _int_yticks(*[d["temp"] for d in zones.values()])
+        panels.append(draw_thermal)
+    if "power" in selected and data["power"]:
+        def draw_power(rails=data["power"]):
+            total = 0.0; n = 0
+            for rail, d in sorted(rails.items()):
+                plt.plot(d["t"], d["watts"], label=_L(rail), marker="braille")
+                last = next((v for v in reversed(d["watts"]) if v is not None), None)
+                if last is not None:
+                    total += last; n += 1
+            tag = f"   total {total:.2f} W" if n else ""
+            _title(f"power per rail (W){tag}")
+            _ylabel("W")
+            _int_yticks(*[d["watts"] for d in rails.values()])
+        panels.append(draw_power)
+    if "tcp" in selected and data["tcp"]:
+        def draw_tcp(d=data["tcp"]):
+            plt.plot(d["t"], d["retrans"], label=_L("retrans/s"), color="red", marker="braille")
+            plt.plot(d["t"], d["out_rsts"], label=_L("rsts/s"), color="orange", marker="braille")
+            plt.plot(d["t"], d["udp_err"], label=_L("udperr/s"), color=240, marker="braille")
+            ct = next((v for v in reversed(d["conntrack_pct"]) if v is not None), None)
+            tag = f"   conntrack {ct:.1f}%" if ct is not None else ""
+            _title(f"tcp/udp errors (events/s){tag}")
+            _ylabel("events/s")
+            _int_yticks(d["retrans"], d["out_rsts"], d["udp_err"])
+        panels.append(draw_tcp)
+    if "psi" in selected and data["psi"]:
+        def draw_psi(d=data["psi"]):
+            plt.plot(d["t"], d["cpu"], label=_L("cpu"), color="orange+", marker="braille")
+            plt.plot(d["t"], d["mem"], label=_L("mem"), color="cyan", marker="braille")
+            plt.plot(d["t"], d["io"], label=_L("io"), color="green+", marker="braille")
+            _title("PSI - % time blocked (avg10)")
+            _ylabel("% blocked")
+            _int_yticks(d["cpu"], d["mem"], d["io"])
+        panels.append(draw_psi)
+    if "freq" in selected and data["freq"]:
+        def draw_freq(d=data["freq"]):
+            plt.plot(d["t"], d["mhz"], label=_L("CPU MHz"), color="magenta+", marker="braille")
+            if any(v is not None and v > 0 for v in d["throttle"]):
+                plt.plot(d["t"], d["throttle"], label=_L("throttle/s"), color="red", marker="braille")
+            bits = _pi_bits_label(d.get("pi_bits", []))
+            _title(f"CPU MHz   {'Pi: ' + bits if bits else ''}")
+            _ylabel("MHz")
+            _int_yticks(d["mhz"])
+        panels.append(draw_freq)
     return panels
+
+
+def _grid_dims(n: int, cols_opt: int, term_cols: int) -> tuple[int, int]:
+    """Auto-grid: 2 cols if terminal >= 140 chars and we have >=3 panels, else 1 col.
+    Explicit --cols N forces the count (still clamped to <= n)."""
+    if n <= 0:
+        return (0, 0)
+    if cols_opt > 0:
+        cols = min(cols_opt, n)
+    else:
+        cols = 2 if (term_cols >= 140 and n >= 3) else 1
+    rows = math.ceil(n / cols)
+    return rows, cols
 
 
 def run(opts) -> int:
@@ -152,29 +237,38 @@ def run(opts) -> int:
     node = opts.node
     conn = query.open_ro(opts.db)
     data = {
-        "ping": query.load_ping_agg(conn, since, until, targets, node) if "ping" in sel else {},
-        "net": query.load_net(conn, since, until, node) if "net" in sel else {},
-        "http": query.load_http(conn, since, until, node) if "http" in sel else {},
-        "mtr": query.load_mtr(conn, since, until, node) if "mtr" in sel else {},
-        "wifi": query.load_wifi(conn, since, until, node) if "wifi" in sel else {},
-        "iperf": query.load_iperf(conn, since, until, node) if "iperf" in sel else {},
-        "host": query.load_host(conn, since, until, node) if "host" in sel else {},
-        "disk": query.load_disk(conn, since, until, node) if "disk" in sel else {},
+        "ping":    query.load_ping_agg(conn, since, until, targets, node) if "ping" in sel else {},
+        "net":     query.load_net(conn, since, until, node) if "net" in sel else {},
+        "http":    query.load_http(conn, since, until, node) if "http" in sel else {},
+        "mtr":     query.load_mtr(conn, since, until, node) if "mtr" in sel else {},
+        "wifi":    query.load_wifi(conn, since, until, node) if "wifi" in sel else {},
+        "iperf":   query.load_iperf(conn, since, until, node) if "iperf" in sel else {},
+        "host":    query.load_host(conn, since, until, node) if "host" in sel else {},
+        "disk":    query.load_disk(conn, since, until, node) if "disk" in sel else {},
+        "thermal": query.load_thermal(conn, since, until, node) if "thermal" in sel else {},
+        "power":   query.load_power(conn, since, until, node) if "power" in sel else {},
+        "tcp":     query.load_tcp(conn, since, until, node) if "tcp" in sel else {},
+        "psi":     query.load_psi(conn, since, until, node) if "psi" in sel else {},
+        "freq":    query.load_freq(conn, since, until, node) if "freq" in sel else {},
     }
     conn.close()
-    panels = _build(sel, node, data)
+    panels = _build(sel, data)
     if not panels:
         print("No data in selected time window.", file=sys.stderr)
         return 2
     ticks, labels = _ticks(since, until)
+    cols_term, lines = shutil.get_terminal_size(fallback=(120, 40))
+    rows, cols = _grid_dims(len(panels), getattr(opts, "cols", 0), cols_term)
+
     plt.clf()
     plt.theme("pro")
-    if opts.reserve > 0:
-        cols, lines = shutil.get_terminal_size(fallback=(120, 40))
-        plt.plotsize(cols, max(10, lines - opts.reserve))
-    plt.subplots(len(panels), 1)
-    for idx, draw in enumerate(panels, start=1):
-        plt.subplot(idx, 1)
+    plotsize_h = max(10, lines - opts.reserve) if opts.reserve > 0 else lines
+    plt.plotsize(cols_term, plotsize_h)
+    plt.subplots(rows, cols)
+    for idx, draw in enumerate(panels):
+        r = idx // cols + 1
+        c = idx % cols + 1
+        plt.subplot(r, c)
         plt.xlim(since, until)
         if KIOSK:
             plt.frame(True)
