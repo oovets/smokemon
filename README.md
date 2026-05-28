@@ -2,8 +2,6 @@
 
 smokemon is a passive + active network and host monitor for macos and linux, local and central. it collects ping latency/loss (fping), per-interface bandwidth (netstat / `/proc/net/dev`), HTTP timing (curl), mtr per-hop, WiFi signal, iperf3 throughput and host health (CPU/mem/temp/disk/processes) into SQLite (WAL), viewed as a plotext braille TUI or a matplotlib PNG. daemons run via launchd (macOS) or systemd (Linux); nodes push row deltas to a central hub for aggregated, per-node views. footprint is about 30 MB RSS per node (two collector daemons) and well under 1% of one core on average; the hub adds ~20 MB.
 
-## How to
-
 ```
 view:    smoke · smoke live 24h · smoke kiosk 24h · smoke png   (or python -m smokemon.cli …)
 run:     python -m smokemon.collect {fast|slow}   (launchd/systemd do this; see deploy/)
@@ -12,8 +10,6 @@ install: macOS  cp deploy/launchd/*.plist ~/Library/LaunchAgents/ && bootstrap e
                   | sudo bash -s -- --node NAME [--hub-url URL --secret S]
 full reference -> INSTALL.md
 ```
-
-## Changelog (newest first, all 2026-05-28)
 
 ```
 == v0.10  package refactor ==
@@ -88,8 +84,6 @@ full reference -> INSTALL.md
   rollup/compression, not deletion of raw data). matplotlib smoke (fill_between
   p0-p100 + p25-p75 + median + loss scatter).
 ```
-
-## Quick reference
 
 ```
 smoke [tui]                 static TUI (panels: ping,net,http,mtr,wifi,iperf,host,disk|all)

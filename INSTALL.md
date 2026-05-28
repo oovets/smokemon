@@ -3,8 +3,6 @@
 full install and operations reference for smokemon. the short version lives in
 [README.md](README.md); this is the detailed one. smokemon is a `smokemon/` python package: collectors, shipper and hub are stdlib-only, the renderers add plotext (TUI) or matplotlib+numpy (PNG). a node runs two long-lived collector daemons (`collect fast` = ping+net @10s, `collect slow` = http+mtr+wifi+host @60s/30s) plus two timers (`iperf` @15min, `ship` @60s). a hub runs one process (`smokemon.hub`) that ingests delta batches the nodes push to it. everything is driven by launchd (macOS) or systemd (Linux); nothing daemonizes itself.
 
-## Architecture
-
 ```
 ONE NODE (local only)
   collect fast (ping+net)  --\
@@ -40,8 +38,6 @@ node; if it matters, roll up to a lower resolution — never delete raw data bli
 footprint is ~30 MB RSS per node (two daemons) and well under 1% of one core; the hub adds
 ~20 MB.
 
-## Requirements
-
 ```
 node:  python3 >=3.10 (stdlib only for collection); plotext for the local TUI.
        macOS:  brew install fping mtr iperf3   (curl/netstat/ifconfig/system_profiler built in)
@@ -50,8 +46,6 @@ hub:   python3 >=3.10 + matplotlib + numpy (PNG); iperf3 -s if nodes test bandwi
 net:   prefer Tailscale/VPN between node and hub. The hub is plain HTTP (no TLS) on
        8765/tcp — bind it to a private address only.
 ```
-
-## Quickstart
 
 macos single host (test run, no launchd):
 
@@ -83,8 +77,6 @@ PYTHONPATH=/opt/smokemon python3 -m smokemon.cli png \
     --db /opt/smokemon/data/smokemon-hub.db --node NAME --hours 24
 ```
 
-## Install — macOS (launchd)
-
 the plists run `python3 -m smokemon.*` with `WorkingDirectory` + `PYTHONPATH` set to the
 repo, and include a `PATH` with `/opt/homebrew/{bin,sbin}` so `shutil.which` finds
 fping/mtr/iperf3. no pip install required.
@@ -110,8 +102,6 @@ services: `collect-fast` (RunAtLoad+KeepAlive), `collect-slow` (KeepAlive), `ipe
 (StartInterval 900s), `daily` (`smoke daily` at 23:55), `shipper` (StartInterval 60s,
 optional), `hub` (KeepAlive, optional).
 
-## Install — Linux node (systemd)
-
 `install.sh` does it all: apt deps, `setcap cap_net_raw+ep` on fping/mtr-packet (so mtr
 needs no sudo), `pip --user plotext`, writes `/etc/smokemon.env`, drops `smoke`/`smokelive`/
 `smokekiosk`/`smokepng` into `/etc/profile.d/smokemon.sh` (new login shells), and
@@ -126,8 +116,6 @@ sudo ./install.sh --node NAME [--hub-url http://HUB-HOST:8765/ingest --secret S]
 #   smokemon-shipper.timer          ship every 60s
 ```
 
-## Install — central hub
-
 ```
 # Linux:
 sudo ./install.sh --hub --secret SHARED_SECRET
@@ -141,8 +129,6 @@ sudo ./install.sh --hub --secret SHARED_SECRET
 the hub listens on 8765/tcp, `POST /ingest` only, header `X-Smokemon-Key`. if the secret is
 the default `changeme` it logs a warning at startup. expose the port only over a private
 network — there is no TLS.
-
-## Configuration (all `SMOKEMON_*` env vars)
 
 set in the launchd plist `EnvironmentVariables` (macOS) or `/etc/smokemon.env` (Linux).
 
@@ -190,8 +176,6 @@ hub (smokemon.hub)
   SMOKEMON_HUB_MAX_BODY    max POST bytes         (default 64 MiB)
 ```
 
-## Commands (`smoke`)
-
 run as `smoke <sub>` (zsh helper) or `python -m smokemon.cli <sub>` (`PYTHONPATH`=repo).
 default sub is `tui`.
 
@@ -214,8 +198,6 @@ daemons (launchd/systemd, or by hand with PYTHONPATH=repo):
   python -m smokemon.hub               run the ingest server
 ```
 
-## Data model (SQLite, WAL)
-
 every table has a `node` column (default `SMOKEMON_NODE`/hostname). the hub DB additionally
 has `src_id` + `UNIQUE(node, src_id)` per table for idempotent ingest.
 
@@ -232,8 +214,6 @@ disk_samples   used% + free GB per mount
 proc_samples   top-N processes by CPU
 ship_state     (node DB only) shipper cursor per table
 ```
-
-## Maintenance & troubleshooting
 
 ```
 services   macOS: launchctl list | grep smokemon      Linux: systemctl status 'smokemon-*'
@@ -253,8 +233,6 @@ no mtr on Linux         getcap "$(command -v mtr-packet)" should show cap_net_ra
 no wifi on Linux        `iw dev` must list a wireless iface and /proc/net/wireless be non-empty.
 db growth               ~5-6 GB/yr; aggregate to lower resolution, do not delete raw data.
 ```
-
-## Uninstall
 
 ```
 macOS
