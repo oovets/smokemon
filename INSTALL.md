@@ -1,7 +1,7 @@
 # smokemon — install & reference
 
-Full install and operations reference for smokemon. The short version lives in
-[README.md](README.md); this is the detailed one. smokemon is a `smokemon/` Python package: collectors, shipper and hub are stdlib-only, the renderers add plotext (TUI) or matplotlib+numpy (PNG). A node runs two long-lived collector daemons (`collect fast` = ping+net @10s, `collect slow` = http+mtr+wifi+host @60s/30s) plus two timers (`iperf` @15min, `ship` @60s). A hub runs one process (`smokemon.hub`) that ingests delta batches the nodes push to it. Everything is driven by launchd (macOS) or systemd (Linux); nothing daemonizes itself.
+full install and operations reference for smokemon. the short version lives in
+[README.md](README.md); this is the detailed one. smokemon is a `smokemon/` python package: collectors, shipper and hub are stdlib-only, the renderers add plotext (TUI) or matplotlib+numpy (PNG). a node runs two long-lived collector daemons (`collect fast` = ping+net @10s, `collect slow` = http+mtr+wifi+host @60s/30s) plus two timers (`iperf` @15min, `ship` @60s). a hub runs one process (`smokemon.hub`) that ingests delta batches the nodes push to it. everything is driven by launchd (macOS) or systemd (Linux); nothing daemonizes itself.
 
 ## Architecture
 
@@ -32,12 +32,12 @@ PACKAGE LAYOUT
   install.sh   (repo root; works local or curl-piped)
 ```
 
-Schema is single-source (`schema.py`): node DDL, hub DDL (adds `node` + `src_id` +
+schema is single-source (`schema.py`): node DDL, hub DDL (adds `node` + `src_id` +
 `UNIQUE(node,src_id)`), `STD_TABLES` and the generic INSERT all derive from one table
-spec. Migrations are additive (`ensure_node_column`), so the node DB and the hub DB share
-one schema and one plotter codebase. Storage is SQLite WAL with no pruning (~5–6 GB/yr per
+spec. migrations are additive (`ensure_node_column`), so the node DB and the hub DB share
+one schema and one plotter codebase. storage is SQLite WAL with no pruning (~5–6 GB/yr per
 node; if it matters, roll up to a lower resolution — never delete raw data blindly).
-Footprint is ~30 MB RSS per node (two daemons) and well under 1% of one core; the hub adds
+footprint is ~30 MB RSS per node (two daemons) and well under 1% of one core; the hub adds
 ~20 MB.
 
 ## Requirements
@@ -53,7 +53,7 @@ net:   prefer Tailscale/VPN between node and hub. The hub is plain HTTP (no TLS)
 
 ## Quickstart
 
-macOS single host (test run, no launchd):
+macos single host (test run, no launchd):
 
 ```
 git clone <repo> ~/smokemon && cd ~/smokemon
@@ -62,7 +62,7 @@ PYTHONPATH=. python3 -m smokemon.collect all &      # all probes in one process
 PYTHONPATH=. python3 -m smokemon.cli live 6h        # live TUI, last 6h
 ```
 
-Linux single host (one-liner; clones to /opt/smokemon, installs systemd units):
+linux single host (one-liner; clones to /opt/smokemon, installs systemd units):
 
 ```
 curl -fsSL https://raw.githubusercontent.com/oovets/smokemon/main/install.sh \
@@ -70,7 +70,7 @@ curl -fsSL https://raw.githubusercontent.com/oovets/smokemon/main/install.sh \
 # (no --hub-url => local only, nothing shipped)
 ```
 
-Multi-node + central hub:
+multi-node + central hub:
 
 ```
 # hub (once):
@@ -85,9 +85,9 @@ PYTHONPATH=/opt/smokemon python3 -m smokemon.cli png \
 
 ## Install — macOS (launchd)
 
-The plists run `python3 -m smokemon.*` with `WorkingDirectory` + `PYTHONPATH` set to the
+the plists run `python3 -m smokemon.*` with `WorkingDirectory` + `PYTHONPATH` set to the
 repo, and include a `PATH` with `/opt/homebrew/{bin,sbin}` so `shutil.which` finds
-fping/mtr/iperf3. No pip install required.
+fping/mtr/iperf3. no pip install required.
 
 ```
 brew install fping mtr iperf3 && python3 -m pip install --user plotext
@@ -106,7 +106,7 @@ done
 #   launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.stefan.smokemon-{shipper,hub}.plist
 ```
 
-Services: `collect-fast` (RunAtLoad+KeepAlive), `collect-slow` (KeepAlive), `iperf`
+services: `collect-fast` (RunAtLoad+KeepAlive), `collect-slow` (KeepAlive), `iperf`
 (StartInterval 900s), `daily` (`smoke daily` at 23:55), `shipper` (StartInterval 60s,
 optional), `hub` (KeepAlive, optional).
 
@@ -137,13 +137,13 @@ sudo ./install.sh --hub --secret SHARED_SECRET
 # private address), then launchctl bootstrap it.
 ```
 
-The hub listens on 8765/tcp, `POST /ingest` only, header `X-Smokemon-Key`. If the secret is
-the default `changeme` it logs a warning at startup. Expose the port only over a private
+the hub listens on 8765/tcp, `POST /ingest` only, header `X-Smokemon-Key`. if the secret is
+the default `changeme` it logs a warning at startup. expose the port only over a private
 network — there is no TLS.
 
 ## Configuration (all `SMOKEMON_*` env vars)
 
-Set in the launchd plist `EnvironmentVariables` (macOS) or `/etc/smokemon.env` (Linux).
+set in the launchd plist `EnvironmentVariables` (macOS) or `/etc/smokemon.env` (Linux).
 
 ```
 general
@@ -191,8 +191,8 @@ hub (smokemon.hub)
 
 ## Commands (`smoke`)
 
-Run as `smoke <sub>` (zsh helper) or `python -m smokemon.cli <sub>` (`PYTHONPATH`=repo).
-Default sub is `tui`.
+run as `smoke <sub>` (zsh helper) or `python -m smokemon.cli <sub>` (`PYTHONPATH`=repo).
+default sub is `tui`.
 
 ```
 common flags (all subcommands):
@@ -215,7 +215,7 @@ daemons (launchd/systemd, or by hand with PYTHONPATH=repo):
 
 ## Data model (SQLite, WAL)
 
-Every table has a `node` column (default `SMOKEMON_NODE`/hostname). The hub DB additionally
+every table has a `node` column (default `SMOKEMON_NODE`/hostname). the hub DB additionally
 has `src_id` + `UNIQUE(node, src_id)` per table for idempotent ingest.
 
 ```
