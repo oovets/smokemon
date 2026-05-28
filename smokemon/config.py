@@ -44,6 +44,9 @@ WIFI_ENABLED = os.environ.get("SMOKEMON_WIFI", "1") != "0"
 # host health
 HOST_INTERVAL = _f("SMOKEMON_HOST_INTERVAL", "30")
 PROC_TOPN = _i("SMOKEMON_PROC_TOPN", "5")
+# CPU temperature (degC) at which most SoCs begin thermal throttling; used by the
+# render-side "headroom to throttle" death clock. Pi default is ~80-85C.
+THROTTLE_TEMP_C = _f("SMOKEMON_THROTTLE_TEMP", "80")
 
 # iperf3 (one-shot); set SMOKEMON_IPERF_SERVER to a reachable `iperf3 -s` host
 IPERF_SERVER = os.environ.get("SMOKEMON_IPERF_SERVER", "")

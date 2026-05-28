@@ -15,11 +15,6 @@ from .. import config, query
 ALL_PANELS = config.PANELS
 KIOSK = False
 
-PI_BIT_LABELS = {
-    0: "uv-now", 1: "freq-cap-now", 2: "throttled-now", 3: "soft-temp-now",
-    16: "uv-boot", 17: "freq-cap-boot", 18: "throttled-boot", 19: "soft-temp-boot",
-}
-
 
 def _L(s):
     return None if KIOSK else s
@@ -58,11 +53,27 @@ def _int_yticks(*lists):
 
 
 def _pi_bits_label(bits_list):
-    seen = 0
-    for b in bits_list:
-        if b is not None:
-            seen |= int(b)
-    return ", ".join(name for bit, name in PI_BIT_LABELS.items() if seen & (1 << bit))
+    return ", ".join(query.pi_bits_seen(bits_list))
+
+
+def _temp_tag(temp):
+    """'temp 55C (25C to throttle)' / 'temp 82C (THROTTLING)' / '' (QW4 death clock)."""
+    if temp is None:
+        return ""
+    head = config.THROTTLE_TEMP_C - temp
+    return f"temp {temp:.0f}C ({head:.0f}C to throttle)" if head > 0 else f"temp {temp:.0f}C (THROTTLING)"
+
+
+def _disk_tag(disk, health):
+    """QW4 death clocks: soonest mount-full + SD-wear countdown, as a title suffix."""
+    bits = []
+    full = query.disk_full_eta(disk)
+    if full:
+        bits.append(f"{full[0]} full {query.human_eta(full[1])}")
+    wear = query.wear_eta(health)
+    if wear:
+        bits.append(f"sd wear {query.human_eta(wear[1])}")
+    return "   " + " . ".join(bits) if bits else ""
 
 
 def _build(selected, data):  # noqa: C901
@@ -78,8 +89,9 @@ def _build(selected, data):  # noqa: C901
                 if lt:
                     plt.scatter(lt, lm, color="red", marker="braille", label=_L("loss"))
                 avg = sum(d["loss"]) / len(d["loss"]) if d["loss"] else 0.0
-                cur = d["med"][-1] if d["med"] else float("nan")
-                _title(f"{config.TARGET_LABELS.get(name, name)} ({name})   {cur:.1f} ms . loss {avg:.1f}%")
+                cur = query.last_value(d["med"])
+                cur_str = f"{cur:.1f} ms" if cur is not None else "-- ms"
+                _title(f"{config.TARGET_LABELS.get(name, name)} ({name})   {cur_str} . loss {avg:.1f}%")
                 _ylabel("RTT ms")
                 _int_yticks(d["min"], d["med"], d["max"])
             panels.append(draw)
@@ -97,7 +109,9 @@ def _build(selected, data):  # noqa: C901
             for i, (url, d) in enumerate(sorted(http.items())):
                 plt.plot(d["t"], d["ttfb"], label=_L(query.host_label(url)),
                          color=config.HTTP_COLORS[i % len(config.HTTP_COLORS)], marker="braille")
-            _title("HTTP TTFB (ms)")
+            blame = query.http_blame(http)
+            tag = f"   slow: {query.HTTP_LAYER_LABELS[blame[0]]} {blame[1]:.0f} ms" if blame else ""
+            _title(f"HTTP TTFB (ms){tag}")
             _ylabel("ms")
             _int_yticks(*[d["ttfb"] for d in http.values()])
         panels.append(draw_http)
@@ -119,7 +133,7 @@ def _build(selected, data):  # noqa: C901
         def draw_wifi(w=data["wifi"]):
             plt.plot(w["t"], w["rssi"], label=_L("RSSI dBm"), color="green+", marker="braille")
             plt.plot(w["t"], w["noise"], label=_L("noise dBm"), color=240, marker="braille")
-            tx = next((v for v in reversed(w["tx"]) if v is not None), None)
+            tx = query.last_value(w["tx"])
             snr = (w["rssi"][-1] - w["noise"][-1]) if w["rssi"] and w["noise"] \
                   and w["rssi"][-1] is not None and w["noise"][-1] is not None else None
             extras = []
@@ -132,10 +146,12 @@ def _build(selected, data):  # noqa: C901
             _int_yticks(w["rssi"], w["noise"])
         panels.append(draw_wifi)
     if "iperf" in selected and data["iperf"]:
-        def draw_iperf(d=data["iperf"]):
+        def draw_iperf(d=data["iperf"], ping=data.get("ping", {})):
             plt.plot(d["t"], d["down"], label=_L("down"), color="cyan", marker="braille")
             plt.plot(d["t"], d["up"], label=_L("up"), color="orange", marker="braille")
-            _title("iperf3 (Mbit/s)")
+            bb = query.bufferbloat(d, ping)
+            tag = f"   bufferbloat {bb[0]} (+{bb[1]:.0f} ms loaded)" if bb else ""
+            _title(f"iperf3 (Mbit/s){tag}")
             _ylabel("Mbit/s")
             _int_yticks(d["up"], d["down"])
         panels.append(draw_iperf)
@@ -145,16 +161,16 @@ def _build(selected, data):  # noqa: C901
             plt.plot(d["t"], d["mem"], label=_L("mem%"), color="cyan", marker="braille")
             if any(v is not None and v > 0 for v in d.get("swap", [])):
                 plt.plot(d["t"], d["swap"], label=_L("swap%"), color="magenta+", marker="braille")
-            temp = next((v for v in reversed(d["temp"]) if v is not None), None)
-            _title(f"host cpu/mem/swap (%)   {f'temp {temp:.0f}C' if temp is not None else ''}")
+            temp = query.last_value(d["temp"])
+            _title(f"host cpu/mem/swap (%)   {_temp_tag(temp)}")
             _ylabel("%")
             _int_yticks(d["cpu"], d["mem"], d.get("swap", []))
         panels.append(draw_host)
     if "disk" in selected and data["disk"]:
-        def draw_disk(disk=data["disk"]):
+        def draw_disk(disk=data["disk"], health=data.get("disk_health", {})):
             for mount, d in sorted(disk.items()):
                 plt.plot(d["t"], d["used"], label=_L(mount), marker="braille")
-            _title("disk used (%)")
+            _title(f"disk used (%){_disk_tag(disk, health)}")
             _ylabel("%")
             _int_yticks(*[d["used"] for d in disk.values()])
         panels.append(draw_disk)
@@ -171,7 +187,7 @@ def _build(selected, data):  # noqa: C901
             total = 0.0; n = 0
             for rail, d in sorted(rails.items()):
                 plt.plot(d["t"], d["watts"], label=_L(rail), marker="braille")
-                last = next((v for v in reversed(d["watts"]) if v is not None), None)
+                last = query.last_value(d["watts"])
                 if last is not None:
                     total += last; n += 1
             tag = f"   total {total:.2f} W" if n else ""
@@ -184,7 +200,7 @@ def _build(selected, data):  # noqa: C901
             plt.plot(d["t"], d["retrans"], label=_L("retrans/s"), color="red", marker="braille")
             plt.plot(d["t"], d["out_rsts"], label=_L("rsts/s"), color="orange", marker="braille")
             plt.plot(d["t"], d["udp_err"], label=_L("udperr/s"), color=240, marker="braille")
-            ct = next((v for v in reversed(d["conntrack_pct"]) if v is not None), None)
+            ct = query.last_value(d["conntrack_pct"])
             tag = f"   conntrack {ct:.1f}%" if ct is not None else ""
             _title(f"tcp/udp errors (events/s){tag}")
             _ylabel("events/s")
@@ -236,21 +252,7 @@ def run(opts) -> int:
     sel = ALL_PANELS if opts.panels == "all" else [s.strip() for s in opts.panels.split(",")]
     node = opts.node
     conn = query.open_ro(opts.db)
-    data = {
-        "ping":    query.load_ping_agg(conn, since, until, targets, node) if "ping" in sel else {},
-        "net":     query.load_net(conn, since, until, node) if "net" in sel else {},
-        "http":    query.load_http(conn, since, until, node) if "http" in sel else {},
-        "mtr":     query.load_mtr(conn, since, until, node) if "mtr" in sel else {},
-        "wifi":    query.load_wifi(conn, since, until, node) if "wifi" in sel else {},
-        "iperf":   query.load_iperf(conn, since, until, node) if "iperf" in sel else {},
-        "host":    query.load_host(conn, since, until, node) if "host" in sel else {},
-        "disk":    query.load_disk(conn, since, until, node) if "disk" in sel else {},
-        "thermal": query.load_thermal(conn, since, until, node) if "thermal" in sel else {},
-        "power":   query.load_power(conn, since, until, node) if "power" in sel else {},
-        "tcp":     query.load_tcp(conn, since, until, node) if "tcp" in sel else {},
-        "psi":     query.load_psi(conn, since, until, node) if "psi" in sel else {},
-        "freq":    query.load_freq(conn, since, until, node) if "freq" in sel else {},
-    }
+    data = query.load_all(conn, since, until, targets, node, sel, ping_loader=query.load_ping_agg)
     conn.close()
     panels = _build(sel, data)
     if not panels:

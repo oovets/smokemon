@@ -8,6 +8,7 @@ import subprocess
 
 _TAILSCALE_NET = ipaddress.ip_network("100.64.0.0/10")
 _SKIP = ("lo", "veth", "docker", "br-", "virbr", "vnet", "tap")
+_IW = shutil.which("iw")  # cached at import: the binary path does not move at runtime
 
 
 def detect_tailscale_iface() -> str | None:
@@ -105,11 +106,10 @@ def _wireless_stats(iface: str) -> dict:
 
 def wifi_probe() -> dict | None:
     iface = _wifi_iface()
-    iw = shutil.which("iw")
-    if not iface or not iw:
+    if not iface or not _IW:
         return None
     try:
-        out = subprocess.run([iw, "dev", iface, "link"], capture_output=True, text=True, timeout=10).stdout
+        out = subprocess.run([_IW, "dev", iface, "link"], capture_output=True, text=True, timeout=10).stdout
     except Exception:  # noqa: BLE001
         return None
     if not out.strip() or "Not connected" in out:

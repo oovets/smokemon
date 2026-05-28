@@ -119,6 +119,71 @@ def test_rate_handles_none_and_resets():
     assert _rate(20, 10, 100.0, 90.0) == 1.0  # 10 events / 10 s
 
 
+def test_load_ping_smoke_legacy_fallback(tmp_db, ts0):
+    """Rows written before the rtt_p25/p75 migration have those columns NULL. The PNG
+    loader must rebuild p25/p75 from ping_rtts via _percentiles_for instead of plotting
+    NaN. This path is otherwise never exercised (the normal seed pre-populates p25/p75)."""
+    conn = core.connect(str(tmp_db))
+    schema.init_node(conn)
+    # Legacy row: median set, but p25/p75 left NULL (omitted from the insert dict).
+    rid = schema.insert_one(conn, "ping_runs", {
+        "ts": ts0, "target": "1.1.1.1", "sent": 10, "recv": 10, "loss_pct": 0.0,
+        "rtt_min": 5.0, "rtt_median": 7.0, "rtt_max": 12.0,
+    })
+    conn.executemany("INSERT INTO ping_rtts (run_id, rtt_ms) VALUES (?,?)",
+                     [(rid, v) for v in (5.0, 6.0, 7.0, 8.0, 10.0, 12.0)])
+    conn.commit()
+
+    data = query.load_ping_smoke(conn, ts0 - 60, ts0 + 60, ["1.1.1.1"])
+    d = data["1.1.1.1"]
+    import statistics
+    exp_p25, _exp_p50, exp_p75 = statistics.quantiles([5.0, 6.0, 7.0, 8.0, 10.0, 12.0], n=4)
+    assert d["p25"][0] == exp_p25
+    assert d["p75"][0] == exp_p75
+    # p0/p50/p100 still come straight from the row's min/median/max columns.
+    assert d["p0"][0] == 5.0 and d["p50"][0] == 7.0 and d["p100"][0] == 12.0
+    conn.close()
+
+
+def test_load_ping_smoke_legacy_single_rtt(tmp_db, ts0):
+    """Legacy row with a single rtt: quantiles can't run (<2), so p25/p75 fall back to
+    the median rather than raising."""
+    conn = core.connect(str(tmp_db))
+    schema.init_node(conn)
+    rid = schema.insert_one(conn, "ping_runs", {
+        "ts": ts0, "target": "1.1.1.1", "sent": 1, "recv": 1, "loss_pct": 0.0,
+        "rtt_min": 9.0, "rtt_median": 9.0, "rtt_max": 9.0,
+    })
+    conn.execute("INSERT INTO ping_rtts (run_id, rtt_ms) VALUES (?,?)", (rid, 9.0))
+    conn.commit()
+    d = query.load_ping_smoke(conn, ts0 - 60, ts0 + 60, ["1.1.1.1"])["1.1.1.1"]
+    assert d["p25"][0] == 9.0 and d["p75"][0] == 9.0
+    conn.close()
+
+
+def test_load_net_lag_python_parity(tmp_db, ts0, monkeypatch):
+    """The Python fallback (SQLite < 3.25) must yield the same per-interface series as
+    the SQL LAG() path. CI normally only hits LAG; force the fallback and compare."""
+    conn = core.connect(str(tmp_db))
+    schema.init_node(conn)
+    for i in range(5):
+        schema.insert(conn, "net_samples", [{
+            "ts": ts0 + i * 10, "iface": "eth0",
+            "ibytes": i * 10_000_000, "obytes": i * 5_000_000, "ipkts": 0, "opkts": 0,
+        }])
+    conn.commit()
+    since, until = ts0 - 60, ts0 + 600
+
+    monkeypatch.setattr(query, "_HAS_LAG", True)
+    lag = query.load_net(conn, since, until)
+    monkeypatch.setattr(query, "_HAS_LAG", False)
+    py = query.load_net(conn, since, until)
+    assert lag["eth0"]["in"] == py["eth0"]["in"]
+    assert lag["eth0"]["out"] == py["eth0"]["out"]
+    assert lag["eth0"]["t"] == py["eth0"]["t"]
+    conn.close()
+
+
 def test_node_filter(tmp_db, ts0):
     """Inserting under different node names and then filtering by --node must isolate
     each node's rows. Used on hub DBs that hold many nodes."""

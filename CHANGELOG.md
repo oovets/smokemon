@@ -6,12 +6,25 @@ All notable changes to smokemon. The format roughly follows [Keep a Changelog](h
 
 ### Added
 
+- **Bufferbloat grade** (roadmap QW1): `probes/iperf.py` now parses the per-stream TCP RTT iperf3 reports (`end.streams[].sender.mean_rtt`) and stores it in the new additive `iperf_samples.rtt_under_load_ms` column. The renderers compare it against the idle ping baseline (largest per-target median) and annotate the iperf panel with a dslreports-style A+..F grade and the added latency under load.
+- **HTTP layer-blame** (roadmap QW2): the HTTP panel now names the dominant latency layer (DNS / TCP connect / TLS / server wait) by decomposing curl's cumulative phase timestamps already stored in `http_samples`. No schema change.
+- **Death clocks** (roadmap QW4): render-side linear extrapolation of `disk_samples.used_pct` (disk-full countdown), `disk_health.wear_pct` (SD/eMMC wear countdown), and CPU-temp headroom to the throttle threshold (`SMOKEMON_THROTTLE_TEMP`, default 80C). Surfaced as compact `~14d` / `~3y` / `25C to throttle` annotations on the disk and host panel titles.
 - **macOS implementations** for thermal / power / tcp panels (previously Linux-only):
   - `thermal`: `pmset -g therm` -> `cpu_speed_limit_pct` pseudo-zone (100 = no thermal throttling, less means the kernel is capping clock speed for heat).
   - `power`: `ioreg -rc AppleSmartBattery` -> single `battery` rail with watts / volts / amps. Empty on desktops (no battery).
   - `tcp`: `netstat -s -p tcp` and `-p udp` parsed for retransmits, RSTs, rexmit drops, UDP bad checksums, and UDP no-socket drops. Conntrack remains None (pf state count needs root).
   - `host` panel also gets `swap_used_pct` (from `sysctl vm.swapusage`) and `cache_mb` (from `vm_stat` file-backed pages) on macOS.
 - **Linux-only by design**: `psi` (no equivalent on macOS without `sudo powermetrics`) and `freq` (Apple Silicon does not expose per-core clock speed without sudo).
+
+### Fixed
+
+- **Concurrent-upgrade crash**: `ensure_body_columns` and `ensure_node_column` now guard each `ALTER TABLE ADD COLUMN` against `duplicate column name`. On an in-place upgrade the two collector daemons (plus iperf) race the migration; the loser would hit that error, which is `SQLITE_ERROR` not `SQLITE_BUSY`, so `busy_timeout` does not retry it and the daemon would crash before its scheduler started.
+- **macOS TCP metrics**: `netstat -s` parsing is now plural-tolerant (`data packets`/`bytes`, `connections dropped`), so `retrans_segs`/`estab_resets` populate for real counts instead of reading NULL for anything above zero.
+- **Jetson power**: guarded the `os.listdir` of the INA3221 sysfs directory so a device unbind/suspend mid-cycle no longer raises and skips that cycle's host inserts.
+
+### Internal
+
+- Hoisted the Pi `vcgencmd` throttle-bit labels and decode into a single `query.pi_bits_seen()` helper, shared by both renderers (the PNG and TUI copies had drifted apart).
 
 ## [0.11.0] - 2026-05-28
 

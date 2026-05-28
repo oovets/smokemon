@@ -322,8 +322,8 @@ def _jetson_power_linux() -> list[dict]:
                 except OSError:
                     continue
         for idx, ch in channels.items():
-            amps = (ch.get("current") or 0) / 1000.0 if ch.get("current") is not None else None  # mA -> A
-            volts = (ch.get("voltage") or 0) / 1000.0 if ch.get("voltage") is not None else None  # mV -> V
+            amps = ch["current"] / 1000.0 if ch.get("current") is not None else None  # mA -> A
+            volts = ch["voltage"] / 1000.0 if ch.get("voltage") is not None else None  # mV -> V
             if "power" in ch and ch["power"] is not None:
                 watts = float(ch["power"]) / 1000.0  # mW -> W
             elif amps is not None and volts is not None:
@@ -492,9 +492,8 @@ def _tcp_metrics_macos() -> dict[str, int | None]:
 
 
 def _procs_macos() -> list[dict]:
-    try:
-        out = subprocess.run(["ps", "-Ao", "pid=,%cpu=,rss=,comm="], capture_output=True, text=True, timeout=10).stdout
-    except Exception:  # noqa: BLE001
+    out = _sh(["ps", "-Ao", "pid=,%cpu=,rss=,comm="], timeout=10)
+    if not out:
         return []
     rows = []
     for line in out.splitlines():

@@ -1,0 +1,49 @@
+---
+description: Never run git push without explicit user verification first
+alwaysApply: true
+---
+
+# Never Push Without Verification
+
+`git push` (and any variant: `--force`, `--force-with-lease`, push tags, push to a
+new branch, push via `gh pr create` with auto-push, etc.) requires explicit user
+confirmation in the current message **before** the command is run. Past approvals
+from earlier in the session do not count.
+
+## Required Flow
+
+1. Show the user exactly what would be pushed: branch name, remote, commit list
+   (one-line `git log --oneline @{upstream}..HEAD` or `origin/main..HEAD`).
+2. Ask for confirmation in plain text. Wait for an unambiguous yes in the next
+   user message.
+3. Only then run the push.
+
+## Examples
+
+BAD:
+```
+git commit -m "fix"
+git push origin main
+```
+
+BAD (rolled into another command):
+```
+git push origin HEAD && gh pr create ...
+```
+
+GOOD:
+```
+# After committing, surface a summary:
+# "Ready to push 2 commits to origin/feature-x:
+#    abc1234 fix: handle null case
+#    def5678 test: add coverage
+#  Confirm push? (yes/no)"
+# Wait for user to reply "yes" in the next message, then push.
+```
+
+## Scope
+
+Applies to every git remote operation that mutates a remote: `git push`,
+`git push --force*`, `git push --tags`, `gh pr create` when it implicitly pushes,
+and any wrapper script that invokes one of these. Does not apply to read-only
+remote ops (`git fetch`, `git pull --rebase` into a clean tree, `gh pr view`).

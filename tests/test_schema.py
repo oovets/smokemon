@@ -3,6 +3,8 @@ without touching existing rows, and create any new tables."""
 
 import sqlite3
 
+import pytest
+
 from smokemon import core, schema
 
 
@@ -77,6 +79,49 @@ def test_migration_adds_new_columns_on_legacy_tables(tmp_path):
     assert wifi_row == (100.0, "old", -55)
 
     conn.close()
+
+
+def test_safe_add_column_tolerates_duplicate(tmp_db):
+    """The guard that prevents the upgrade-race crash: adding an already-present column
+    returns False instead of raising OperationalError('duplicate column name')."""
+    conn = core.connect(str(tmp_db))
+    conn.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, a TEXT)")
+    assert schema._safe_add_column(conn, "t", "b REAL") is True
+    assert schema._safe_add_column(conn, "t", "b REAL") is False  # must not raise
+    # A genuinely malformed ALTER must still surface.
+    with pytest.raises(sqlite3.OperationalError):
+        schema._safe_add_column(conn, "t", "not valid ddl !!!")
+    conn.close()
+
+
+def test_concurrent_migration_no_duplicate_crash(tmp_path):
+    """Two daemons (collect fast + collect slow) open the same legacy node DB and both
+    run the migration at startup. The loser of the ALTER race must not crash. Simulated
+    with two connections: c1 adds + commits a new column, c2 (which decided to add the
+    same column from its own stale table_info read) then adds it and gets a safe no-op."""
+    legacy = tmp_path / "legacy.db"
+    raw = sqlite3.connect(legacy)
+    raw.executescript(
+        "CREATE TABLE host_samples (id INTEGER PRIMARY KEY, ts REAL NOT NULL, "
+        "cpu_pct REAL, node TEXT)"
+    )
+    raw.commit()
+    raw.close()
+
+    c1 = core.connect(str(legacy))
+    c2 = core.connect(str(legacy))
+    assert schema._safe_add_column(c1, "host_samples", "swap_used_pct REAL") is True
+    c1.commit()
+    # c2 lost the race for swap_used_pct; the guard turns the duplicate into a no-op.
+    assert schema._safe_add_column(c2, "host_samples", "swap_used_pct REAL") is False
+
+    # Full migration from both connections must converge without raising.
+    schema.ensure_body_columns(c1)
+    schema.ensure_body_columns(c2)
+    cols = {r[1] for r in c2.execute("PRAGMA table_info(host_samples)")}
+    assert {"swap_used_pct", "psi_cpu", "cpu_freq_mhz"} <= cols
+    c1.close()
+    c2.close()
 
 
 def test_migration_is_idempotent(tmp_db):

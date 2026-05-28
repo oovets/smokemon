@@ -24,7 +24,8 @@ _BODY = {
     "wifi_samples": "ts REAL NOT NULL, ssid TEXT, channel TEXT, phy_mode TEXT, "
                     "rssi_dbm INTEGER, noise_dbm INTEGER, tx_rate_mbps REAL, "
                     "bssid TEXT, retry_count INTEGER, discard_count INTEGER, beacon_loss INTEGER",
-    "iperf_samples": "ts REAL NOT NULL, server TEXT, up_mbps REAL, down_mbps REAL, retransmits INTEGER",
+    "iperf_samples": "ts REAL NOT NULL, server TEXT, up_mbps REAL, down_mbps REAL, retransmits INTEGER, "
+                     "rtt_under_load_ms REAL",
     "host_samples": "ts REAL NOT NULL, cpu_pct REAL, load1 REAL, load5 REAL, load15 REAL, mem_used_pct REAL, "
                     "mem_total_mb REAL, temp_c REAL, disk_read_mbps REAL, disk_write_mbps REAL, "
                     "swap_used_pct REAL, cache_mb REAL, oom_kill_count INTEGER, "
@@ -74,12 +75,30 @@ def _hub_ddl() -> str:
     return "\n".join(parts)
 
 
+def _safe_add_column(conn: sqlite3.Connection, table: str, col_ddl: str) -> bool:
+    """ALTER TABLE ADD COLUMN that tolerates a concurrent add of the same column.
+
+    Two collector daemons (collect fast, collect slow) plus iperf open the same node
+    DB and each run the migration at startup. On an in-place upgrade they all see the
+    same columns missing and race the ALTERs; the loser would otherwise hit
+    `OperationalError: duplicate column name`, which is SQLITE_ERROR (not SQLITE_BUSY),
+    so busy_timeout does not retry it and the daemon would crash before its scheduler
+    starts. Swallow only that specific error; re-raise anything else. Returns True when
+    this call added the column, False when it was already present."""
+    try:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {col_ddl}")
+        return True
+    except sqlite3.OperationalError as e:
+        if "duplicate column name" in str(e).lower():
+            return False
+        raise
+
+
 def ensure_node_column(conn: sqlite3.Connection, tables=STD_TABLES) -> None:
     """Additive migration: add a `node` column to existing tables that lack it."""
     for t in tables:
         cols = [r[1] for r in conn.execute(f"PRAGMA table_info({t})").fetchall()]
-        if cols and "node" not in cols:
-            conn.execute(f"ALTER TABLE {t} ADD COLUMN node TEXT")
+        if cols and "node" not in cols and _safe_add_column(conn, t, "node TEXT"):
             conn.execute(f"UPDATE {t} SET node = ? WHERE node IS NULL", (config.NODE,))
     conn.commit()
 
@@ -103,7 +122,7 @@ def ensure_body_columns(conn: sqlite3.Connection, tables=STD_TABLES) -> None:
                 continue
             # Strip NOT NULL on retro-added cols since old rows have no value to backfill.
             ddl_safe = ddl.replace(" NOT NULL", "")
-            conn.execute(f"ALTER TABLE {t} ADD COLUMN {ddl_safe}")
+            _safe_add_column(conn, t, ddl_safe)
     conn.commit()
 
 
@@ -120,9 +139,18 @@ def init_hub(conn: sqlite3.Connection) -> None:
     ensure_body_columns(conn)
 
 
+_SQL_CACHE: dict[str, tuple[str, list[str]]] = {}
+
+
 def _sql(table: str) -> tuple[str, list[str]]:
-    cols = columns(table)
-    return f"INSERT INTO {table} ({','.join(cols)},node) VALUES ({','.join('?' * (len(cols) + 1))})", cols
+    """(insert_sql, body_cols), cached: _BODY is static so the SQL never changes.
+    insert() is called several times per collect cycle, so skip re-parsing each time."""
+    cached = _SQL_CACHE.get(table)
+    if cached is None:
+        cols = columns(table)
+        sql = f"INSERT INTO {table} ({','.join(cols)},node) VALUES ({','.join('?' * (len(cols) + 1))})"
+        cached = _SQL_CACHE[table] = (sql, cols)
+    return cached
 
 
 def insert(conn: sqlite3.Connection, table: str, rows: list[dict], node: str = config.NODE) -> None:

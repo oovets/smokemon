@@ -222,3 +222,15 @@ data/
 logs/
 graphs/
 .hub_secret
+
+# SQLite databases + WAL-mode sidecar files (smokemon runs in WAL mode), in case a DB
+# is created outside data/ (e.g. a stray SMOKEMON_DB path or an ad-hoc run).
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
+# macOS
+.DS_Store

@@ -19,23 +19,29 @@ from .. import config, query  # noqa: E402
 
 ALL_PANELS = config.PANELS
 
-PI_BIT_LABELS = {
-    0: "uv-now", 1: "freq-cap-now", 2: "throttled-now", 3: "soft-temp-now",
-    16: "uv-since-boot", 17: "freq-cap-since-boot", 18: "throttled-since-boot", 19: "soft-temp-since-boot",
-}
-
 
 def _dt(ts_list):
     return [datetime.fromtimestamp(t) for t in ts_list]
 
 
-def _pi_bits_summary(bits_list):
-    """Return human-readable list of bits ever seen set across the window."""
-    seen = 0
-    for b in bits_list:
-        if b is not None:
-            seen |= int(b)
-    return [name for bit, name in PI_BIT_LABELS.items() if seen & (1 << bit)]
+def _temp_tag(temp):
+    """QW4 death clock: headroom from the current temp to the throttle threshold."""
+    if temp is None:
+        return ""
+    head = config.THROTTLE_TEMP_C - temp
+    return f"temp {temp:.0f}C ({head:.0f}C to throttle)" if head > 0 else f"temp {temp:.0f}C (THROTTLING)"
+
+
+def _disk_tag(disk, health):
+    """QW4 death clocks: soonest mount-full + SD-wear countdown, as a title suffix."""
+    bits = []
+    full = query.disk_full_eta(disk)
+    if full:
+        bits.append(f"{full[0]} full {query.human_eta(full[1])}")
+    wear = query.wear_eta(health)
+    if wear:
+        bits.append(f"sd wear {query.human_eta(wear[1])}")
+    return "   " + " . ".join(bits) if bits else ""
 
 
 def _build(selected, data):  # noqa: C901 -- straight-line dispatch, intentionally flat
@@ -68,7 +74,9 @@ def _build(selected, data):  # noqa: C901 -- straight-line dispatch, intentional
         def draw_http(ax, http=data["http"]):
             for url, d in sorted(http.items()):
                 ax.plot(_dt(d["t"]), d["ttfb"], lw=0.9, label=query.host_label(url))
-            ax.set_title("HTTP TTFB (ms) - time to first byte", loc="left", fontsize=10, fontweight="bold")
+            blame = query.http_blame(http)
+            tag = f"   slowest layer: {query.HTTP_LAYER_LABELS[blame[0]]} {blame[1]:.0f} ms" if blame else ""
+            ax.set_title(f"HTTP TTFB (ms) - time to first byte{tag}", loc="left", fontsize=10, fontweight="bold")
             ax.set_ylabel("ms"); ax.set_ylim(bottom=0)
         panels.append(draw_http)
     if "mtr" in selected:
@@ -89,7 +97,7 @@ def _build(selected, data):  # noqa: C901 -- straight-line dispatch, intentional
         def draw_wifi(ax, w=data["wifi"]):
             ax.plot(_dt(w["t"]), w["rssi"], color="#2ca02c", lw=0.9, label="RSSI dBm")
             ax.plot(_dt(w["t"]), w["noise"], color="#888888", lw=0.9, label="noise dBm")
-            tx = next((v for v in reversed(w["tx"]) if v is not None), None)
+            tx = query.last_value(w["tx"])
             roams = w.get("roams", 0); bssids = w.get("bssids_seen", 0)
             extra = []
             if tx: extra.append(f"tx {tx:.0f} Mbit/s")
@@ -104,10 +112,13 @@ def _build(selected, data):  # noqa: C901 -- straight-line dispatch, intentional
                 ax2.tick_params(axis="y", labelcolor="#d62728")
         panels.append(draw_wifi)
     if "iperf" in selected and data["iperf"]:
-        def draw_iperf(ax, d=data["iperf"]):
+        def draw_iperf(ax, d=data["iperf"], ping=data.get("ping", {})):
             ax.plot(_dt(d["t"]), d["down"], lw=1.0, marker="o", ms=3, label="down")
             ax.plot(_dt(d["t"]), d["up"], lw=1.0, marker="o", ms=3, label="up")
-            ax.set_title("iperf3 throughput (Mbit/s) - active test", loc="left", fontsize=10, fontweight="bold")
+            bb = query.bufferbloat(d, ping)
+            tag = f"   bufferbloat {bb[0]} (+{bb[1]:.0f} ms under load)" if bb else ""
+            ax.set_title(f"iperf3 throughput (Mbit/s) - active test{tag}",
+                         loc="left", fontsize=10, fontweight="bold")
             ax.set_ylabel("Mbit/s"); ax.set_ylim(bottom=0)
         panels.append(draw_iperf)
     if "host" in selected and data["host"]:
@@ -117,18 +128,19 @@ def _build(selected, data):  # noqa: C901 -- straight-line dispatch, intentional
             ax.plot(t, d["mem"], color="#1f77b4", lw=0.9, label="mem %")
             if any(v is not None and v > 0 for v in d.get("swap", [])):
                 ax.plot(t, d["swap"], color="#9467bd", lw=0.9, label="swap %")
-            temp = next((v for v in reversed(d["temp"]) if v is not None), None)
-            ax.set_title(f"Host cpu/mem/swap (%)   {f'temp {temp:.0f}C' if temp is not None else ''}",
+            temp = query.last_value(d["temp"])
+            ax.set_title(f"Host cpu/mem/swap (%)   {_temp_tag(temp)}",
                          loc="left", fontsize=10, fontweight="bold")
             ax.set_ylabel("%"); ax.set_ylim(bottom=0, top=100)
         panels.append(draw_host)
     if "disk" in selected and data["disk"]:
-        def draw_disk(ax, disk=data["disk"]):
+        def draw_disk(ax, disk=data["disk"], health=data.get("disk_health", {})):
             for mount, d in sorted(disk.items()):
                 ax.plot(_dt(d["t"]), d["used"], lw=0.9, label=mount)
                 if any(v is not None and v > 0 for v in d.get("inode", [])):
                     ax.plot(_dt(d["t"]), d["inode"], lw=0.6, ls=":", label=f"{mount} inode%")
-            ax.set_title("Disk used (%) per mount", loc="left", fontsize=10, fontweight="bold")
+            ax.set_title(f"Disk used (%) per mount{_disk_tag(disk, health)}",
+                         loc="left", fontsize=10, fontweight="bold")
             ax.set_ylabel("%"); ax.set_ylim(bottom=0, top=100)
         panels.append(draw_disk)
     if "thermal" in selected and data["thermal"]:
@@ -143,7 +155,7 @@ def _build(selected, data):  # noqa: C901 -- straight-line dispatch, intentional
             total_now = 0.0; rail_count = 0
             for rail, d in sorted(rails.items()):
                 ax.plot(_dt(d["t"]), d["watts"], lw=0.9, label=rail)
-                last = next((v for v in reversed(d["watts"]) if v is not None), None)
+                last = query.last_value(d["watts"])
                 if last is not None:
                     total_now += last; rail_count += 1
             extra = f"total {total_now:.2f} W across {rail_count} rails" if rail_count else ""
@@ -186,7 +198,7 @@ def _build(selected, data):  # noqa: C901 -- straight-line dispatch, intentional
                 ax2.plot(t, d["throttle"], color="#d62728", lw=0.7, label="throttle/s")
                 ax2.set_ylabel("throttle/s", color="#d62728"); ax2.set_ylim(bottom=0)
                 ax2.tick_params(axis="y", labelcolor="#d62728")
-            bits = _pi_bits_summary(d.get("pi_bits", []))
+            bits = query.pi_bits_seen(d.get("pi_bits", []))
             if bits:
                 ax.text(0.99, 0.02, "Pi: " + ", ".join(bits), transform=ax.transAxes,
                         fontsize=8, color="#d62728", ha="right", va="bottom",
@@ -214,21 +226,7 @@ def run(opts) -> int:
     sel = ALL_PANELS if opts.panels == "all" else [s.strip() for s in opts.panels.split(",")]
     node = opts.node
     conn = query.open_ro(opts.db)
-    data = {
-        "ping":    query.load_ping_smoke(conn, since, until, targets, node) if "ping" in sel else {},
-        "net":     query.load_net(conn, since, until, node) if "net" in sel else {},
-        "http":    query.load_http(conn, since, until, node) if "http" in sel else {},
-        "mtr":     query.load_mtr(conn, since, until, node) if "mtr" in sel else {},
-        "wifi":    query.load_wifi(conn, since, until, node) if "wifi" in sel else {},
-        "iperf":   query.load_iperf(conn, since, until, node) if "iperf" in sel else {},
-        "host":    query.load_host(conn, since, until, node) if "host" in sel else {},
-        "disk":    query.load_disk(conn, since, until, node) if "disk" in sel else {},
-        "thermal": query.load_thermal(conn, since, until, node) if "thermal" in sel else {},
-        "power":   query.load_power(conn, since, until, node) if "power" in sel else {},
-        "tcp":     query.load_tcp(conn, since, until, node) if "tcp" in sel else {},
-        "psi":     query.load_psi(conn, since, until, node) if "psi" in sel else {},
-        "freq":    query.load_freq(conn, since, until, node) if "freq" in sel else {},
-    }
+    data = query.load_all(conn, since, until, targets, node, sel, ping_loader=query.load_ping_smoke)
     conn.close()
     panels = _build(sel, data)
     if not panels:

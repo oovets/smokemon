@@ -18,21 +18,27 @@ full reference -> INSTALL.md
 ```
 
 full version history -> [CHANGELOG.md](CHANGELOG.md)
+roadmap / ideas -> [PLAN.md](PLAN.md)
 
 ```
 == v0.11  rich host metrics + grid layout ==
+
 - new tables: thermal_zones (all sensors, not just max), power_samples (jetson INA3221
   per-rail watts), tcp_samples (retransmits / RSTs / udp errors / conntrack fill),
   disk_health (SD wear-level, hourly). host_samples adds PSI cpu/mem/io, swap/cache,
   oom_kill_count, cpu_freq_mhz, cpu_throttle_count, pi_throttle_bits. wifi_samples adds
   bssid + retry/discard/beacon counters; render shows roam count across BSSIDs.
+
 - renderer: 5 new panels (thermal, power, tcp, psi, freq). 2-col grid by default
   (PNG when >=3 panels, TUI when terminal >=140 cols). --cols N to force.
-- perf: SQLite PRAGMAs (temp_store=MEM, cache=20MB, mmap=256MB, wal_autocheckpoint).
-  ping_rtt percentiles (p25/p75) pre-aggregated at insert; load_ping_smoke skips the
-  ping_rtts scan for new rows. hub ingest uses executemany. load_net uses SQL LAG().
+
+- perf: ping_rtt percentiles (p25/p75) pre-aggregated at insert -> load_ping_smoke skips
+  the ping_rtts scan for new rows. hub ingest uses executemany. load_net uses SQL LAG()
+  (sqlite >=3.25). SQLite stays on WAL + synchronous=NORMAL only; cache/mmap PRAGMAs were
+  tried and reverted to keep node RSS low (smokemon reports its own RSS, so they'd skew it).
 
 == v0.10  package refactor ==
+
 - flat scripts -> smokemon/ package: config (env/NODE/paths), core (log/connect/
   signals/run_scheduler), schema (single-source DDL -> node+hub + STD_TABLES + generic
   insert), adapters/{darwin,linux}, probes/{ping,net,http,mtr,wifi,iperf,host}, collect
@@ -52,7 +58,7 @@ smoke [tui]                 static TUI; 13 panel types: ping,net,http,mtr,wifi,i
                             psi+freq are Linux-only; thermal/power/tcp also work on macOS
                             (cpu_speed_limit, battery rail, netstat -s parsing)
 smoke live 24h | smoke kiosk 24h [--refresh N]      live / clean wall display
-smoke png [--width " --dpi N] | smoke daily         PNG -> Preview / dated 24h PNG
+smoke png [--width N --dpi N --cols N] | smoke daily   PNG -> Preview / dated 24h PNG
 common: --minutes N|--hours N|--since|--until --targets --panels --node (req. on hub DB)
 
 daemons: python -m smokemon.collect {fast|slow} | .probes.iperf | .ship | .hub  (PYTHONPATH=repo)

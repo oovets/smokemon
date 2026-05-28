@@ -29,6 +29,12 @@ def host_label(url: str) -> str:
     return h.rsplit(".", 1)[0] if "." in h else (h or url)  # strip domain suffix (.com etc.)
 
 
+def last_value(seq):
+    """Most recent non-None value in a time-ordered sequence, or None. Renderers use
+    this for the 'current' annotation (temp, tx rate, last watt, conntrack %)."""
+    return next((v for v in reversed(seq) if v is not None), None)
+
+
 def _q(conn, sql: str, params):
     try:
         return conn.execute(sql, params).fetchall()
@@ -55,7 +61,10 @@ def load_ping_agg(conn, since, until, targets, node=None):
     data: dict[str, dict] = {}
     for ts, target, loss, rmin, rmed, rmax in _q(conn, q, params):
         d = data.setdefault(target, {"t": [], "min": [], "med": [], "max": [], "loss": []})
-        d["t"].append(ts); d["min"].append(rmin); d["med"].append(rmed); d["max"].append(rmax); d["loss"].append(loss)
+        # loss_pct is always set by the collector, but hub-imported / legacy rows may carry
+        # NULL; coerce to 0.0 so the renderers' sum()/nanmean() never choke on a None.
+        d["t"].append(ts); d["min"].append(rmin); d["med"].append(rmed); d["max"].append(rmax)
+        d["loss"].append(loss if loss is not None else 0.0)
     return data
 
 
@@ -155,13 +164,96 @@ def load_net(conn, since, until, node=None):
 
 
 def load_http(conn, since, until, node=None):
+    """TTFB series per URL plus curl's cumulative phase timestamps (dns/connect/tls),
+    so the renderers can name the dominant latency layer via http_blame()."""
     nf, np_ = _filt(node)
     data: dict[str, dict] = {}
-    for ts, url, ttfb in _q(conn, "SELECT ts,url,ttfb_ms FROM http_samples WHERE ts BETWEEN ? AND ?" + nf
-                            + " ORDER BY url, ts", [since, until, *np_]):
-        d = data.setdefault(url, {"t": [], "ttfb": []})
+    for ts, url, dns, connect, tls, ttfb in _q(conn,
+            "SELECT ts,url,dns_ms,connect_ms,tls_ms,ttfb_ms FROM http_samples WHERE ts BETWEEN ? AND ?" + nf
+            + " ORDER BY url, ts", [since, until, *np_]):
+        d = data.setdefault(url, {"t": [], "ttfb": [], "dns": [], "connect": [], "tls": []})
         d["t"].append(ts); d["ttfb"].append(ttfb)
+        d["dns"].append(dns); d["connect"].append(connect); d["tls"].append(tls)
     return data
+
+
+# ---------- QW2: HTTP layer-blame ----------
+
+HTTP_LAYER_LABELS = {"dns": "DNS", "connect": "TCP connect", "tls": "TLS", "server": "server wait"}
+
+
+def http_phases(dns, connect, tls, ttfb) -> dict[str, float]:
+    """Decompose curl's cumulative timestamps into per-phase durations (ms). curl's
+    time_namelookup/time_connect/time_appconnect/time_starttransfer are all measured
+    from request start, so each phase is the gap to the previous milestone. tls<=0
+    means a plaintext request (no TLS phase). None-safe."""
+    dns = dns or 0.0; connect = connect or 0.0; tls = tls or 0.0; ttfb = ttfb or 0.0
+    after_connect = tls if tls > 0 else connect  # TLS handshake follows the TCP connect
+    return {
+        "dns": dns,
+        "connect": max(0.0, connect - dns),
+        "tls": max(0.0, tls - connect) if tls > 0 else 0.0,
+        "server": max(0.0, ttfb - after_connect),
+    }
+
+
+def http_blame(http_data: dict) -> tuple[str, float] | None:
+    """Name the dominant latency layer across the most recent sample of each URL.
+    Returns (layer_key, avg_ms_for_that_layer) or None when there is no data."""
+    totals = {"dns": 0.0, "connect": 0.0, "tls": 0.0, "server": 0.0}
+    n = 0
+    for d in http_data.values():
+        if not d.get("t"):
+            continue
+        ph = http_phases(d["dns"][-1], d["connect"][-1], d["tls"][-1], d["ttfb"][-1])
+        for k in totals:
+            totals[k] += ph[k]
+        n += 1
+    if not n:
+        return None
+    layer = max(totals, key=totals.get)
+    return layer, totals[layer] / n
+
+
+# ---------- QW1: bufferbloat grade ----------
+
+# dslreports-style grade by latency *added* under load (ms). Below the first
+# threshold is the best grade; at or above the last is "F".
+_BUFFERBLOAT_GRADES = ((5.0, "A+"), (30.0, "A"), (60.0, "B"), (200.0, "C"), (400.0, "D"))
+
+
+def bufferbloat_grade(added_ms: float) -> str:
+    for thr, grade in _BUFFERBLOAT_GRADES:
+        if added_ms < thr:
+            return grade
+    return "F"
+
+
+def idle_rtt_ms(ping_data: dict) -> float | None:
+    """Idle-latency proxy for the bufferbloat baseline: the largest per-target
+    median-of-medians across the ping window. The max picks the WAN/internet path
+    (gateway/LAN medians are near zero) so it pairs sensibly with the loaded RTT iperf
+    measures to an off-net server. Reads either the agg ('med') or smoke ('p50') shape
+    and skips None/NaN. Returns None when no finite median exists."""
+    import statistics
+    per_target = []
+    for d in ping_data.values():
+        meds = [m for m in (d.get("med") or d.get("p50") or []) if m is not None and m == m]
+        if meds:
+            per_target.append(statistics.median(meds))
+    return max(per_target) if per_target else None
+
+
+def bufferbloat(iperf_data: dict, ping_data: dict) -> tuple[str, float, float] | None:
+    """(grade, added_ms, loaded_ms) comparing the most recent loaded RTT against the
+    idle ping baseline, or None when either is unavailable. added is clamped at 0 (an
+    off-net iperf server can sit closer than the slowest ping target)."""
+    loaded = last_value(iperf_data.get("rtt_load", [])) if iperf_data else None
+    if loaded is None:
+        return None
+    idle = idle_rtt_ms(ping_data) or 0.0
+    added = max(0.0, loaded - idle)
+    return bufferbloat_grade(added), added, loaded
 
 
 def load_mtr(conn, since, until, node=None):
@@ -207,11 +299,14 @@ def load_wifi(conn, since, until, node=None):
 
 
 def load_iperf(conn, since, until, node=None):
+    """Throughput series + the loaded TCP RTT (rtt_under_load_ms, NULL on rows that
+    predate the bufferbloat migration or on platforms without tcp_info)."""
     nf, np_ = _filt(node)
-    d = {"t": [], "up": [], "down": []}
-    for ts, up, down in _q(conn, "SELECT ts,up_mbps,down_mbps FROM iperf_samples WHERE ts BETWEEN ? AND ?" + nf
-                           + " ORDER BY ts", [since, until, *np_]):
-        d["t"].append(ts); d["up"].append(up); d["down"].append(down)
+    d = {"t": [], "up": [], "down": [], "rtt_load": []}
+    for ts, up, down, rtt in _q(conn,
+            "SELECT ts,up_mbps,down_mbps,rtt_under_load_ms FROM iperf_samples WHERE ts BETWEEN ? AND ?" + nf
+            + " ORDER BY ts", [since, until, *np_]):
+        d["t"].append(ts); d["up"].append(up); d["down"].append(down); d["rtt_load"].append(rtt)
     return d if d["t"] else {}
 
 
@@ -240,6 +335,26 @@ def load_disk(conn, since, until, node=None):
 
 
 # ---------- new loaders for the v0.11 metrics ----------
+
+# Raspberry Pi `vcgencmd get_throttled` bit field. Bits 0-3 are live conditions,
+# bits 16-19 are the same conditions latched ("sticky") since boot. Shared by both
+# renderers so the label set cannot drift between PNG and TUI.
+PI_THROTTLE_BITS = {
+    0: "uv-now", 1: "freq-cap-now", 2: "throttled-now", 3: "soft-temp-now",
+    16: "uv-since-boot", 17: "freq-cap-since-boot",
+    18: "throttled-since-boot", 19: "soft-temp-since-boot",
+}
+
+
+def pi_bits_seen(bits_list) -> list[str]:
+    """OR every sampled pi_throttle_bits value in the window and return the human labels
+    for each bit ever set. Renderers format the list (PNG joins with ', '; TUI too)."""
+    seen = 0
+    for b in bits_list:
+        if b is not None:
+            seen |= int(b)
+    return [name for bit, name in PI_THROTTLE_BITS.items() if seen & (1 << bit)]
+
 
 def _rate(curr, prev, ts, prev_ts):
     """events/second delta between two counter samples. Returns None on missing data,
@@ -346,3 +461,93 @@ def load_disk_health(conn, since, until, node=None):
         d = data.setdefault(dev, {"t": [], "wear": [], "ioerr": []})
         d["t"].append(ts); d["wear"].append(wear); d["ioerr"].append(ioerr)
     return data
+
+
+# ---------- QW4: death clocks (linear extrapolation) ----------
+
+
+def linear_eta_seconds(t, vals, target: float) -> float | None:
+    """Seconds until a least-squares line through (t, vals) reaches `target`, or None
+    when it cannot be projected: fewer than 3 finite points, a flat/zero time span, or
+    a slope that is not moving toward the target (so nothing is filling up / wearing
+    out). Already at/past target returns 0.0. Pure stdlib, hub-side at render time."""
+    pts = [(ti, v) for ti, v in zip(t, vals) if ti is not None and v is not None and v == v]
+    if len(pts) < 3:
+        return None
+    n = len(pts)
+    mt = sum(p[0] for p in pts) / n
+    mv = sum(p[1] for p in pts) / n
+    sxx = sum((p[0] - mt) ** 2 for p in pts)
+    if sxx == 0:
+        return None
+    slope = sum((p[0] - mt) * (p[1] - mv) for p in pts) / sxx  # units per second
+    cur = pts[-1][1]
+    if cur >= target:
+        return 0.0
+    if slope <= 0:  # not trending toward the target -> no finite ETA
+        return None
+    return (target - cur) / slope
+
+
+def human_eta(seconds: float | None) -> str:
+    """Compact countdown label: '~6h' / '~14d' / '~3y' / 'now'. None -> '' so callers
+    can drop the annotation when nothing is projected."""
+    if seconds is None:
+        return ""
+    if seconds <= 0:
+        return "now"
+    minutes = seconds / 60.0
+    hours = minutes / 60.0
+    days = hours / 24.0
+    years = days / 365.0
+    if years >= 1:
+        return f"~{years:.0f}y"
+    if days >= 1:
+        return f"~{days:.0f}d"
+    if hours >= 1:
+        return f"~{hours:.0f}h"
+    return f"~{minutes:.0f}m"
+
+
+def _soonest_eta(series: dict, value_key: str, target: float) -> tuple[str, float] | None:
+    """(name, seconds) for the series member projected to hit `target` first, or None."""
+    best = None
+    for name, d in series.items():
+        eta = linear_eta_seconds(d.get("t", []), d.get(value_key, []), target)
+        if eta is not None and (best is None or eta < best[1]):
+            best = (name, eta)
+    return best
+
+
+def disk_full_eta(disk_data: dict) -> tuple[str, float] | None:
+    """(mount, seconds) for the mount filling toward 100% used soonest, or None."""
+    return _soonest_eta(disk_data, "used", 100.0)
+
+
+def wear_eta(health_data: dict) -> tuple[str, float] | None:
+    """(device, seconds) for the SD/eMMC reaching 100% wear soonest, or None."""
+    return _soonest_eta(health_data, "wear", 100.0)
+
+
+def load_all(conn, since, until, targets, node, sel, ping_loader):
+    """Load every selected panel's series in one place so the TUI and PNG renderers
+    cannot drift apart when a panel is added. The only per-renderer difference is the
+    ping loader: TUI uses load_ping_agg (min/median/max), PNG uses load_ping_smoke
+    (percentile bands), passed in as ping_loader."""
+    return {
+        "ping":    ping_loader(conn, since, until, targets, node) if "ping" in sel else {},
+        "net":     load_net(conn, since, until, node) if "net" in sel else {},
+        "http":    load_http(conn, since, until, node) if "http" in sel else {},
+        "mtr":     load_mtr(conn, since, until, node) if "mtr" in sel else {},
+        "wifi":    load_wifi(conn, since, until, node) if "wifi" in sel else {},
+        "iperf":   load_iperf(conn, since, until, node) if "iperf" in sel else {},
+        "host":    load_host(conn, since, until, node) if "host" in sel else {},
+        "disk":    load_disk(conn, since, until, node) if "disk" in sel else {},
+        # Not a panel of its own; loaded with disk so the disk death-clock can show SD wear.
+        "disk_health": load_disk_health(conn, since, until, node) if "disk" in sel else {},
+        "thermal": load_thermal(conn, since, until, node) if "thermal" in sel else {},
+        "power":   load_power(conn, since, until, node) if "power" in sel else {},
+        "tcp":     load_tcp(conn, since, until, node) if "tcp" in sel else {},
+        "psi":     load_psi(conn, since, until, node) if "psi" in sel else {},
+        "freq":    load_freq(conn, since, until, node) if "freq" in sel else {},
+    }

@@ -85,8 +85,10 @@ def drain(conn) -> int:
             _set_last(conn, t, mid)
         conn.commit()
         total += sum(len(t["rows"]) for t in payload.values())
-        if not any(len(payload[t]["rows"]) >= config.SHIP_BATCH for t in schema.STD_TABLES if t in payload):
-            break  # nothing filled a full batch -> queue drained
+        # ping_rtts is capped to already-shipped runs, not SHIP_BATCH, so exclude it:
+        # if no std table filled a full batch, the backlog is drained and we can stop.
+        if not any(len(v["rows"]) >= config.SHIP_BATCH for k, v in payload.items() if k != "ping_rtts"):
+            break
     return total
 
 
