@@ -10,7 +10,7 @@ run:     python -m smokemon.collect {fast|slow}   (launchd/systemd do this; see 
 install: macOS  cp deploy/launchd/*.plist ~/Library/LaunchAgents/ && bootstrap each
          Linux  curl -fsSL https://raw.githubusercontent.com/oovets/smokemon/main/install.sh \
                   | sudo bash -s -- --node NAME [--hub-url URL --secret S]
-full reference -> INSTALL.txt
+full reference -> INSTALL.md
 ```
 
 ## Changelog (newest first, all 2026-05-28)
@@ -44,7 +44,7 @@ full reference -> INSTALL.txt
   hub run ids, inserted only for newly-inserted runs. shared-secret header X-Smokemon-Key.
 - plotters: --node filter (required on hub DB); host + disk panels. matplotlib stays
   hub-only -> nodes need only python3 stdlib + plotext (TUI).
-- deploy: systemd units + install_linux.sh (apt deps, setcap cap_net_raw on fping/mtr to
+- deploy: systemd units + install.sh (apt deps, setcap cap_net_raw on fping/mtr to
   skip sudo, /etc/smokemon.env, enable units); launchd plists for macOS.
 
 == v0.8  PNG granularity ==
@@ -103,7 +103,7 @@ multi-node: nodes run collect + iperf + ship (push delta -> hub); hub runs
             python -m smokemon.hub (-> smokemon-hub.db). plot on hub with --node NAME.
 
 deploy: macOS deploy/launchd/*.plist (collect-fast/slow, iperf, daily, shipper, hub);
-        Linux sudo deploy/install_linux.sh --node NAME --hub-url URL --secret S
+        Linux sudo ./install.sh --node NAME --hub-url URL --secret S
         (hub: --hub --secret S). secret must match node<->hub.
 
 deps:   node: fping,mtr,iperf3,iw + python3 stdlib + plotext(TUI); hub: +matplotlib/numpy(PNG).
