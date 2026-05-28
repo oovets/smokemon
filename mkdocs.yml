@@ -1,0 +1,42 @@
+site_name: smokemon
+site_description: passive + active network and host monitor for macOS and Linux
+site_url: https://oovets.github.io/smokemon/
+repo_url: https://github.com/oovets/smokemon
+repo_name: oovets/smokemon
+
+# The markdown source of truth stays in the repo root. scripts/docs.sh stages those
+# files into docs/ before a build (README.md -> index.md), so nothing is duplicated in git.
+docs_dir: docs
+
+theme:
+  name: material
+  palette:
+    scheme: slate          # dark by default; the terminal look the project wants
+    primary: black
+    accent: green
+  font:
+    code: JetBrains Mono
+  features:
+    - navigation.top
+    - navigation.sections
+    - content.code.copy
+    - toc.integrate
+
+extra_css:
+  - extra.css
+
+nav:
+  - Home: index.md
+  - Install: INSTALL.md
+  - Roadmap: PLAN.md
+  - Changelog: CHANGELOG.md
+  - Contributing: CONTRIBUTING.md
+  - Security: SECURITY.md
+
+markdown_extensions:
+  - admonition
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences

@@ -33,6 +33,7 @@ dependencies = []  # collectors / ship / hub are stdlib-only; renderers are extr
 tui = ["plotext>=5.2"]
 png = ["matplotlib>=3.5", "numpy>=1.21"]
 dev = ["pytest>=7", "ruff>=0.5"]
+docs = ["mkdocs-material>=9.5"]
 
 [project.scripts]
 smoke = "smokemon.cli:main"

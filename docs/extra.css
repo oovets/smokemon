@@ -1,0 +1,29 @@
+/* smokemon docs theme override: green-on-dark-grey code boxes (terminal look).
+   The README/PLAN/CHANGELOG bodies are mostly fenced code blocks, so styling
+   pre/code drives the whole page's aesthetic. */
+
+:root,
+[data-md-color-scheme="slate"] {
+  --md-code-bg-color: #1e1e1e;   /* dark grey code background */
+  --md-code-fg-color: #5fd75f;   /* terminal green code text */
+}
+
+/* fenced blocks (```), incl. plain no-language ones used across the docs */
+.md-typeset pre > code {
+  background-color: #1e1e1e;
+  color: #5fd75f;
+}
+
+/* inline `code`: slightly lighter so it stays legible inside prose */
+.md-typeset code {
+  background-color: #2b2b2b;
+  color: #8ae234;
+}
+
+/* keep the copy button from washing out against the dark block */
+.md-typeset .md-clipboard {
+  color: #5fd75f99;
+}
+.md-typeset .md-clipboard:hover {
+  color: #8ae234;
+}
