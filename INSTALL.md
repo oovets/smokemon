@@ -113,8 +113,9 @@ optional), `hub` (KeepAlive, optional).
 ## Install — Linux node (systemd)
 
 `install.sh` does it all: apt deps, `setcap cap_net_raw+ep` on fping/mtr-packet (so mtr
-needs no sudo), `pip --user plotext`, writes `/etc/smokemon.env`, template-substitutes and
-enables the systemd units.
+needs no sudo), `pip --user plotext`, writes `/etc/smokemon.env`, drops `smoke`/`smokelive`/
+`smokekiosk`/`smokepng` into `/etc/profile.d/smokemon.sh` (new login shells), and
+template-substitutes + enables the systemd units.
 
 ```
 sudo ./install.sh --node NAME [--hub-url http://HUB-HOST:8765/ingest --secret S] [--targets a,b]
