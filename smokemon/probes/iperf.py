@@ -30,6 +30,9 @@ def _run(reverse: bool) -> dict | None:
 
 
 def collect(conn) -> None:
+    if not config.IPERF_SERVER:
+        core.log("iperf: SMOKEMON_IPERF_SERVER not set, skipping")
+        return
     up, down = _run(reverse=False), _run(reverse=True)
     if not up and not down:
         core.log(f"iperf3 no result - is 'iperf3 -s' running on {config.IPERF_SERVER}?")

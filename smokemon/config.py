@@ -29,7 +29,7 @@ DB_PATH = os.environ.get("SMOKEMON_DB", os.path.join(HOME, "smokemon", "data", "
 HUB_DB = os.environ.get("SMOKEMON_HUB_DB", os.path.join(HOME, "smokemon", "data", "smokemon-hub.db"))
 
 # ping + net (fast loop)
-TARGETS = _list("SMOKEMON_TARGETS", "1.1.1.1,192.168.0.1,100.127.203.7")
+TARGETS = _list("SMOKEMON_TARGETS", "1.1.1.1,192.168.0.1")
 PING_INTERVAL = _f("SMOKEMON_INTERVAL", "10")
 PING_COUNT = _i("SMOKEMON_COUNT", "20")
 PING_PERIOD = _i("SMOKEMON_PERIOD", "50")
@@ -45,12 +45,12 @@ WIFI_ENABLED = os.environ.get("SMOKEMON_WIFI", "1") != "0"
 HOST_INTERVAL = _f("SMOKEMON_HOST_INTERVAL", "30")
 PROC_TOPN = _i("SMOKEMON_PROC_TOPN", "5")
 
-# iperf3 (one-shot)
-IPERF_SERVER = os.environ.get("SMOKEMON_IPERF_SERVER", "100.87.219.2")
+# iperf3 (one-shot); set SMOKEMON_IPERF_SERVER to a reachable `iperf3 -s` host
+IPERF_SERVER = os.environ.get("SMOKEMON_IPERF_SERVER", "")
 IPERF_DURATION = os.environ.get("SMOKEMON_IPERF_DURATION", "5")
 
-# central aggregation
-HUB_URL = os.environ.get("SMOKEMON_HUB_URL", "http://100.87.219.2:8765/ingest")
+# central aggregation; set SMOKEMON_HUB_URL to the hub's /ingest endpoint
+HUB_URL = os.environ.get("SMOKEMON_HUB_URL", "")
 HUB_SECRET = os.environ.get("SMOKEMON_HUB_SECRET", "changeme")
 SHIP_BATCH = _i("SMOKEMON_SHIP_BATCH", "2000")
 SHIP_INTERVAL = _f("SMOKEMON_SHIP_INTERVAL", "0")  # 0 = drain once and exit
@@ -64,6 +64,6 @@ MTR = cli_path("SMOKEMON_MTR", "mtr")
 IPERF = cli_path("SMOKEMON_IPERF", "iperf3")
 MTR_SUDO = os.environ.get("SMOKEMON_MTR_SUDO", "1") != "0"
 
-# render
-TARGET_LABELS = {"1.1.1.1": "internet", "100.127.203.7": "vpn", "192.168.0.1": "gw"}
+# render; map your target IPs to friendly names here
+TARGET_LABELS = {"1.1.1.1": "internet", "192.168.0.1": "gw"}
 HTTP_COLORS = ["cyan", "green+", "magenta+", "blue+", "orange+"]

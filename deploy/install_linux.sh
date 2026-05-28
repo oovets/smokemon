@@ -4,14 +4,14 @@
 # Run as root.
 #
 #   NODE: sudo deploy/install_linux.sh --node pi-livingroom \
-#             --hub-url http://100.87.219.2:8765/ingest --secret YOUR_SECRET
+#             --hub-url http://HUB-HOST:8765/ingest --secret YOUR_SECRET
 #   HUB:  sudo deploy/install_linux.sh --hub --secret YOUR_SECRET
 #
 # Node runs collect fast/slow + ships every 60s + iperf every 15 min.
 # Hub runs the ingest server. --secret must match between node and hub.
 set -euo pipefail
 
-MODE="node"; NODE_NAME="$(hostname)"; HUB_URL="http://100.87.219.2:8765/ingest"
+MODE="node"; NODE_NAME="$(hostname)"; HUB_URL="http://HUB-HOST:8765/ingest"
 SECRET=""; TARGETS="1.1.1.1,192.168.0.1"
 while [ $# -gt 0 ]; do
     case "$1" in

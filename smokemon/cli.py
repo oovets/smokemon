@@ -79,11 +79,12 @@ def main() -> int:
     p = sub.add_parser("daily", help="dated 24h PNG")
     _common(p)
 
-    args = ap.parse_args()
-    cmd = args.cmd or "tui"
+    argv = sys.argv[1:]
+    if not argv or argv[0] not in {"tui", "live", "kiosk", "png", "daily"}:
+        argv = ["tui", *argv]  # default subcommand, so `smoke` and `smoke --minutes 30` work
+    args = ap.parse_args(argv)
+    cmd = args.cmd
     if cmd == "tui":
-        if not hasattr(args, "kiosk"):  # bare `smoke`
-            args.kiosk, args.reserve = False, 0
         return tui.run(args)
     if cmd == "live":
         return _live(args, kiosk=False)

@@ -43,7 +43,7 @@ stdlib-only; the renderers need plotext (TUI) or matplotlib+numpy (PNG).
       p0/p100, loss + every individual RTT stored (for the spread band).
     - netstat -ibn (macOS) or /proc/net/dev (Linux): cumulative byte counters
       -> Mbit/s via delta/dt per interface.
-    - Default targets: 1.1.1.1 (internet), 192.168.0.1 (gw), 100.127.203.7 (vpn).
+    - Default targets: 1.1.1.1 (internet), 192.168.0.1 (gw); add a Tailscale peer (vpn).
     - Tailscale iface auto-detected (utun with an addr in 100.64.0.0/10, or
       tailscale0 on Linux) and labeled "tailscale" - survives utun renumbering.
 
@@ -152,9 +152,13 @@ stdlib-only; the renderers need plotext (TUI) or matplotlib+numpy (PNG).
 
   --- SINGLE-HOST LINUX (Raspberry Pi / Jetson / Debian) ----------------------
 
-    git clone <repo> ~/smokemon && cd ~/smokemon
-    sudo deploy/install_linux.sh --node "$(hostname)" --secret unused
+    # one-liner (clones to /opt/smokemon and installs systemd units):
+    curl -fsSL https://raw.githubusercontent.com/oovets/smokemon/main/install.sh \
+        | sudo bash -s -- --node "$(hostname)"
     # (without --hub-url nothing is shipped; local measurements only)
+    # manual equivalent:
+    #   git clone <repo> ~/smokemon && cd ~/smokemon
+    #   sudo deploy/install_linux.sh --node "$(hostname)"
 
   --- MULTI-NODE + CENTRAL HUB ------------------------------------------------
 
@@ -163,7 +167,7 @@ stdlib-only; the renderers need plotext (TUI) or matplotlib+numpy (PNG).
 
     # on each node:
     sudo deploy/install_linux.sh --node livingroom-pi \
-        --hub-url http://100.87.219.2:8765/ingest --secret MY_SECRET
+        --hub-url http://HUB-HOST:8765/ingest --secret MY_SECRET
 
     # on the hub, plot per node:
     PYTHONPATH=. python3 -m smokemon.cli png --db data/smokemon-hub.db \
@@ -279,7 +283,7 @@ stdlib-only; the renderers need plotext (TUI) or matplotlib+numpy (PNG).
 
   ping + net (collect fast)
     SMOKEMON_TARGETS         comma-separated ping targets
-                             (default 1.1.1.1,192.168.0.1,100.127.203.7)
+                             (default 1.1.1.1,192.168.0.1)
     SMOKEMON_INTERVAL        seconds between cycles (default 10)
     SMOKEMON_COUNT           pings per cycle per target (default 20)
     SMOKEMON_PERIOD          ms between pings (default 50)
@@ -299,12 +303,12 @@ stdlib-only; the renderers need plotext (TUI) or matplotlib+numpy (PNG).
     SMOKEMON_PROC_TOPN       number of top-CPU processes (default 5)
 
   iperf (probes.iperf)
-    SMOKEMON_IPERF_SERVER    target host (default 100.87.219.2)
+    SMOKEMON_IPERF_SERVER    iperf3 -s host (unset by default; probe no-ops until set)
     SMOKEMON_IPERF_DURATION  seconds per direction (default 5)
     SMOKEMON_IPERF           path to iperf3 (fallback: PATH lookup)
 
   ship (push -> hub)
-    SMOKEMON_HUB_URL         hub ingest URL (default http://100.87.219.2:8765/ingest)
+    SMOKEMON_HUB_URL         hub ingest URL (unset by default)
     SMOKEMON_HUB_SECRET      shared secret, X-Smokemon-Key (default "changeme" - CHANGE)
     SMOKEMON_SHIP_BATCH      max rows per batch per table (default 2000)
     SMOKEMON_SHIP_INTERVAL   loop seconds; 0 = drain once and exit (for a timer)

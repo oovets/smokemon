@@ -13,7 +13,8 @@
     <key>EnvironmentVariables</key>
     <dict>
         <key>PYTHONPATH</key><string>/Users/stefan/smokemon</string>
-        <key>SMOKEMON_HTTP_URLS</key><string>https://www.google.com,https://www.cloudflare.com,https://world.asspace.tech</string>
+        <key>PATH</key><string>/opt/homebrew/bin:/opt/homebrew/sbin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>SMOKEMON_HTTP_URLS</key><string>https://www.google.com,https://www.cloudflare.com</string>
         <key>SMOKEMON_MTR_TARGETS</key><string>1.1.1.1</string>
     </dict>
     <key>RunAtLoad</key><true/>

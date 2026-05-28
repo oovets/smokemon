@@ -92,6 +92,9 @@ def drain(conn) -> int:
 
 
 def main() -> int:
+    if not config.HUB_URL:
+        core.log("ship: SMOKEMON_HUB_URL not set, nothing to do")
+        return 0
     core.install_signals()
     conn = core.connect(config.DB_PATH)
     init_state(conn)
