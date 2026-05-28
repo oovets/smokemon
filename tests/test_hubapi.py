@@ -71,6 +71,25 @@ def test_fleet_ranks_worst_first(tmp_db, ts0):
     conn.close()
 
 
+def test_fleet_status_states(tmp_db, ts0):
+    """fleet_status derives state from the *latest* sample (no incident detection) and
+    sorts worst-first: down → stale → warn → healthy."""
+    conn = core.connect(str(tmp_db))
+    schema.init_node(conn)
+    base = ts0
+    schema.insert(conn, "ping_runs", _ping_rows(base, "1.1.1.1", [0.0, 0.0, 0.0], 8.0), node="ok01")
+    schema.insert(conn, "ping_runs", _ping_rows(base, "1.1.1.1", [0.0, 0.0, 100.0], 9.0), node="down01")
+    schema.insert(conn, "ping_runs", _ping_rows(base, "1.1.1.1", [0.0, 0.0, 0.0], 300.0), node="warn01")
+    schema.insert(conn, "ping_runs", _ping_rows(base - 1000, "1.1.1.1", [0.0, 0.0, 0.0], 7.0), node="stale01")
+    conn.commit()
+    fs = hubapi.fleet_status(conn, stale_after_s=300.0, now=base + 10)
+    state = {n["node"]: n["state"] for n in fs["nodes"]}
+    assert state == {"ok01": "healthy", "down01": "down", "warn01": "warn", "stale01": "stale"}
+    assert fs["counts"] == {"healthy": 1, "warn": 1, "down": 1, "stale": 1}
+    assert [n["node"] for n in fs["nodes"]] == ["down01", "stale01", "warn01", "ok01"]
+    conn.close()
+
+
 def test_heatmap_grid(tmp_db, ts0):
     conn = core.connect(str(tmp_db))
     _seed(conn, ts0)

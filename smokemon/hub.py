@@ -112,8 +112,13 @@ class Handler(BaseHTTPRequestHandler):
                 with _lock:
                     text = hubapi.prometheus(_conn)
                 return self._send_text(200, text, "text/plain; version=0.0.4; charset=utf-8")
-            if u.path in ("/", "/health"):
+            if u.path == "/":
+                return self._send_text(200, hubapi.dashboard_html(), "text/html; charset=utf-8")
+            if u.path == "/health":
                 return self._send(200, {"ok": True, "service": "smokemon-hub"})
+            if u.path == "/api/fleet-status":
+                with _lock:
+                    return self._send(200, hubapi.fleet_status(_conn))
             if u.path == "/api/nodes":
                 with _lock:
                     return self._send(200, {"nodes": hubapi.nodes(_conn)})
@@ -161,7 +166,8 @@ def main() -> int:
                       for t in schema.STD_TABLES})
     srv = ThreadingHTTPServer((config.HUB_BIND, config.HUB_PORT), Handler)
     core.log(f"hub listening on {config.HUB_BIND}:{config.HUB_PORT} db={config.HUB_DB} "
-             "(POST /ingest · GET /metrics /api/latest /api/fleet /api/heatmap /api/nodes)")
+             "(dashboard GET / · POST /ingest · GET /metrics /api/fleet-status "
+             "/api/latest /api/fleet /api/heatmap /api/nodes)")
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
