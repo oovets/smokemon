@@ -1,0 +1,11 @@
+[Unit]
+Description=smokemon iperf3 throughput probe (one-shot)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=__USER__
+WorkingDirectory=__SMOKEMON_DIR__
+EnvironmentFile=-__ENV_FILE__
+ExecStart=__PYTHON__ __SMOKEMON_DIR__/iperf_probe.py

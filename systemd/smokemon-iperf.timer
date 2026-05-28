@@ -1,0 +1,10 @@
+[Unit]
+Description=smokemon iperf3 probe every 15 min
+
+[Timer]
+OnBootSec=120
+OnUnitActiveSec=900
+Persistent=true
+
+[Install]
+WantedBy=timers.target

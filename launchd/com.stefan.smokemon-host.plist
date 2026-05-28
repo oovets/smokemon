@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- smokemon host-collector (nodhälsa) på macOS. Kopiera till ~/Library/LaunchAgents/
+     och: launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.stefan.smokemon-host.plist -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.stefan.smokemon-host</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>/Users/stefan/smokemon/collector_host.py</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/stefan/smokemon</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/Users/stefan/smokemon/logs/host.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/stefan/smokemon/logs/host.err.log</string>
+</dict>
+</plist>

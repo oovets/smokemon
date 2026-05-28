@@ -24,7 +24,7 @@ DEFAULT_OUT = os.path.join(HOME, "smokemon", "graphs", "smokemon.png")
 
 SKIP_IFACE_PREFIXES = ("lo", "gif", "stf", "anpi", "bridge", "ap")
 TARGET_LABELS = {"1.1.1.1": "internet", "100.127.203.7": "vpn", "192.168.0.1": "gw"}
-ALL_PANELS = ["ping", "net", "http", "mtr", "wifi", "iperf"]
+ALL_PANELS = ["ping", "net", "http", "mtr", "wifi", "iperf", "host", "disk"]
 
 
 def parse_args():
@@ -36,6 +36,7 @@ def parse_args():
     p.add_argument("--since", help="ISO time, overrides --hours/--minutes")
     p.add_argument("--until", help="ISO time (default now)")
     p.add_argument("--targets", help="comma-separated list to limit to")
+    p.add_argument("--node", help="limit to a single node (required when plotting a hub DB)")
     p.add_argument("--panels", default="all", help=f"panels: {','.join(ALL_PANELS)} or 'all'")
     p.add_argument("--dpi", type=int, default=96, help="PNG resolution (granularity comes mostly from width)")
     p.add_argument("--width", type=float, default=0, help="figure width in inches (0 = auto from time span)")
@@ -65,12 +66,21 @@ def _dt(ts):
     return datetime.fromtimestamp(ts)
 
 
-def load_ping(conn, since, until, targets):
+def _node_clause(node, params):
+    """Append a node filter when --node is given (hub DBs hold many nodes)."""
+    if node:
+        params.append(node)
+        return " AND node=?"
+    return ""
+
+
+def load_ping(conn, since, until, targets, node=None):
     q = "SELECT id, ts, target, loss_pct FROM ping_runs WHERE ts BETWEEN ? AND ?"
     params = [since, until]
     if targets:
         q += " AND target IN (%s)" % ",".join("?" * len(targets))
         params += targets
+    q += _node_clause(node, params)
     q += " ORDER BY ts"
     runs = _q(conn, q, params)
     if not runs:
@@ -97,9 +107,11 @@ def load_ping(conn, since, until, targets):
     return by_target
 
 
-def load_net(conn, since, until):
-    rows = _q(conn, "SELECT ts, iface, ibytes, obytes FROM net_samples WHERE ts BETWEEN ? AND ? ORDER BY iface, ts",
-              (since, until))
+def load_net(conn, since, until, node=None):
+    params = [since, until]
+    nc = _node_clause(node, params)
+    rows = _q(conn, f"SELECT ts, iface, ibytes, obytes FROM net_samples WHERE ts BETWEEN ? AND ?{nc} ORDER BY iface, ts",
+              params)
     series, prev = {}, {}
     for ts, iface, ib, ob in rows:
         if iface.startswith(SKIP_IFACE_PREFIXES):
@@ -115,40 +127,72 @@ def load_net(conn, since, until):
     return {i: s for i, s in series.items() if s["in"] and (max(s["in"]) > 0.01 or max(s["out"]) > 0.01)}
 
 
-def load_http(conn, since, until):
+def load_http(conn, since, until, node=None):
+    params = [since, until]
+    nc = _node_clause(node, params)
     data = {}
     for ts, url, ttfb in _q(
-        conn, "SELECT ts,url,ttfb_ms FROM http_samples WHERE ts BETWEEN ? AND ? ORDER BY url, ts", (since, until)):
+        conn, f"SELECT ts,url,ttfb_ms FROM http_samples WHERE ts BETWEEN ? AND ?{nc} ORDER BY url, ts", params):
         d = data.setdefault(url, {"t": [], "ttfb": []})
         d["t"].append(_dt(ts)); d["ttfb"].append(ttfb)
     return data
 
 
-def load_mtr(conn, since, until):
+def load_mtr(conn, since, until, node=None):
+    params = [since, until]
+    nc = _node_clause(node, params)
     data = {}
     for ts, target, hop, host, loss, avg in _q(
-        conn, "SELECT ts,target,hop_no,host,loss_pct,avg_ms FROM mtr_hops WHERE ts BETWEEN ? AND ? ORDER BY ts,hop_no",
-        (since, until)):
+        conn, f"SELECT ts,target,hop_no,host,loss_pct,avg_ms FROM mtr_hops WHERE ts BETWEEN ? AND ?{nc} ORDER BY ts,hop_no",
+        params):
         h = data.setdefault(target, {}).setdefault(hop, {"t": [], "avg": [], "host": host, "loss": []})
         h["t"].append(_dt(ts)); h["avg"].append(avg); h["loss"].append(loss); h["host"] = host
     return data
 
 
-def load_wifi(conn, since, until):
+def load_wifi(conn, since, until, node=None):
+    params = [since, until]
+    nc = _node_clause(node, params)
     d = {"t": [], "rssi": [], "noise": [], "tx": []}
     for ts, rssi, noise, tx in _q(
-        conn, "SELECT ts,rssi_dbm,noise_dbm,tx_rate_mbps FROM wifi_samples WHERE ts BETWEEN ? AND ? ORDER BY ts",
-        (since, until)):
+        conn, f"SELECT ts,rssi_dbm,noise_dbm,tx_rate_mbps FROM wifi_samples WHERE ts BETWEEN ? AND ?{nc} ORDER BY ts",
+        params):
         d["t"].append(_dt(ts)); d["rssi"].append(rssi); d["noise"].append(noise); d["tx"].append(tx)
     return d if d["t"] else {}
 
 
-def load_iperf(conn, since, until):
+def load_iperf(conn, since, until, node=None):
+    params = [since, until]
+    nc = _node_clause(node, params)
     d = {"t": [], "up": [], "down": []}
     for ts, up, down in _q(
-        conn, "SELECT ts,up_mbps,down_mbps FROM iperf_samples WHERE ts BETWEEN ? AND ? ORDER BY ts", (since, until)):
+        conn, f"SELECT ts,up_mbps,down_mbps FROM iperf_samples WHERE ts BETWEEN ? AND ?{nc} ORDER BY ts", params):
         d["t"].append(_dt(ts)); d["up"].append(up); d["down"].append(down)
     return d if d["t"] else {}
+
+
+def load_host(conn, since, until, node=None):
+    params = [since, until]
+    nc = _node_clause(node, params)
+    d = {"t": [], "cpu": [], "mem": [], "temp": [], "rd": [], "wr": []}
+    for ts, cpu, mem, temp, rd, wr in _q(
+        conn, "SELECT ts,cpu_pct,mem_used_pct,temp_c,disk_read_mbps,disk_write_mbps "
+        f"FROM host_samples WHERE ts BETWEEN ? AND ?{nc} ORDER BY ts", params):
+        d["t"].append(_dt(ts)); d["cpu"].append(cpu); d["mem"].append(mem)
+        d["temp"].append(temp); d["rd"].append(rd); d["wr"].append(wr)
+    return d if d["t"] else {}
+
+
+def load_disk(conn, since, until, node=None):
+    params = [since, until]
+    nc = _node_clause(node, params)
+    data = {}
+    for ts, mount, used, free in _q(
+        conn, f"SELECT ts,mount,used_pct,free_gb FROM disk_samples WHERE ts BETWEEN ? AND ?{nc} ORDER BY mount, ts",
+        params):
+        m = data.setdefault(mount, {"t": [], "used": [], "free": []})
+        m["t"].append(_dt(ts)); m["used"].append(used); m["free"].append(free)
+    return data
 
 
 def host_label(url):
@@ -156,7 +200,7 @@ def host_label(url):
     return h.rsplit(".", 1)[0] if "." in h else (h or url)  # strip domain suffix (.com etc.)
 
 
-def build_panels(selected, ping, net, http, mtr, wifi, iperf):
+def build_panels(selected, ping, net, http, mtr, wifi, iperf, host, disk):
     panels = []
 
     if "ping" in selected:
@@ -225,6 +269,35 @@ def build_panels(selected, ping, net, http, mtr, wifi, iperf):
             ax.set_ylabel("Mbit/s"); ax.set_ylim(bottom=0)
         panels.append(draw_iperf)
 
+    if "host" in selected and host:
+        def draw_host(ax, d=host):
+            ax.plot(d["t"], d["cpu"], color="#d62728", lw=0.9, label="CPU %")
+            ax.plot(d["t"], d["mem"], color="#1f77b4", lw=0.9, label="Mem %")
+            if any(v is not None for v in d["temp"]):
+                ax.plot(d["t"], d["temp"], color="#ff7f0e", lw=0.9, ls="--", label="Temp °C")
+            tnow = next((v for v in reversed(d["temp"]) if v is not None), None)
+            rd = next((v for v in reversed(d["rd"]) if v is not None), None)
+            wr = next((v for v in reversed(d["wr"]) if v is not None), None)
+            extra = []
+            if tnow is not None:
+                extra.append(f"temp {tnow:.0f}°C")
+            if rd is not None or wr is not None:
+                extra.append(f"disk r/w {rd or 0:.1f}/{wr or 0:.1f} MB/s")
+            tail = "   " + " · ".join(extra) if extra else ""
+            ax.set_title(f"Host — CPU/mem (%) + temp{tail}", loc="left", fontsize=10, fontweight="bold")
+            ax.set_ylabel("% / °C"); ax.set_ylim(bottom=0)
+        panels.append(draw_host)
+
+    if "disk" in selected and disk:
+        def draw_disk(ax, data=disk):
+            for mount, m in sorted(data.items()):
+                free = next((v for v in reversed(m["free"]) if v is not None), None)
+                lbl = f"{mount} ({free:.0f} GB free)" if free is not None else mount
+                ax.plot(m["t"], m["used"], lw=0.9, label=lbl)
+            ax.set_title("Disk usage per mount (%)", loc="left", fontsize=10, fontweight="bold")
+            ax.set_ylabel("% used"); ax.set_ylim(0, 100)
+        panels.append(draw_disk)
+
     return panels
 
 
@@ -244,8 +317,9 @@ def plot(panels, args, since, until):
         ax.yaxis.set_major_locator(MaxNLocator(integer=True))  # no y decimals
     axes[-1].xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))  # no seconds
     fig.autofmt_xdate()
+    node_tag = f"[{args.node}] " if args.node else ""
     fig.suptitle(
-        f"smokemon — {datetime.fromtimestamp(since):%Y-%m-%d %H:%M} → "
+        f"smokemon {node_tag}— {datetime.fromtimestamp(since):%Y-%m-%d %H:%M} → "
         f"{datetime.fromtimestamp(until):%H:%M}  ({span_h:.1f}h)", fontsize=12, y=0.997)
     fig.tight_layout(rect=(0, 0, 1, 0.99))
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
@@ -264,15 +338,18 @@ def main() -> int:
     selected = ALL_PANELS if args.panels.strip() == "all" else [s.strip() for s in args.panels.split(",")]
 
     conn = sqlite3.connect(f"file:{args.db}?mode=ro", uri=True)
-    ping = load_ping(conn, since, until, targets) if "ping" in selected else {}
-    net = load_net(conn, since, until) if "net" in selected else {}
-    http = load_http(conn, since, until) if "http" in selected else {}
-    mtr = load_mtr(conn, since, until) if "mtr" in selected else {}
-    wifi = load_wifi(conn, since, until) if "wifi" in selected else {}
-    iperf = load_iperf(conn, since, until) if "iperf" in selected else {}
+    node = args.node
+    ping = load_ping(conn, since, until, targets, node) if "ping" in selected else {}
+    net = load_net(conn, since, until, node) if "net" in selected else {}
+    http = load_http(conn, since, until, node) if "http" in selected else {}
+    mtr = load_mtr(conn, since, until, node) if "mtr" in selected else {}
+    wifi = load_wifi(conn, since, until, node) if "wifi" in selected else {}
+    iperf = load_iperf(conn, since, until, node) if "iperf" in selected else {}
+    host = load_host(conn, since, until, node) if "host" in selected else {}
+    disk = load_disk(conn, since, until, node) if "disk" in selected else {}
     conn.close()
 
-    panels = build_panels(selected, ping, net, http, mtr, wifi, iperf)
+    panels = build_panels(selected, ping, net, http, mtr, wifi, iperf, host, disk)
     ok = plot(panels, args, since, until)
     if ok and not args.no_open:
         subprocess.run(["/usr/bin/open", args.out], check=False)

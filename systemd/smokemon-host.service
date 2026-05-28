@@ -1,0 +1,16 @@
+[Unit]
+Description=smokemon host health (cpu/mem/temp/disk/proc)
+After=local-fs.target
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__SMOKEMON_DIR__
+EnvironmentFile=-__ENV_FILE__
+ExecStart=__PYTHON__ __SMOKEMON_DIR__/collector_host.py
+Restart=always
+RestartSec=5
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

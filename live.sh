@@ -5,7 +5,8 @@
 #   live.sh 24h        # last 24 hours (trend view)
 #   live.sh 90m 30     # last 90 min, refresh every 30s
 #   live.sh 5 5        # last 5 min, refresh every 5s (bare number = minutes)
-PY=/opt/anaconda3/bin/python3
+PY="${SMOKEMON_PY:-/opt/anaconda3/bin/python3}"
+[[ -x "$PY" ]] || PY=python3   # Linux/övriga: faller tillbaka till python3 på PATH
 DIR="${0:A:h}"
 WIN="${1:-15m}"
 REFRESH="${2:-10}"

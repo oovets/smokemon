@@ -1,0 +1,17 @@
+[Unit]
+Description=smokemon probes (HTTP/mtr/WiFi)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__SMOKEMON_DIR__
+EnvironmentFile=-__ENV_FILE__
+ExecStart=__PYTHON__ __SMOKEMON_DIR__/collector_probes.py
+Restart=always
+RestartSec=5
+Nice=5
+
+[Install]
+WantedBy=multi-user.target
