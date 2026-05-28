@@ -1,6 +1,6 @@
 # smokemon
 
-smokemon is a passive + active network and host monitor for macOS and Linux (Raspberry Pi / Jetson), local and central. It collects ping latency/loss (fping), per-interface bandwidth (netstat / `/proc/net/dev`), HTTP timing (curl), mtr per-hop, WiFi signal, iperf3 throughput and host health (CPU/mem/temp/disk/processes) into SQLite (WAL), viewed as a plotext braille TUI or a matplotlib PNG. Daemons run via launchd (macOS) or systemd (Linux); nodes push row deltas to a central hub for aggregated, per-node views. Footprint per node is about 25 MB RSS and under 1% of one core on average. Everything is a `smokemon/` Python package run via `python -m smokemon.*` (no install needed, `PYTHONPATH`=repo) or the `smoke` CLI; collectors/ship/hub are stdlib-only, the renderers need plotext (TUI) or matplotlib+numpy (PNG).
+smokemon is a passive + active network and host monitor for macos and linux, local and central. it collects ping latency/loss (fping), per-interface bandwidth (netstat / `/proc/net/dev`), HTTP timing (curl), mtr per-hop, WiFi signal, iperf3 throughput and host health (CPU/mem/temp/disk/processes) into SQLite (WAL), viewed as a plotext braille TUI or a matplotlib PNG. daemons run via launchd (macOS) or systemd (Linux); nodes push row deltas to a central hub for aggregated, per-node views. footprint per node is about 25 MB RSS and under 1% of one core on average.
 
 ## How to
 
