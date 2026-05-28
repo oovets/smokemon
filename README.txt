@@ -3,36 +3,6 @@ fping/curl/mtr/iperf3 + /proc,/sys (Linux) or netstat/system_profiler (macOS) ->
 -> plotext TUI / matplotlib PNG. launchd (macOS) or systemd (Linux) daemons; nodes push row
 deltas to a central hub (app01). ~25 MB RSS, <1% of one core avg.
 
-== TUI (smoke / smokelive — ASCII sketch; real output is colored braille) ==
-
-  internet (1.1.1.1)   median 4 ms | spread min-max | loss 2%
-  +----------------------------------------------------------+
-47|                          .......                         |   * median   . spread   o loss
-  |                       ...********..                      |
-  |.                  ....***... ....***.........           .|
-24|**...   ............***..         ...*********....     ..*|
-  | .******************...               ........****.....**.|
-  |   .................                           ...*****.. |
- 2|            o                  o               o  .....   |
-  +----------------------------------------------------------+
-  14:00      14:20      14:40      15:00      15:20      15:40
-  RTT ms
-
-  bandwidth (Mbit/s)   # down   + up
-  +----------------------------------------------------------+
-80|                                                          |
-  |         ########                                         |
-  |       ##        ###                                      |
-  |   +###++++++       ###                                ###|
-  |####         ++++++++  ################################   |
- 0|                     ++++++++++++++++++++++++++           |
-  +----------------------------------------------------------+
-  14:00      14:20      14:40      15:00      15:20      15:40
-  Mbit/s
-
-smokelive redraws this live; smokekiosk drops legend/axes/title (subtle gray frame).
-HTTP TTFB / mtr per-hop / WiFi RSSI+noise / iperf3 up+down panels stack below, same style.
-
 CHANGELOG (newest first, all 2026-05-28):
 
 == v0.9  cross-platform + central aggregation ==
