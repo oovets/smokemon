@@ -217,7 +217,8 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# smokemon runtime data
+# smokemon runtime data + secret
 data/
 logs/
 graphs/
+.hub_secret

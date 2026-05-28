@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Central ingest hub (macOS). Set a real SMOKEMON_HUB_SECRET and bind to a private
+     (e.g. Tailscale) address. bootstrap: launchctl bootstrap gui/$(id -u) <this>. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>com.stefan.smokemon-hub</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/anaconda3/bin/python3</string>
+        <string>-m</string><string>smokemon.hub</string>
+    </array>
+    <key>WorkingDirectory</key><string>/Users/stefan/smokemon</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHONPATH</key><string>/Users/stefan/smokemon</string>
+        <key>SMOKEMON_HUB_BIND</key><string>0.0.0.0</string>
+        <key>SMOKEMON_HUB_PORT</key><string>8765</string>
+        <key>SMOKEMON_HUB_SECRET</key><string>changeme</string>
+    </dict>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key><true/>
+    <key>StandardOutPath</key><string>/Users/stefan/smokemon/logs/hub.out.log</string>
+    <key>StandardErrorPath</key><string>/Users/stefan/smokemon/logs/hub.err.log</string>
+</dict>
+</plist>
