@@ -64,7 +64,7 @@ def _cpu_freq_linux() -> float | None:
         try:
             with open(p) as f:
                 freqs.append(int(f.read().strip()) / 1000.0)  # kHz -> MHz
-        except (OSError, ValueError):
+        except (OSError, ValueError, TypeError):
             continue
     return round(sum(freqs) / len(freqs), 1) if freqs else None
 
@@ -78,7 +78,7 @@ def _cpu_throttle_linux() -> int | None:
             with open(p) as f:
                 total += int(f.read().strip())
                 found = True
-        except (OSError, ValueError):
+        except (OSError, ValueError, TypeError):
             continue
     return total if found else None
 
@@ -131,9 +131,9 @@ def _psi_one(path: str) -> float | None:
     try:
         with open(path) as f:
             line = f.readline()
-    except OSError:
+        m = re.search(r"avg10=([0-9.]+)", line)
+    except (OSError, TypeError):  # quirky read may return None mid-decode
         return None
-    m = re.search(r"avg10=([0-9.]+)", line)
     return float(m.group(1)) if m else None
 
 
@@ -151,9 +151,9 @@ def _thermal_zones_linux() -> dict[str, float]:
     for tpath in glob.glob("/sys/class/thermal/thermal_zone*/temp"):
         zdir = os.path.dirname(tpath)
         try:
-            with open(tpath, "rb") as f:  # binary: some zones' text-mode read trips the decoder
+            with open(tpath) as f:
                 temp = int(f.read().strip()) / 1000.0
-        except (OSError, ValueError):
+        except (OSError, ValueError, TypeError):  # quirky sensors return None mid-read (EAGAIN)
             continue
         zname = None
         try:
@@ -276,7 +276,7 @@ def _tcp_metrics_linux() -> dict[str, int | None]:
         try:
             with open(p) as f:
                 return int(f.read().strip())
-        except (OSError, ValueError):
+        except (OSError, ValueError, TypeError):
             return None
 
     return {
