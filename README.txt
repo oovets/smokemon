@@ -1,36 +1,62 @@
-smokemon - passive+active network monitor (macOS, local). fping/netstat/curl/mtr/
-iperf3/system_profiler -> SQLite(WAL) -> plotext TUI / matplotlib PNG. launchd daemons.
-~25 MB RSS, <1% of one core avg.
+smokemon - passive+active network + host monitor (macOS + Linux/RPi/Jetson; local + central).
+fping/curl/mtr/iperf3 + /proc,/sys (Linux) or netstat/system_profiler (macOS) -> SQLite(WAL)
+-> plotext TUI / matplotlib PNG. launchd (macOS) or systemd (Linux) daemons; nodes push row
+deltas to a central hub (app01). ~25 MB RSS, <1% of one core avg.
 
-== TUI (smoke / smokelive; colors stripped here, normally green/orange/red) ==
+== TUI (smoke / smokelive — ASCII sketch; real output is colored braille) ==
 
-  internet (1.1.1.1)   median now 4 ms · spread (gray) min–max · avg loss 2%
-  ┌────────────────────────────────────────────────────────────────────┐
-47┤ ⢕⢕ median  ⢰        ⢠  ⣄ ⢀ ⣀⡄⣶  ⢸    ⣄        •       •⡆⡀          │
-38┤ •• loss    ⢸⣀     ⣠⣠⢸⢰ ⣿ ⢸ ⣿⡇⣿  ⣸⣀⡄ ⣀⣿    ⢀   ⡇⣴⣦⢸   ⣀•⡇⡇  ⡀ ⡆⡀  ⢀ │
-29┤⣿⣠⣼⢰⡇ ⡇⢰⣇⢸⣿⢀⣾⣿ ⡄ ⣦ ⣿⣿•⣼⢸⣿⣦⢸ ⣿⡇⣿⡀⢰⣿⣿⡇⣠⣿⣿⢰⡄  ⢸   ⡇⣿⣿⢸ ⢰⡇⣿⢸⡇⡇⣴ ⡇⢸⣿⣷  ⢸⢰│
-20┤⣿⣿⣿⣿⣷⣼⣷⡿⣿⣾⣿⣿•⣿⣼⣧⣸⣿⣴⣿⣿•⡀⣼⣿⣿⣸⣠⣿⣷•⣷⣿⣿⢀⣿⣿⣿⣿⣿⣷⣴⡀⣼⣄⣄⡄⡇⣿⣿⣼⣄⣸⣇⣿⢸⣿⣿⣿⣦⡇⣾⣿⣿⡀⣠⣸⡾│
- 2┤⣤•••⣤⣤•••⣤•••⣦⣤⣄⣤⣤••⣤•••••⣤⣤⣤•⣧•⣤••••⣤•⣤•⣠⣤⣤⣠••⣇⣄⣤⣠•⣤⣤•⣼•••⣤••••⣠•⣀⣄│
-  └┬──────────┬──────────┬───────────┬──────────┬──────────┬──────────┬┘
- 14:05      14:25      14:45       15:05      15:25      15:45    16:05
-RTT ms
+  internet (1.1.1.1)   median 4 ms | spread min-max | loss 2%
+  +----------------------------------------------------------+
+47|                          .......                         |   * median   . spread   o loss
+  |                       ...********..                      |
+  |.                  ....***... ....***.........           .|
+24|**...   ............***..         ...*********....     ..*|
+  | .******************...               ........****.....**.|
+  |   .................                           ...*****.. |
+ 2|            o                  o               o  .....   |
+  +----------------------------------------------------------+
+  14:00      14:20      14:40      15:00      15:20      15:40
+  RTT ms
 
-               Bandwidth (Mbit/s) — passive, actual traffic
-  ┌────────────────────────────────────────────────────────────────────┐
-65┤ ⢕⢕ en0 down                  ⡆                                     │
-52┤ ⢕⢕ en0 up                    ⡇                                     │
-39┤ ⢕⢕ tailscale down            ⡇                ⡀       ⢀            │
-26┤ ⢕⢕ tailscale up     ⢀        ⡇       ⢀        ⡇       ⢸            │
-13┤        ⡇ ⢠ ⢀        ⣀  ⡆     ⡇  ⢀⢠ ⢀ ⢸⣀       ⡇       ⢠      ⡀     │
- 0┤⣀⣀⣀⣀⣀⣀⣀⣀⣇⣀⣀⣀⣸⣀⣀⣀⣀⣀⣀⣀⣀⣿⣀⣀⣀⣀⣀⣀⣀⣀⣇⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣸⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀│
-  └┬──────────┬──────────┬───────────┬──────────┬──────────┬──────────┬┘
- 14:05      14:25      14:45       15:05      15:25      15:45    16:05
-Mbit/s
+  bandwidth (Mbit/s)   # down   + up
+  +----------------------------------------------------------+
+80|                                                          |
+  |         ########                                         |
+  |       ##        ###                                      |
+  |   +###++++++       ###                                ###|
+  |####         ++++++++  ################################   |
+ 0|                     ++++++++++++++++++++++++++           |
+  +----------------------------------------------------------+
+  14:00      14:20      14:40      15:00      15:20      15:40
+  Mbit/s
 
 smokelive redraws this live; smokekiosk drops legend/axes/title (subtle gray frame).
 HTTP TTFB / mtr per-hop / WiFi RSSI+noise / iperf3 up+down panels stack below, same style.
 
 CHANGELOG (newest first, all 2026-05-28):
+
+== v0.9  cross-platform + central aggregation ==
+- platform_adapters.py: OS dispatch (platform.system()) for net counters / Tailscale
+  iface / WiFi so collectors are OS-agnostic. Linux: /proc/net/dev (no fragile netstat
+  parsing), tailscale0 (or 100.64/10 scan via `ip`), `iw dev`+/proc/net/wireless. macOS
+  paths unchanged. CLI paths via env -> shutil.which fallback (no hardcoded /opt/homebrew).
+- node dimension: every table gains a `node` column (default socket.gethostname(),
+  override SMOKEMON_NODE). Additive migration (ensure_node_column: ALTER + backfill) so
+  node DB and hub DB share ONE schema -> one plotter codebase.
+- collector_host.py @30s: full host health. Linux: cpu (/proc/stat), load, mem
+  (/proc/meminfo), temp (/sys/class/thermal incl Jetson), disk used (statvfs) + disk IO
+  (/proc/diskstats), top-N procs by cpu (/proc/<pid>/stat). macOS: subset (load/mem/disk/
+  procs via ps; temp+IO skipped). new tables: host_samples, disk_samples, proc_samples.
+- central aggregation (push): shipper.py drains new rows per table (delta by id, cursor
+  in ship_state) and POSTs to hub_ingest.py. hub_ingest (stdlib http.server) writes
+  smokemon-hub.db with node+src_id, UNIQUE(node,src_id) + INSERT OR IGNORE in one txn =
+  idempotent. ping_rtts translated to hub run ids, inserted only for newly-inserted runs
+  (no dupes on retry). shared-secret auth header X-Smokemon-Key.
+- plotters: --node filter (required on hub DB); new host + disk panels. matplotlib stays
+  hub-only -> nodes need only python3 stdlib + plotext(TUI).
+- deploy: systemd/ unit+timer templates + scripts/install_linux.sh (apt deps, setcap
+  cap_net_raw on fping/mtr to skip sudo, /etc/smokemon.env, enable units). launchd/ plists
+  for new host+shipper services on macOS. live.sh/daily_graph.sh python path via SMOKEMON_PY.
 
 == v0.8  PNG granularity ==
 - plot.py: figure width prop. to time span (~2 in/h, clamp 16-80") -> every 10s
@@ -87,11 +113,16 @@ CHANGELOG (newest first, all 2026-05-28):
 - plot.py: matplotlib smoke (fill_between p0-p100 + p25-p75 + median + loss scatter).
 
 == QUICKREF ==
-  smoke [--panels …|--kiosk] [--minutes N|--hours N]      TUI (default: all panels)
-  smokelive 24h [sec] | smokekiosk 24h [sec]              live / wall display
-  smokepng [--width " --dpi N --panels …]                 PNG -> Preview
-  config: env vars (SMOKEMON_*) in ~/Library/LaunchAgents/com.stefan.smokemon{,-probes,
-          -iperf,-daily}.plist; labels/colors in term_plot.py & plot.py.
-  jobs:   launchctl [bootout|bootstrap] gui/$(id -u) <plist>   (wait out the old one)
-  deps:   fping, mtr, iperf3 (brew); curl/netstat/ifconfig/system_profiler (macOS);
-          python3(anaconda)+matplotlib/numpy(PNG), plotext(TUI).
+  smoke [--panels …|--kiosk] [--minutes N|--hours N] [--node NAME]   TUI (panels incl host,disk)
+  smokelive 24h [sec] | smokekiosk 24h [sec]                         live / wall display
+  smokepng [--width " --dpi N --panels … --node NAME]                PNG (hub: --node required)
+  panels: ping,net,http,mtr,wifi,iperf,host,disk  (host=cpu/mem/temp, disk=used% per mount)
+  multi-node: nodes run collector/probes/host + shipper.py (push delta -> hub); hub runs
+          hub_ingest.py (-> smokemon-hub.db). On the hub, plot with --node NAME per node.
+  install Linux node: sudo scripts/install_linux.sh --node NAME --hub-url URL --secret S
+  install Linux hub:  sudo scripts/install_linux.sh --hub --secret S   (must match node secret)
+  config: env vars (SMOKEMON_*): macOS launchd plists (~/Library/LaunchAgents/com.stefan.
+          smokemon{,-probes,-host,-iperf,-shipper,-daily}.plist); Linux /etc/smokemon.env.
+  jobs:   macOS: launchctl [bootout|bootstrap] gui/$(id -u) <plist>;  Linux: systemctl.
+  deps:   node: fping,mtr,iperf3,iw (apt) + python3 stdlib + plotext(TUI); macOS via brew +
+          curl/netstat/ifconfig/system_profiler. hub: python3 + matplotlib/numpy (PNG).
