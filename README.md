@@ -8,10 +8,13 @@
 
 ```
 view:    smoke · smoke live 24h · smoke kiosk 24h · smoke png   (or python -m smokemon.cli …)
+
 run:     python -m smokemon.collect {fast|slow}   (launchd/systemd do this; see deploy/)
+
 install: macOS  cp deploy/launchd/*.plist ~/Library/LaunchAgents/ && bootstrap each
          Linux  curl -fsSL https://raw.githubusercontent.com/oovets/smokemon/main/install.sh \
                   | sudo bash -s -- --node NAME [--hub-url URL --secret S]
+
 full reference -> INSTALL.md
 
 ```
@@ -43,6 +46,7 @@ roadmap / ideas -> [PLAN.md](PLAN.md)
   insert), adapters/{darwin,linux}, probes/{ping,net,http,mtr,wifi,iperf,host}, collect
   (one daemon, group fast|slow|all), ship, hub, query (shared loaders + --node),
   render/{tui,png}, cli (`smoke` subcommands).
+
 - 3 collector daemons -> 2 (fast=ping/net; slow=http/mtr/wifi/host). live.sh/daily_graph.sh
   -> `smoke live|kiosk|daily`. dedup: schema, daemon loop, plot loaders, the duplicate
   wifi_probe (all gone). net caches the TS iface (5 min). hub: ThreadingHTTPServer + write
@@ -56,8 +60,9 @@ smoke [tui]                 static TUI; 14 panel types: ping,net,http,mtr,wifi,i
                             host,disk,thermal,power,tcp,psi,freq,self|all  --cols N|0(auto)
                             psi+freq are Linux-only; thermal/power/tcp also work on macOS
                             (cpu_speed_limit, battery rail, netstat -s parsing)
+
 smoke live 24h | smoke kiosk 24h [--refresh N] [--bell]   live / clean wall display
-smoke replay [DATE|Nh] [--frame MIN]                DVR scrubber (←/→ scrub, ↑/↓ step, q)
+smoke replay [DATE|Nh] [--frame MIN] DVR scrubber (←/→ scrub, ↑/↓ step, q)
 smoke png [--width N --dpi N --cols N] | smoke daily   PNG -> Preview / dated 24h PNG
 smoke status | smoke incidents | smoke digest [--notify]   text analysis (stdlib, node-ok)
 common: --minutes N|--hours N|--since|--until --targets --panels --node (req. on hub DB)
