@@ -1,0 +1,17 @@
+[Unit]
+Description=smokemon collect (http/mtr/wifi/host, 60s)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__SMOKEMON_DIR__
+EnvironmentFile=-__ENV_FILE__
+ExecStart=__PYTHON__ -m smokemon.collect slow
+Restart=always
+RestartSec=5
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Optional: ship this node's rows to a central hub. Set the real secret first. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>com.stefan.smokemon-shipper</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/anaconda3/bin/python3</string>
+        <string>-m</string><string>smokemon.ship</string>
+    </array>
+    <key>WorkingDirectory</key><string>/Users/stefan/smokemon</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHONPATH</key><string>/Users/stefan/smokemon</string>
+        <key>SMOKEMON_HUB_URL</key><string>http://100.87.219.2:8765/ingest</string>
+        <key>SMOKEMON_HUB_SECRET</key><string>changeme</string>
+    </dict>
+    <key>StartInterval</key><integer>60</integer>
+    <key>RunAtLoad</key><true/>
+    <key>StandardOutPath</key><string>/Users/stefan/smokemon/logs/shipper.out.log</string>
+    <key>StandardErrorPath</key><string>/Users/stefan/smokemon/logs/shipper.err.log</string>
+</dict>
+</plist>

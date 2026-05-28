@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>com.stefan.smokemon-iperf</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/anaconda3/bin/python3</string>
+        <string>-m</string><string>smokemon.probes.iperf</string>
+    </array>
+    <key>WorkingDirectory</key><string>/Users/stefan/smokemon</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHONPATH</key><string>/Users/stefan/smokemon</string>
+        <key>SMOKEMON_IPERF_SERVER</key><string>100.87.219.2</string>
+    </dict>
+    <!-- interval in seconds; 900 = every 15 min. Reload after changing. -->
+    <key>StartInterval</key><integer>900</integer>
+    <key>RunAtLoad</key><true/>
+    <key>StandardOutPath</key><string>/Users/stefan/smokemon/logs/iperf.out.log</string>
+    <key>StandardErrorPath</key><string>/Users/stefan/smokemon/logs/iperf.err.log</string>
+</dict>
+</plist>

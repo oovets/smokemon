@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- http + mtr + wifi + host. mtr uses passwordless sudo on macOS. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>com.stefan.smokemon-collect-slow</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/anaconda3/bin/python3</string>
+        <string>-m</string><string>smokemon.collect</string><string>slow</string>
+    </array>
+    <key>WorkingDirectory</key><string>/Users/stefan/smokemon</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHONPATH</key><string>/Users/stefan/smokemon</string>
+        <key>SMOKEMON_HTTP_URLS</key><string>https://www.google.com,https://www.cloudflare.com,https://world.asspace.tech</string>
+        <key>SMOKEMON_MTR_TARGETS</key><string>1.1.1.1</string>
+    </dict>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key><true/>
+    <key>ProcessType</key><string>Background</string>
+    <key>StandardOutPath</key><string>/Users/stefan/smokemon/logs/collect-slow.out.log</string>
+    <key>StandardErrorPath</key><string>/Users/stefan/smokemon/logs/collect-slow.err.log</string>
+</dict>
+</plist>

@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "smokemon"
+version = "0.9.0"
+description = "Passive+active network + host monitor (macOS + Linux; local + central hub)"
+requires-python = ">=3.10"
+dependencies = []  # collectors/ship/hub are stdlib-only; renderers are extras
+
+[project.optional-dependencies]
+tui = ["plotext"]
+png = ["matplotlib", "numpy"]
+
+[project.scripts]
+smoke = "smokemon.cli:main"
+smokemon-collect = "smokemon.collect:main"
+smokemon-iperf = "smokemon.probes.iperf:main"
+smokemon-ship = "smokemon.ship:main"
+smokemon-hub = "smokemon.hub:main"
+
+[tool.setuptools.packages.find]
+include = ["smokemon*"]

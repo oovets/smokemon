@@ -5,6 +5,17 @@ deltas to a central hub (app01). ~25 MB RSS, <1% of one core avg.
 
 CHANGELOG (newest first, all 2026-05-28):
 
+== v0.10  package refactor ==
+- flat scripts -> `smokemon/` package: config (env/NODE/paths), core (log/connect/
+  signals/run_scheduler), schema (single-source DDL -> node+hub + STD_TABLES + generic
+  insert), adapters/{darwin,linux}, probes/{ping,net,http,mtr,wifi,iperf,host}, collect
+  (one daemon, group fast|slow|all), ship, hub, query (shared loaders + --node),
+  render/{tui,png}, cli (`smoke` subcommands).
+- 3 collector daemons -> 2 (fast=ping/net; slow=http/mtr/wifi/host). live.sh/daily_graph.sh
+  -> `smoke live|kiosk|daily`. dedup: schema, daemon loop, plot loaders, the duplicate
+  wifi_probe (all gone). net caches the TS iface (5 min). hub: ThreadingHTTPServer + write
+  lock. entrypoints: python -m smokemon.* (PYTHONPATH=repo, no install needed).
+
 == v0.9  cross-platform + central aggregation ==
 - platform_adapters.py: OS dispatch (platform.system()) for net counters / Tailscale
   iface / WiFi so collectors are OS-agnostic. Linux: /proc/net/dev (no fragile netstat
@@ -83,16 +94,16 @@ CHANGELOG (newest first, all 2026-05-28):
 - plot.py: matplotlib smoke (fill_between p0-p100 + p25-p75 + median + loss scatter).
 
 == QUICKREF ==
-  smoke [--panels …|--kiosk] [--minutes N|--hours N] [--node NAME]   TUI (panels incl host,disk)
-  smokelive 24h [sec] | smokekiosk 24h [sec]                         live / wall display
-  smokepng [--width " --dpi N --panels … --node NAME]                PNG (hub: --node required)
-  panels: ping,net,http,mtr,wifi,iperf,host,disk  (host=cpu/mem/temp, disk=used% per mount)
-  multi-node: nodes run collector/probes/host + shipper.py (push delta -> hub); hub runs
-          hub_ingest.py (-> smokemon-hub.db). On the hub, plot with --node NAME per node.
-  install Linux node: sudo scripts/install_linux.sh --node NAME --hub-url URL --secret S
-  install Linux hub:  sudo scripts/install_linux.sh --hub --secret S   (must match node secret)
-  config: env vars (SMOKEMON_*): macOS launchd plists (~/Library/LaunchAgents/com.stefan.
-          smokemon{,-probes,-host,-iperf,-shipper,-daily}.plist); Linux /etc/smokemon.env.
-  jobs:   macOS: launchctl [bootout|bootstrap] gui/$(id -u) <plist>;  Linux: systemctl.
-  deps:   node: fping,mtr,iperf3,iw (apt) + python3 stdlib + plotext(TUI); macOS via brew +
-          curl/netstat/ifconfig/system_profiler. hub: python3 + matplotlib/numpy (PNG).
+  smoke [tui]                 static TUI   (panels: ping,net,http,mtr,wifi,iperf,host,disk|all)
+  smoke live 24h | smoke kiosk 24h [--refresh N]      live / clean wall display
+  smoke png [--width " --dpi N] | smoke daily         PNG -> Preview / dated 24h PNG
+  common: --minutes N|--hours N|--since|--until --targets --panels --node (req. on hub DB)
+  layout: smokemon/{config,core,schema,collect,ship,hub,query,cli}.py
+          + adapters/{darwin,linux} probes/{ping,net,http,mtr,wifi,iperf,host} render/{tui,png}
+  run:    python -m smokemon.collect {fast|slow} | .probes.iperf | .ship | .hub  (PYTHONPATH=repo)
+  multi-node: nodes run collect+iperf+ship (push delta -> hub); hub runs `python -m smokemon.hub`
+          (-> smokemon-hub.db). plot on hub with --node NAME.
+  deploy: macOS deploy/launchd/*.plist (collect-fast/slow, iperf, daily, shipper);
+          Linux sudo deploy/install_linux.sh --node NAME --hub-url URL --secret S
+          (hub: --hub --secret S). secret must match node<->hub.
+  deps:   node: fping,mtr,iperf3,iw + python3 stdlib + plotext(TUI); hub: +matplotlib/numpy(PNG).
