@@ -13,7 +13,6 @@ import sys
 import time
 
 from . import config
-from .render import png, tui
 
 GRAPHS = os.path.join(config.HOME, "smokemon", "graphs")
 
@@ -25,7 +24,7 @@ def _common(p: argparse.ArgumentParser) -> None:
     p.add_argument("--since")
     p.add_argument("--until")
     p.add_argument("--targets", help="comma-separated ping targets")
-    p.add_argument("--panels", default="all", help=f"{','.join(tui.ALL_PANELS)} or 'all'")
+    p.add_argument("--panels", default="all", help=f"{','.join(config.PANELS)} or 'all'")
     p.add_argument("--node", help="filter to one node (required on a hub DB)")
 
 
@@ -40,7 +39,7 @@ def _apply_window(args, win: str | None) -> str:
     return f"{val} min"
 
 
-def _live(args, kiosk: bool) -> int:
+def _live(args, tui, kiosk: bool) -> int:
     label = _apply_window(args, args.window)
     args.kiosk, args.reserve = kiosk, (0 if kiosk else 2)
     sys.stdout.write("\033[?25l")  # hide cursor
@@ -84,20 +83,21 @@ def main() -> int:
         argv = ["tui", *argv]  # default subcommand, so `smoke` and `smoke --minutes 30` work
     args = ap.parse_args(argv)
     cmd = args.cmd
-    if cmd == "tui":
-        return tui.run(args)
-    if cmd == "live":
-        return _live(args, kiosk=False)
-    if cmd == "kiosk":
-        return _live(args, kiosk=True)
-    if cmd == "png":
-        return png.run(args)
+    if cmd in ("tui", "live", "kiosk"):
+        from .render import tui  # plotext only — never pulls in matplotlib
+        if cmd == "tui":
+            return tui.run(args)
+        return _live(args, tui, kiosk=(cmd == "kiosk"))
+    try:
+        from .render import png  # matplotlib+numpy, hub-side only
+    except ModuleNotFoundError as e:
+        print(f"PNG rendering needs matplotlib+numpy (hub only): {e}", file=sys.stderr)
+        return 1
     if cmd == "daily":
         tag = f"-{args.node}" if args.node else ""
         args.hours, args.dpi, args.width, args.no_open = 24.0, 96, 0, True
         args.out = os.path.join(GRAPHS, "daily", f"smokemon{tag}-{time.strftime('%F')}.png")
-        return png.run(args)
-    return 2
+    return png.run(args)
 
 
 if __name__ == "__main__":

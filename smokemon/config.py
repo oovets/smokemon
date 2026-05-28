@@ -67,3 +67,4 @@ MTR_SUDO = os.environ.get("SMOKEMON_MTR_SUDO", "1") != "0"
 # render; map your target IPs to friendly names here
 TARGET_LABELS = {"1.1.1.1": "internet", "192.168.0.1": "gw"}
 HTTP_COLORS = ["cyan", "green+", "magenta+", "blue+", "orange+"]
+PANELS = ["ping", "net", "http", "mtr", "wifi", "iperf", "host", "disk"]

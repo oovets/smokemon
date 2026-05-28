@@ -10,7 +10,7 @@ import plotext as plt
 
 from .. import config, query
 
-ALL_PANELS = ["ping", "net", "http", "mtr", "wifi", "iperf", "host", "disk"]
+ALL_PANELS = config.PANELS
 KIOSK = False
 
 

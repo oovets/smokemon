@@ -15,7 +15,7 @@ from matplotlib.ticker import MaxNLocator  # noqa: E402
 
 from .. import config, query  # noqa: E402
 
-ALL_PANELS = ["ping", "net", "http", "mtr", "wifi", "iperf", "host", "disk"]
+ALL_PANELS = config.PANELS
 
 
 def _dt(ts_list):
