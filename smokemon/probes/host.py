@@ -151,7 +151,7 @@ def _thermal_zones_linux() -> dict[str, float]:
     for tpath in glob.glob("/sys/class/thermal/thermal_zone*/temp"):
         zdir = os.path.dirname(tpath)
         try:
-            with open(tpath) as f:
+            with open(tpath, "rb") as f:  # binary: some zones' text-mode read trips the decoder
                 temp = int(f.read().strip()) / 1000.0
         except (OSError, ValueError):
             continue
@@ -300,7 +300,11 @@ def _jetson_power_linux() -> list[dict]:
         # Files we may find: in_current{N}_input (mA), in_voltage{N}_input (mV),
         # in_power{N}_input (mW), rail_name_{N}. N is typically 0/1/2 per chip.
         channels: dict[str, dict[str, float | str | None]] = {}
-        for f in os.listdir(dev):
+        try:
+            entries = os.listdir(dev)
+        except OSError:
+            continue  # sysfs entry vanished between glob and listdir (unbind/suspend)
+        for f in entries:
             m = re.match(r"in_(current|voltage|power)(\d+)_input$", f)
             if m:
                 kind, idx = m.group(1), m.group(2)
@@ -474,10 +478,12 @@ def _tcp_metrics_macos() -> dict[str, int | None]:
         except ValueError:
             return None
 
+    # macOS netstat pluralizes nouns for counts != 1 (BSD plural() macro), so the
+    # patterns must accept both "data packet (0 byte)" and "data packets (N bytes)".
     return {
-        "retrans_segs": _grab(tcp_out, r"(\d+)\s+data packet \(\d+ byte\) retransmitted"),
-        "out_rsts": _grab(tcp_out, r"(\d+)\s+bad reset"),
-        "estab_resets": _grab(tcp_out, r"(\d+)\s+connection dropped by rexmit timeout"),
+        "retrans_segs": _grab(tcp_out, r"(\d+)\s+data packets?\s*\(\d+\s+bytes?\)\s+retransmitted"),
+        "out_rsts": _grab(tcp_out, r"(\d+)\s+bad resets?"),
+        "estab_resets": _grab(tcp_out, r"(\d+)\s+connections?\s+dropped by rexmit timeout"),
         "udp_in_errors": _grab(udp_out, r"(\d+)\s+with bad checksum"),
         "udp_no_ports": _grab(udp_out, r"(\d+)\s+dropped due to no socket"),
         "conntrack_used": None,

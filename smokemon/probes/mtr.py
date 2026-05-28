@@ -10,7 +10,8 @@ from .. import config, core, schema
 
 def _probe(target: str) -> list[dict]:
     cmd = ([config.MTR] if not config.MTR_SUDO else ["sudo", "-n", config.MTR])
-    cmd += ["-n", "--json", "-c", str(config.MTR_COUNT), "-i", "0.2", target]
+    interval = "0.2" if config.MTR_SUDO else "1.0"  # mtr forbids sub-second intervals for non-root
+    cmd += ["-n", "--json", "-c", str(config.MTR_COUNT), "-i", interval, target]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=config.MTR_COUNT * 0.2 + 30)
     except Exception as e:  # noqa: BLE001
