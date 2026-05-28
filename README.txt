@@ -3,6 +3,13 @@ fping/curl/mtr/iperf3 + /proc,/sys (Linux) or netstat/system_profiler (macOS) ->
 -> plotext TUI / matplotlib PNG. launchd (macOS) or systemd (Linux) daemons; nodes push row
 deltas to a central hub (app01). ~25 MB RSS, <1% of one core avg.
 
+== HOWTO ==
+  view:    smoke · smoke live 24h · smoke kiosk 24h · smoke png   (or python -m smokemon.cli …)
+  run:     python -m smokemon.collect {fast|slow}   (launchd/systemd do this; see deploy/)
+  install: macOS  cp deploy/launchd/*.plist ~/Library/LaunchAgents/ && bootstrap each
+           Linux  sudo deploy/install_linux.sh --node NAME [--hub-url URL --secret S]
+  full reference -> INSTALL.txt
+
 CHANGELOG (newest first, all 2026-05-28):
 
 == v0.10  package refactor ==
