@@ -1,6 +1,6 @@
 # smokemon
 
-smokemon is a passive + active network and host monitor for macos and linux, local and central. it collects ping latency/loss (fping), per-interface bandwidth (netstat / `/proc/net/dev`), HTTP timing (curl), mtr per-hop, WiFi signal, iperf3 throughput and host health (CPU/mem/temp/disk/processes) into SQLite (WAL), viewed as a plotext braille TUI or a matplotlib PNG. daemons run via launchd (macOS) or systemd (Linux); nodes push row deltas to a central hub for aggregated, per-node views. footprint per node is about 25 MB RSS and under 1% of one core on average.
+smokemon is a passive + active network and host monitor for macos and linux, local and central. it collects ping latency/loss (fping), per-interface bandwidth (netstat / `/proc/net/dev`), HTTP timing (curl), mtr per-hop, WiFi signal, iperf3 throughput and host health (CPU/mem/temp/disk/processes) into SQLite (WAL), viewed as a plotext braille TUI or a matplotlib PNG. daemons run via launchd (macOS) or systemd (Linux); nodes push row deltas to a central hub for aggregated, per-node views. footprint is about 30 MB RSS per node (two collector daemons) and well under 1% of one core on average; the hub adds ~20 MB.
 
 ## How to
 

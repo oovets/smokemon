@@ -8,7 +8,8 @@ timing, mtr per-hop, WiFi signal, iperf3 throughput and host health (CPU/mem/
 temp/disk/processes) into SQLite (WAL). Viewed as a braille TUI or a PNG. Several
 nodes can push delta rows to a central hub for aggregated views.
 
-Footprint per node: ~25 MB RSS, <1% of one core on average.
+Footprint: ~30 MB RSS per node (two collector daemons), well under 1% of one core on
+average; the central hub adds ~20 MB.
 
 Code is a `smokemon/` Python package; everything runs via `python -m smokemon.*`
 (no install needed, PYTHONPATH=repo) or the `smoke` CLI. Collectors/ship/hub are
