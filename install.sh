@@ -45,9 +45,9 @@ echo "==> smokemon install: mode=$MODE dir=$DIR user=$USER_NAME python=$PYTHON"
 echo "==> apt deps"
 apt-get update -qq
 if [ "$MODE" = "hub" ]; then
-    apt-get install -y --no-install-recommends iperf3 python3-matplotlib python3-numpy
+    apt-get install -y --no-install-recommends iperf3 python3-pip python3-matplotlib python3-numpy
 else
-    apt-get install -y --no-install-recommends fping iperf3 iw mtr-tiny
+    apt-get install -y --no-install-recommends fping iperf3 iw mtr-tiny python3-pip
     echo "==> CAP_NET_RAW on fping/mtr (skip sudo)"
     for bin in "$(command -v fping || true)" "$(command -v mtr-packet || true)"; do
         [ -n "$bin" ] && setcap cap_net_raw+ep "$bin" && echo "    setcap $bin" || true
