@@ -13,6 +13,7 @@ install: macOS  cp deploy/launchd/*.plist ~/Library/LaunchAgents/ && bootstrap e
          Linux  curl -fsSL https://raw.githubusercontent.com/oovets/smokemon/main/install.sh \
                   | sudo bash -s -- --node NAME [--hub-url URL --secret S]
 full reference -> INSTALL.md
+
 ```
 
 full version history -> [CHANGELOG.md](CHANGELOG.md)
