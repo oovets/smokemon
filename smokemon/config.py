@@ -48,9 +48,26 @@ PROC_TOPN = _i("SMOKEMON_PROC_TOPN", "5")
 # render-side "headroom to throttle" death clock. Pi default is ~80-85C.
 THROTTLE_TEMP_C = _f("SMOKEMON_THROTTLE_TEMP", "80")
 
+# synthetic transactions (X6); opt-in scripted multi-step checks beyond single-shot
+# probes. Off by default so smokemon makes no extra external requests unless asked.
+SYNTHETIC_ENABLED = os.environ.get("SMOKEMON_SYNTHETIC", "0") != "0"
+SYNTHETIC_DOH_URL = os.environ.get("SMOKEMON_DOH_URL", "https://cloudflare-dns.com/dns-query")
+SYNTHETIC_DOH_NAME = os.environ.get("SMOKEMON_DOH_NAME", "example.com")
+# A plain-HTTP endpoint that should answer 204 with an empty body; anything else
+# (a 200 + login page, a redirect) means a captive portal / interception.
+SYNTHETIC_CAPTIVE_URL = os.environ.get("SMOKEMON_CAPTIVE_URL",
+                                       "http://connectivitycheck.gstatic.com/generate_204")
+
 # iperf3 (one-shot); set SMOKEMON_IPERF_SERVER to a reachable `iperf3 -s` host
 IPERF_SERVER = os.environ.get("SMOKEMON_IPERF_SERVER", "")
 IPERF_DURATION = os.environ.get("SMOKEMON_IPERF_DURATION", "5")
+
+# push/webhook alerting (S4); set SMOKEMON_NOTIFY_URL to an ntfy topic, a Slack/Discord
+# incoming webhook, or any URL that accepts a JSON {title, body} POST. Kind is
+# auto-detected from the host. Only incidents at or above NOTIFY_MIN_SEVERITY fire.
+NOTIFY_URL = os.environ.get("SMOKEMON_NOTIFY_URL", "")
+NOTIFY_KIND = os.environ.get("SMOKEMON_NOTIFY_KIND", "")  # "" = auto-detect
+NOTIFY_MIN_SEVERITY = _i("SMOKEMON_NOTIFY_MIN_SEVERITY", "2")
 
 # central aggregation; set SMOKEMON_HUB_URL to the hub's /ingest endpoint
 HUB_URL = os.environ.get("SMOKEMON_HUB_URL", "")
@@ -71,4 +88,4 @@ MTR_SUDO = os.environ.get("SMOKEMON_MTR_SUDO", "1") != "0"
 TARGET_LABELS = {"1.1.1.1": "internet", "192.168.0.1": "gw"}
 HTTP_COLORS = ["cyan", "green+", "magenta+", "blue+", "orange+"]
 PANELS = ["ping", "net", "http", "mtr", "wifi", "iperf",
-          "host", "disk", "thermal", "power", "tcp", "psi", "freq"]
+          "host", "disk", "thermal", "power", "tcp", "psi", "freq", "self"]

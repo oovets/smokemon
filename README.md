@@ -52,15 +52,24 @@ earlier versions (v0.1 - v0.9) -> [CHANGELOG.md](CHANGELOG.md)
 ```
 
 ```
-smoke [tui]                 static TUI; 13 panel types: ping,net,http,mtr,wifi,iperf,
-                            host,disk,thermal,power,tcp,psi,freq|all   --cols N|0(auto)
+smoke [tui]                 static TUI; 14 panel types: ping,net,http,mtr,wifi,iperf,
+                            host,disk,thermal,power,tcp,psi,freq,self|all  --cols N|0(auto)
                             psi+freq are Linux-only; thermal/power/tcp also work on macOS
                             (cpu_speed_limit, battery rail, netstat -s parsing)
-smoke live 24h | smoke kiosk 24h [--refresh N]      live / clean wall display
+smoke live 24h | smoke kiosk 24h [--refresh N] [--bell]   live / clean wall display
+smoke replay [DATE|Nh] [--frame MIN]                DVR scrubber (←/→ scrub, ↑/↓ step, q)
 smoke png [--width N --dpi N --cols N] | smoke daily   PNG -> Preview / dated 24h PNG
+smoke status | smoke incidents | smoke digest [--notify]   text analysis (stdlib, node-ok)
 common: --minutes N|--hours N|--since|--until --targets --panels --node (req. on hub DB)
 
-daemons: python -m smokemon.collect {fast|slow} | .probes.iperf | .ship | .hub  (PYTHONPATH=repo)
+analysis: smokemon/analyze.py (incident detection + multi-signal blame + anomaly/change-
+          point/path/attribution stats, hub-side read-only). hub also serves GET /metrics
+          (prometheus) and GET /api/{nodes,latest,fleet,heatmap}.
+alerting: set SMOKEMON_NOTIFY_URL (ntfy/slack/discord/webhook) + `smoke digest --notify`
+          or the smokemon-notify timer. synthetic checks: SMOKEMON_SYNTHETIC=1.
+
+daemons: python -m smokemon.collect {fast|slow} | .probes.iperf | .probes.synthetic
+         | .ship | .hub | .notify  (PYTHONPATH=repo)
 
 multi-node: nodes run collect + iperf + ship (push delta -> hub); hub runs
             python -m smokemon.hub (-> smokemon-hub.db). plot on hub with --node NAME.

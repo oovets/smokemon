@@ -40,9 +40,11 @@ _BODY = {
                    "udp_in_errors INTEGER, udp_no_ports INTEGER, "
                    "conntrack_used INTEGER, conntrack_max INTEGER",
     "disk_health": "ts REAL NOT NULL, device TEXT NOT NULL, wear_pct REAL, ioerr_count INTEGER",
+    "synthetic_samples": "ts REAL NOT NULL, probe TEXT NOT NULL, ok INTEGER, latency_ms REAL, detail TEXT",
 }
 _IX = {"ping_runs": "target", "net_samples": "iface", "http_samples": "url", "mtr_hops": "target",
-       "thermal_zones": "zone", "power_samples": "rail", "disk_health": "device"}
+       "thermal_zones": "zone", "power_samples": "rail", "disk_health": "device",
+       "synthetic_samples": "probe"}
 
 STD_TABLES = tuple(_BODY)  # generic append-only tables (id + body + node [+ src_id])
 

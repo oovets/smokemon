@@ -38,8 +38,10 @@ dev = ["pytest>=7", "ruff>=0.5"]
 smoke = "smokemon.cli:main"
 smokemon-collect = "smokemon.collect:main"
 smokemon-iperf = "smokemon.probes.iperf:main"
+smokemon-synthetic = "smokemon.probes.synthetic:main"
 smokemon-ship = "smokemon.ship:main"
 smokemon-hub = "smokemon.hub:main"
+smokemon-notify = "smokemon.notify:main"
 
 [project.urls]
 Homepage = "https://github.com/oovets/smokemon"

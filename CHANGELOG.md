@@ -1,142 +1,276 @@
-# Changelog
+# smokemon - changelog
 
-All notable changes to smokemon. The format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+all notable changes to smokemon. the format roughly follows [keep a changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+roadmap / ideas -> [PLAN.md](PLAN.md)
 
-### Added
+```
+== unreleased  analysis engine + text surfaces + alerting + hub api ==
 
-- **Bufferbloat grade** (roadmap QW1): `probes/iperf.py` now parses the per-stream TCP RTT iperf3 reports (`end.streams[].sender.mean_rtt`) and stores it in the new additive `iperf_samples.rtt_under_load_ms` column. The renderers compare it against the idle ping baseline (largest per-target median) and annotate the iperf panel with a dslreports-style A+..F grade and the added latency under load.
-- **HTTP layer-blame** (roadmap QW2): the HTTP panel now names the dominant latency layer (DNS / TCP connect / TLS / server wait) by decomposing curl's cumulative phase timestamps already stored in `http_samples`. No schema change.
-- **Death clocks** (roadmap QW4): render-side linear extrapolation of `disk_samples.used_pct` (disk-full countdown), `disk_health.wear_pct` (SD/eMMC wear countdown), and CPU-temp headroom to the throttle threshold (`SMOKEMON_THROTTLE_TEMP`, default 80C). Surfaced as compact `~14d` / `~3y` / `25C to throttle` annotations on the disk and host panel titles.
-- **macOS implementations** for thermal / power / tcp panels (previously Linux-only):
-  - `thermal`: `pmset -g therm` -> `cpu_speed_limit_pct` pseudo-zone (100 = no thermal throttling, less means the kernel is capping clock speed for heat).
-  - `power`: `ioreg -rc AppleSmartBattery` -> single `battery` rail with watts / volts / amps. Empty on desktops (no battery).
-  - `tcp`: `netstat -s -p tcp` and `-p udp` parsed for retransmits, RSTs, rexmit drops, UDP bad checksums, and UDP no-socket drops. Conntrack remains None (pf state count needs root).
-  - `host` panel also gets `swap_used_pct` (from `sysctl vm.swapusage`) and `cache_mb` (from `vm_stat` file-backed pages) on macOS.
-- **Linux-only by design**: `psi` (no equivalent on macOS without `sudo powermetrics`) and `freq` (Apple Silicon does not expose per-core clock speed without sudo).
+added:
 
-### Fixed
+- analysis engine smokemon/analyze.py (roadmap F1/F2/P1/P2/P3/X5): hub-side,
+  read-only, pure-stdlib. derives everything from already-collected metrics; never
+  imported by collectors/ship/probes.
+  - F2 incident detection: contiguous loss/latency runs over the ping series classified
+    as isp-outage / upstream-loss / link-down (internet-down vs gateway-clean
+    disambiguation), packet-loss, latency-spike, dns-slow (dns phase dominant while tcp
+    connect stays fast). minor transient loss is filtered (a non-total run must peak >=10%).
+  - F1 multi-signal blame: for each incident window, every signal (cpu, mem, swap, temp,
+    psi, wifi rssi/retry, tcp retrans, bandwidth, cpu clock) that deviates from its
+    out-of-window baseline by >=3 robust-sigma (MAD), plus processes that appeared during
+    the window, ranked by deviation.
+  - P1 time-of-day baseline: per-(weekday, hour) median+MAD baseline + robust-z anomaly
+    flag - "abnormal for a tuesday 14:00" with no thresholds, no ml.
+  - P2 change-point detection: variance-weighted recursive mean-shift split, catches silent
+    regime changes (an isp speed-tier drop, a permanent route change).
+  - P3 mtr path intelligence: route-change detection (a hop whose resolved host changed),
+    worst-hop attribution, path-stability score, read per-sample from mtr_hops.
+  - X5 bandwidth attribution: bandwidth spikes (robust-z) cross-referenced with the top-cpu
+    processes during each spike - explicitly heuristic (proc_samples has no per-process byte
+    counters).
+- text surfaces smokemon/report.py, renderer-free (stdlib, run on a node too):
+  - smoke status (QW3): one-line unicode-sparkline health summary - internet rtt/loss, wifi
+    rssi, cpu temp, and a verdict word.
+  - smoke incidents (F1/F2): incident table with per-incident multi-signal blame.
+  - smoke digest (F3): plain-english window summary - uptime %, incident class breakdown,
+    honest hard-downtime (outage spans unioned, never summed), peak latency + what it
+    coincided with, bufferbloat grade, wifi roams, thermals.
+- smoke replay (S1): dvr-style scrubber over any historical window - a sliding playhead
+  frame moved with left/right (vim h/l), step size on up/down, q to quit. raw data is kept
+  forever, so any past window is reachable.
+- push/webhook alerting smokemon/notify.py (S4): fire incident alerts to ntfy, a slack or
+  discord incoming webhook, or a generic json endpoint (kind auto-detected from the url).
+  severity-gated via SMOKEMON_NOTIFY_MIN_SEVERITY; --notify on smoke incidents/digest, plus
+  a smokemon-notify timer entry point. pure urllib.
+- hub http surfaces smokemon/hubapi.py on the existing hub server:
+  - GET /metrics (S2): prometheus/openmetrics exposition of the latest per-node gauges
+    (ping rtt/loss, cpu, mem, temp).
+  - GET /api/{nodes,latest,fleet,heatmap} (S3): read-only json - fleet ranking (uptime %,
+    median rtt, incident count, downtime, worst-first) and a node x hour loss/rtt heatmap.
+- self panel (S5): the host collector records its own rss/cpu each cycle (proc_samples row
+  named smokemon, via resource + /proc/self/statm); a new self panel graphs smokemon's own
+  footprint over time to back the low-rss claim.
+- synthetic transactions smokemon/probes/synthetic.py (X6): opt-in (SMOKEMON_SYNTHETIC=1)
+  scripted checks beyond single-shot probes - captive-portal / interception detection
+  (expects a 204 no-content) and a dns-over-https resolution check. new additive
+  synthetic_samples table; runs on the slow tier; smokemon-synthetic entry point. pure urllib.
+- sonification (X2): --bell on smoke live/kiosk rings the terminal bell once on each
+  transition into an unhealthy state (kiosk audible alerting).
+- bufferbloat grade (QW1): probes/iperf.py now parses the per-stream tcp rtt iperf3 reports
+  (end.streams[].sender.mean_rtt) and stores it in the new additive
+  iperf_samples.rtt_under_load_ms column. the renderers compare it against the idle ping
+  baseline (largest per-target median) and annotate the iperf panel with a dslreports-style
+  A+..F grade and the added latency under load.
+- http layer-blame (QW2): the http panel names the dominant latency layer (dns / tcp connect
+  / tls / server wait) by decomposing curl's cumulative phase timestamps already stored in
+  http_samples. no schema change.
+- death clocks (QW4): render-side linear extrapolation of disk_samples.used_pct (disk-full
+  countdown), disk_health.wear_pct (sd/emmc wear countdown), and cpu-temp headroom to the
+  throttle threshold (SMOKEMON_THROTTLE_TEMP, default 80C). surfaced as compact ~14d / ~3y /
+  25C to throttle annotations on the disk and host panel titles.
+- macos implementations for thermal / power / tcp panels (previously linux-only):
+  - thermal: pmset -g therm -> cpu_speed_limit_pct pseudo-zone (100 = no thermal throttling,
+    less means the kernel is capping clock speed for heat).
+  - power: ioreg -rc AppleSmartBattery -> single battery rail with watts / volts / amps.
+    empty on desktops (no battery).
+  - tcp: netstat -s -p tcp and -p udp parsed for retransmits, rsts, rexmit drops, udp bad
+    checksums, udp no-socket drops. conntrack remains none (pf state count needs root).
+  - host panel also gets swap_used_pct (sysctl vm.swapusage) and cache_mb (vm_stat
+    file-backed pages) on macos.
+- linux-only by design: psi (no equivalent on macos without sudo powermetrics) and freq
+  (apple silicon does not expose per-core clock speed without sudo).
 
-- **Concurrent-upgrade crash**: `ensure_body_columns` and `ensure_node_column` now guard each `ALTER TABLE ADD COLUMN` against `duplicate column name`. On an in-place upgrade the two collector daemons (plus iperf) race the migration; the loser would hit that error, which is `SQLITE_ERROR` not `SQLITE_BUSY`, so `busy_timeout` does not retry it and the daemon would crash before its scheduler started.
-- **macOS TCP metrics**: `netstat -s` parsing is now plural-tolerant (`data packets`/`bytes`, `connections dropped`), so `retrans_segs`/`estab_resets` populate for real counts instead of reading NULL for anything above zero.
-- **Jetson power**: guarded the `os.listdir` of the INA3221 sysfs directory so a device unbind/suspend mid-cycle no longer raises and skips that cycle's host inserts.
+fixed:
 
-### Internal
+- concurrent-upgrade crash: ensure_body_columns and ensure_node_column now guard each ALTER
+  TABLE ADD COLUMN against duplicate column name. on an in-place upgrade the two collector
+  daemons (plus iperf) race the migration; the loser would hit that error, which is
+  SQLITE_ERROR not SQLITE_BUSY, so busy_timeout does not retry it and the daemon would crash
+  before its scheduler started.
+- macos tcp metrics: netstat -s parsing is now plural-tolerant (data packets/bytes,
+  connections dropped), so retrans_segs/estab_resets populate for real counts instead of
+  reading null for anything above zero.
+- jetson power: guarded the os.listdir of the INA3221 sysfs directory so a device
+  unbind/suspend mid-cycle no longer raises and skips that cycle's host inserts.
 
-- Hoisted the Pi `vcgencmd` throttle-bit labels and decode into a single `query.pi_bits_seen()` helper, shared by both renderers (the PNG and TUI copies had drifted apart).
+internal:
 
-## [0.11.0] - 2026-05-28
+- hoisted the pi vcgencmd throttle-bit labels and decode into a single query.pi_bits_seen()
+  helper, shared by both renderers (the png and tui copies had drifted apart).
+```
 
-### Added
+```
+== 0.11.0 - 2026-05-28  rich host metrics + grid layout ==
 
-- **PSI metrics**: `psi_cpu`, `psi_mem`, `psi_io` (10-second rolling averages from `/proc/pressure/*`) in `host_samples`. Early-warning signal for latency before resources hit 100%.
-- **Memory pressure**: `swap_used_pct`, `cache_mb`, `oom_kill_count` in `host_samples`.
-- **CPU frequency + throttle**: `cpu_freq_mhz`, `cpu_throttle_count`, `pi_throttle_bits` in `host_samples`. Detects silent perf regressions (100% busy at 600 MHz looks the same as at 1500 MHz). The Pi bit field (from `vcgencmd get_throttled`) is sampled on a 5-minute slow tier.
-- **Thermal zones table** `thermal_zones (ts, zone, temp_c)`: every zone sampled individually (Jetson has ~10). The legacy `temp_c` column in `host_samples` still carries the max-of-zones for back-compat.
-- **Power rails table** `power_samples (ts, rail, watts, volts, amps)`: Jetson INA3221 i2c readings (`/sys/bus/i2c/drivers/ina3221x/*`).
-- **TCP/UDP/conntrack table** `tcp_samples`: kernel counters from `/proc/net/snmp` + conntrack fill from `/proc/sys/net/netfilter/nf_conntrack_*`.
-- **Disk health table** `disk_health`: SD/eMMC wear-level (`/sys/block/mmcblk*/device/life_time`) on a 60-minute very-slow tier.
-- **WiFi extras**: `bssid`, `retry_count`, `discard_count`, `beacon_loss` in `wifi_samples`. Roams across BSSIDs are summarised in the render.
-- **Inode usage**: `inode_used_pct` in `disk_samples`.
-- **Grid layout for plots**: PNG and TUI auto-arrange panels in a 2-column grid when there are >=3 panels and the canvas is wide enough. `--cols N` forces a specific count.
-- **Five new panels**: `thermal`, `power`, `tcp`, `psi`, `freq`. All optional and selected via `--panels`.
-- **Migration**: `ensure_body_columns()` ALTERs in any missing body columns on existing tables, so upgrades from older DBs are transparent (old rows get NULL for new columns).
+added:
 
-### Changed
+- psi metrics: psi_cpu, psi_mem, psi_io (10-second rolling averages from /proc/pressure/*)
+  in host_samples. early-warning signal for latency before resources hit 100%.
+- memory pressure: swap_used_pct, cache_mb, oom_kill_count in host_samples.
+- cpu frequency + throttle: cpu_freq_mhz, cpu_throttle_count, pi_throttle_bits in
+  host_samples. detects silent perf regressions (100% busy at 600 MHz looks the same as at
+  1500 MHz). the pi bit field (vcgencmd get_throttled) is sampled on a 5-minute slow tier.
+- thermal zones table thermal_zones (ts, zone, temp_c): every zone sampled individually
+  (jetson has ~10). the legacy temp_c column in host_samples still carries the max-of-zones
+  for back-compat.
+- power rails table power_samples (ts, rail, watts, volts, amps): jetson INA3221 i2c
+  readings (/sys/bus/i2c/drivers/ina3221x/*).
+- tcp/udp/conntrack table tcp_samples: kernel counters from /proc/net/snmp + conntrack fill
+  from /proc/sys/net/netfilter/nf_conntrack_*.
+- disk health table disk_health: sd/emmc wear-level (/sys/block/mmcblk*/device/life_time) on
+  a 60-minute very-slow tier.
+- wifi extras: bssid, retry_count, discard_count, beacon_loss in wifi_samples. roams across
+  bssids are summarised in the render.
+- inode usage: inode_used_pct in disk_samples.
+- grid layout for plots: png and tui auto-arrange panels in a 2-column grid when there are
+  >=3 panels and the canvas is wide enough. --cols N forces a specific count.
+- five new panels: thermal, power, tcp, psi, freq. all optional and selected via --panels.
+- migration: ensure_body_columns() ALTERs in any missing body columns on existing tables, so
+  upgrades from older dbs are transparent (old rows get null for new columns).
 
-- **Ping percentiles pre-aggregated**: `rtt_p25` and `rtt_p75` are computed at insert time. `load_ping_smoke` reads them straight from `ping_runs` instead of scanning `ping_rtts`. Old rows fall back to a JOIN-based percentile calculation against a temp-id table (no IN-list variable limit).
-- **Hub ingest** uses `executemany` for all non-ping tables (per-row execute is kept only for `ping_runs` where `lastrowid` is needed for the run_map). ~30-40% faster ingest on Pi-class hardware.
-- **`load_net` uses SQL `LAG()`** for in-database delta computation when SQLite >= 3.25; falls back to the Python loop otherwise.
-- **`host._procs_linux`** uses `os.scandir("/proc")` instead of `os.listdir`.
-- **`probes/http.py`** caches the `curl` path at import (was resolved on every probe).
+changed:
 
-## [0.10.0] - 2026-05-28
+- ping percentiles pre-aggregated: rtt_p25 and rtt_p75 are computed at insert time.
+  load_ping_smoke reads them straight from ping_runs instead of scanning ping_rtts. old rows
+  fall back to a join-based percentile calculation against a temp-id table (no in-list
+  variable limit).
+- hub ingest uses executemany for all non-ping tables (per-row execute is kept only for
+  ping_runs where lastrowid is needed for the run_map). ~30-40% faster ingest on pi-class
+  hardware.
+- load_net uses sql LAG() for in-database delta computation when sqlite >= 3.25; falls back
+  to the python loop otherwise.
+- host._procs_linux uses os.scandir("/proc") instead of os.listdir.
+- probes/http.py caches the curl path at import (was resolved on every probe).
+```
 
-### Changed
+```
+== 0.10.0 - 2026-05-28  package refactor ==
 
-- **Package refactor**: flat scripts collapsed into a `smokemon/` package - `config` (env/NODE/paths), `core` (log/connect/signals/run_scheduler), `schema` (single-source DDL, generic insert), `adapters/{darwin,linux}`, `probes/{ping,net,http,mtr,wifi,iperf,host}`, `collect` (one daemon, group fast|slow|all), `ship`, `hub`, `query` (shared loaders + `--node`), `render/{tui,png}`, `cli` (`smoke` subcommands).
-- 3 collector daemons collapsed to 2 (`fast`=ping/net; `slow`=http/mtr/wifi/host). `live.sh`/`daily_graph.sh` replaced by `smoke live`/`smoke kiosk`/`smoke daily`.
-- Deduplication: schema, daemon loop, plot loaders, and a duplicate `wifi_probe` all consolidated. Net caches the Tailscale interface for 5 minutes. Hub uses `ThreadingHTTPServer` + write lock.
-- Entry points: `python -m smokemon.*` (PYTHONPATH=repo, no install needed).
+changed:
 
-## [0.9.0] - 2026-05-28
+- package refactor: flat scripts collapsed into a smokemon/ package - config (env/node/
+  paths), core (log/connect/signals/run_scheduler), schema (single-source ddl, generic
+  insert), adapters/{darwin,linux}, probes/{ping,net,http,mtr,wifi,iperf,host}, collect (one
+  daemon, group fast|slow|all), ship, hub, query (shared loaders + --node), render/{tui,png},
+  cli (smoke subcommands).
+- 3 collector daemons collapsed to 2 (fast=ping/net; slow=http/mtr/wifi/host). live.sh/
+  daily_graph.sh replaced by smoke live/kiosk/daily.
+- deduplication: schema, daemon loop, plot loaders, and a duplicate wifi_probe all
+  consolidated. net caches the tailscale interface for 5 minutes. hub uses
+  ThreadingHTTPServer + write lock.
+- entry points: python -m smokemon.* (PYTHONPATH=repo, no install needed).
+```
 
-### Added
+```
+== 0.9.0 - 2026-05-28  cross-platform + central aggregation ==
 
-- **Cross-platform adapters** (`platform.system()` dispatch): Linux paths use `/proc/net/dev`, `tailscale0` (or `100.64.0.0/10` scan via `ip`), `iw dev` + `/proc/net/wireless`. macOS paths unchanged. CLI tool paths resolved via env -> `shutil.which`.
-- **Node dimension**: every table gains a `node` column (defaults to hostname, override via `SMOKEMON_NODE`). Additive migration (ALTER + backfill) so node and hub DBs share one schema -> one plotter codebase.
-- **Host health collector** @30s. Linux: cpu (`/proc/stat`), load, mem (`/proc/meminfo`), temp (`/sys/class/thermal`, incl. Jetson), disk used (`statvfs`) + IO (`/proc/diskstats`), top-N procs (`/proc/<pid>/stat`). macOS subset. New tables: `host_samples`, `disk_samples`, `proc_samples`.
-- **Central aggregation (push)**: shipper drains new rows per table (delta by id, cursor in `ship_state`) and POSTs to the hub. Hub writes `smokemon-hub.db` with `node` + `src_id`, `UNIQUE(node, src_id)` + `INSERT OR IGNORE` in one transaction = idempotent. `ping_rtts` remapped to hub run ids, inserted only for newly-inserted runs. Shared-secret header `X-Smokemon-Key`.
-- **Plotters**: `--node` filter (required on hub DB). Host + disk panels. matplotlib stays hub-only so nodes need only python3 stdlib + `plotext` (TUI).
-- **Linux deploy**: `install.sh` (apt deps, `setcap cap_net_raw` on fping/mtr to skip sudo, `/etc/smokemon.env`, systemd units). macOS launchd plists.
+added:
 
-## [0.8.0] - 2026-05-28
+- cross-platform adapters (platform.system() dispatch): linux paths use /proc/net/dev,
+  tailscale0 (or 100.64.0.0/10 scan via ip), iw dev + /proc/net/wireless. macos paths
+  unchanged. cli tool paths resolved via env -> shutil.which.
+- node dimension: every table gains a node column (defaults to hostname, override via
+  SMOKEMON_NODE). additive migration (alter + backfill) so node and hub dbs share one schema
+  -> one plotter codebase.
+- host health collector @30s. linux: cpu (/proc/stat), load, mem (/proc/meminfo), temp
+  (/sys/class/thermal, incl. jetson), disk used (statvfs) + io (/proc/diskstats), top-n procs
+  (/proc/<pid>/stat). macos subset. new tables: host_samples, disk_samples, proc_samples.
+- central aggregation (push): shipper drains new rows per table (delta by id, cursor in
+  ship_state) and posts to the hub. hub writes smokemon-hub.db with node + src_id,
+  UNIQUE(node, src_id) + INSERT OR IGNORE in one transaction = idempotent. ping_rtts remapped
+  to hub run ids, inserted only for newly-inserted runs. shared-secret header X-Smokemon-Key.
+- plotters: --node filter (required on hub db). host + disk panels. matplotlib stays hub-only
+  so nodes need only python3 stdlib + plotext (tui).
+- linux deploy: install.sh (apt deps, setcap cap_net_raw on fping/mtr to skip sudo,
+  /etc/smokemon.env, systemd units). macos launchd plists.
+```
 
-### Changed
+```
+== 0.8.0 - 2026-05-28  span-scaled png ==
 
-- **PNG width scales with time span** (~2 inches per hour, clamp 16-80"). Every 10s sample stays horizontally distinguishable. dpi lowered 130 -> 96 (granularity from width, not pixel density). 24h = ~4608xN px (~1 MB). New flags: `--width`, `--dpi`.
+changed:
 
-## [0.7.0] - 2026-05-28
+- png width scales with time span (~2 inches per hour, clamp 16-80"). every 10s sample stays
+  horizontally distinguishable. dpi lowered 130 -> 96 (granularity from width, not pixel
+  density). 24h = ~4608xN px (~1 MB). new flags: --width, --dpi.
+```
 
-### Changed
+```
+== 0.7.0 - 2026-05-28  readable axes ==
 
-- X ticks formatted `%H:%M` (never seconds), Y integer ticks. HTTP labels strip TLD (`cloudflare.com` -> `cloudflare`). Loss marker switched from `X` to braille dot. HTTP lines use a fixed non-red palette (cyan/green/magenta) so they cannot be confused with red loss. Kiosk keeps a subtle gray frame, titles off.
+changed:
 
-## [0.6.0] - 2026-05-28
+- x ticks formatted %H:%M (never seconds), y integer ticks. http labels strip tld
+  (cloudflare.com -> cloudflare). loss marker switched from X to braille dot. http lines use
+  a fixed non-red palette (cyan/green/magenta) so they cannot be confused with red loss.
+  kiosk keeps a subtle gray frame, titles off.
+```
 
-### Added
+```
+== 0.6.0 - 2026-05-28  kiosk mode ==
 
-- **Kiosk mode** (`term_plot --kiosk`, `smokekiosk`): no legend/ticks/labels/title/header.
+added:
 
-## [0.5.0] - 2026-05-28
+- kiosk mode (term_plot --kiosk, smokekiosk): no legend/ticks/labels/title/header.
+```
 
-### Added
+```
+== 0.5.0 - 2026-05-28  active probes ==
 
-- **Active probes @60s**: HTTP timing via `curl -sI -w` (DNS/connect/TLS/TTFB/total), `mtr --json -c10` for per-hop loss/avg/best/worst/stddev, WiFi RSSI/noise/tx/channel via `system_profiler`. mtr requires passwordless sudo (or `setcap cap_net_raw` on Linux).
-- **iperf3 probe @900s**: `-J` (up) + `-R` (down). Consumes real bandwidth; requires `iperf3 -s` on the server.
-- **New tables**: `http_samples`, `mtr_hops`, `wifi_samples`, `iperf_samples`. 6 panel types.
+added:
 
-## [0.4.0] - 2026-05-28
+- active probes @60s: http timing via curl -sI -w (dns/connect/tls/ttfb/total), mtr --json
+  -c10 for per-hop loss/avg/best/worst/stddev, wifi rssi/noise/tx/channel via
+  system_profiler. mtr requires passwordless sudo (or setcap cap_net_raw on linux).
+- iperf3 probe @900s: -J (up) + -R (down). consumes real bandwidth; requires iperf3 -s on
+  the server.
+- new tables: http_samples, mtr_hops, wifi_samples, iperf_samples. 6 panel types.
+```
 
-### Added
+```
+== 0.4.0 - 2026-05-28  live window units ==
 
-- Live window units (`Nh`/`Nm`/bare-number minutes): `smokelive 24h 30`.
+added:
 
-## [0.3.0] - 2026-05-28
+- live window units (Nh/Nm/bare-number minutes): smokelive 24h 30.
+```
 
-### Added
+```
+== 0.3.0 - 2026-05-28  tailscale target ==
 
-- Third ping target reachable over the Tailscale interface. Tailscale interface auto-detected as the one with an address in `100.64.0.0/10`; label `tailscale` (survives utun renumbering across reboots).
+added:
 
-### Fixed
+- third ping target reachable over the tailscale interface. tailscale interface
+  auto-detected as the one with an address in 100.64.0.0/10; label tailscale (survives utun
+  renumbering across reboots).
 
-- `netstat -ibn` rows for MAC-less interfaces (utun) have 10 fields, not 11. The old code indexed columns wrong and silently skipped them; now we read the last 7 columns. utun was never captured before this.
+fixed:
 
-## [0.2.0] - 2026-05-28
+- netstat -ibn rows for mac-less interfaces (utun) have 10 fields, not 11. the old code
+  indexed columns wrong and silently skipped them; now we read the last 7 columns. utun was
+  never captured before this.
+```
 
-### Added
+```
+== 0.2.0 - 2026-05-28  tui + scheduling ==
 
-- **TUI**: plotext braille plot (replaced a chafa inline-image PoC).
-- **Live + scheduled**: `live.sh`, `daily_graph.sh` + launchd `StartCalendarInterval` at 23:55 -> `graphs/daily/`. Zsh helpers `smoke`/`smokelive`/`smokepng`.
+added:
 
-## [0.1.0] - 2026-05-28
+- tui: plotext braille plot (replaced a chafa inline-image poc).
+- live + scheduled: live.sh, daily_graph.sh + launchd StartCalendarInterval at 23:55 ->
+  graphs/daily/. zsh helpers smoke/smokelive/smokepng.
+```
 
-### Added
+```
+== 0.1.0 - 2026-05-28  core collector ==
 
-- **Core collector @10s**: `fping -C20 -p50` (latency/loss + every individual RTT) + `netstat -ibn` (cumulative bytes -> Mbit/s via delta/dt). Default targets `1.1.1.1`, `192.168.0.1`.
-- **SQLite WAL**: `ping_runs`, `ping_rtts`, `net_samples`. No pruning (~5-6 GB/year; long-term plan is rollup/compression, never deletion of raw data).
-- **PNG renderer**: matplotlib smoke-style plot (fill_between p0-p100 + p25-p75 + median + loss scatter).
+added:
 
-[Unreleased]: https://github.com/oovets/smokemon/compare/v0.11.0...HEAD
-[0.11.0]: https://github.com/oovets/smokemon/releases/tag/v0.11.0
-[0.10.0]: https://github.com/oovets/smokemon/releases/tag/v0.10.0
-[0.9.0]: https://github.com/oovets/smokemon/releases/tag/v0.9.0
-[0.8.0]: https://github.com/oovets/smokemon/releases/tag/v0.8.0
-[0.7.0]: https://github.com/oovets/smokemon/releases/tag/v0.7.0
-[0.6.0]: https://github.com/oovets/smokemon/releases/tag/v0.6.0
-[0.5.0]: https://github.com/oovets/smokemon/releases/tag/v0.5.0
-[0.4.0]: https://github.com/oovets/smokemon/releases/tag/v0.4.0
-[0.3.0]: https://github.com/oovets/smokemon/releases/tag/v0.3.0
-[0.2.0]: https://github.com/oovets/smokemon/releases/tag/v0.2.0
-[0.1.0]: https://github.com/oovets/smokemon/releases/tag/v0.1.0
+- core collector @10s: fping -C20 -p50 (latency/loss + every individual rtt) + netstat -ibn
+  (cumulative bytes -> mbit/s via delta/dt). default targets 1.1.1.1, 192.168.0.1.
+- sqlite wal: ping_runs, ping_rtts, net_samples. no pruning (~5-6 gb/year; long-term plan is
+  rollup/compression, never deletion of raw data).
+- png renderer: matplotlib smoke-style plot (fill_between p0-p100 + p25-p75 + median + loss
+  scatter).
+```

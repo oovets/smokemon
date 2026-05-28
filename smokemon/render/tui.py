@@ -225,6 +225,16 @@ def _build(selected, data):  # noqa: C901
             _ylabel("MHz")
             _int_yticks(d["mhz"])
         panels.append(draw_freq)
+    if "self" in selected and data.get("self"):
+        def draw_self(d=data["self"]):
+            plt.plot(d["t"], d["rss"], label=_L("rss MB"), color="magenta+", marker="braille")
+            plt.plot(d["t"], d["cpu"], label=_L("cpu%"), color="orange+", marker="braille")
+            rss = query.last_value(d["rss"])
+            tag = f"   rss {rss:.0f} MB" if rss is not None else ""
+            _title(f"smokemon self{tag}")
+            _ylabel("MB / %")
+            _int_yticks(d["rss"], d["cpu"])
+        panels.append(draw_self)
     return panels
 
 
@@ -241,13 +251,23 @@ def _grid_dims(n: int, cols_opt: int, term_cols: int) -> tuple[int, int]:
     return rows, cols
 
 
-def run(opts) -> int:
+def run(opts, *, capture: bool = False):
+    """Render the TUI once. With capture=True, return the frame as a string (or an
+    error/empty message) instead of printing it, so the live loop can repaint in
+    place without a screen-clear flicker."""
     global KIOSK
-    KIOSK = opts.kiosk
+    KIOSK = getattr(opts, "kiosk", False)
     if not os.path.exists(opts.db):
-        print(f"No database found: {opts.db}", file=sys.stderr)
+        msg = f"No database found: {opts.db}"
+        if capture:
+            return msg
+        print(msg, file=sys.stderr)
         return 1
     since, until = query.window(opts.hours, opts.minutes, opts.since, opts.until)
+    return _render(opts, since, until, capture=capture)
+
+
+def _render(opts, since, until, *, capture: bool = False):
     targets = [t.strip() for t in opts.targets.split(",")] if opts.targets else None
     sel = ALL_PANELS if opts.panels == "all" else [s.strip() for s in opts.panels.split(",")]
     node = opts.node
@@ -256,7 +276,10 @@ def run(opts) -> int:
     conn.close()
     panels = _build(sel, data)
     if not panels:
-        print("No data in selected time window.", file=sys.stderr)
+        msg = "No data in selected time window."
+        if capture:
+            return msg
+        print(msg, file=sys.stderr)
         return 2
     ticks, labels = _ticks(since, until)
     cols_term, lines = shutil.get_terminal_size(fallback=(120, 40))
@@ -280,5 +303,91 @@ def run(opts) -> int:
         else:
             plt.xticks(ticks, labels)
         draw()
+    if capture:
+        return plt.build()
     plt.show()
+    return 0
+
+
+# ---------- S1: DVR scrubber ----------
+
+
+def _replay_range(opts):
+    """(full_since, full_until) for replay. A bare date scrubs that whole day; a
+    datetime starts there and runs to now; otherwise the normal Nh/Nm window ending now."""
+    w = getattr(opts, "window", None)
+    if w:
+        try:
+            dt = datetime.fromisoformat(w)
+            if len(w) <= 10:  # date only -> the whole day
+                start = dt.timestamp()
+                return start, start + 86400
+            return dt.timestamp(), datetime.now().timestamp()
+        except ValueError:
+            from ..cli import _apply_window
+            _apply_window(opts, w)
+    return query.window(opts.hours, opts.minutes, opts.since, opts.until)
+
+
+def _read_key(fd) -> str:
+    """Blocking single keypress in raw mode; decodes arrow escape sequences to
+    'left'/'right' and passes through plain chars."""
+    ch = os.read(fd, 1).decode(errors="ignore")
+    if ch == "\x1b":
+        seq = os.read(fd, 2).decode(errors="ignore")
+        return {"[C": "right", "[D": "left", "[A": "up", "[B": "down"}.get(seq, "esc")
+    return ch
+
+
+def replay(opts) -> int:
+    """Replay a historical window like a tape deck: a sliding playhead frame the user
+    scrubs with left/right (vim h/l), step with up/down, q to quit. Raw data is kept
+    forever, so any past window is reachable. Requires a TTY."""
+    global KIOSK
+    KIOSK = False
+    opts.reserve = 2
+    if not os.path.exists(opts.db):
+        print(f"No database found: {opts.db}", file=sys.stderr)
+        return 1
+    if not sys.stdin.isatty():
+        print("replay needs an interactive terminal (TTY).", file=sys.stderr)
+        return 1
+    import termios
+    import tty
+
+    full_since, full_until = _replay_range(opts)
+    frame = max(60.0, opts.frame * 60.0)
+    step = frame / 4.0
+    head = full_until  # playhead = right edge of the visible frame; start at the end
+
+    fd = sys.stdin.fileno()
+    saved = termios.tcgetattr(fd)
+    sys.stdout.write("\033[?25l")
+    try:
+        tty.setraw(fd)
+        while True:
+            head = max(full_since + frame, min(full_until, head))
+            since, until = head - frame, head
+            os.write(1, b"\033[2J\033[H")
+            pos = (head - full_since) / (full_until - full_since) if full_until > full_since else 1.0
+            bar = "#" * int(pos * 30)
+            print(f"REPLAY {datetime.fromtimestamp(since):%Y-%m-%d %H:%M} → "
+                  f"{datetime.fromtimestamp(until):%H:%M}  [{bar:<30}]  "
+                  f"←/→ scrub · ↑/↓ step · q quit\r")
+            _render(opts, since, until)
+            sys.stdout.write("\r")
+            key = _read_key(fd)
+            if key in ("q", "esc", "\x03"):
+                break
+            if key in ("right", "l"):
+                head += step
+            elif key in ("left", "h"):
+                head -= step
+            elif key == "up":
+                step = min(frame, step * 2)
+            elif key == "down":
+                step = max(10.0, step / 2)
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, saved)
+        sys.stdout.write("\033[?25h\n")
     return 0

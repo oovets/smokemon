@@ -29,6 +29,7 @@ _VSLOW_INTERVAL = 3600.0   # SD wear-level cadence
 
 _prev_cpu: tuple[int, int] | None = None
 _prev_proc: dict[str, int] = {}
+_prev_self_cpu: float | None = None
 _prev_diskio: tuple[int, int, float] | None = None
 _last = 0.0
 _slow_last = 0.0
@@ -527,6 +528,39 @@ def _disks() -> list[dict]:
     return out
 
 
+# ---------- S5: self-instrumentation ----------
+
+def _self_rss_mb(ru) -> float | None:
+    """Current resident set of this daemon (MB). Linux exposes the live value in
+    /proc/self/statm; elsewhere fall back to ru_maxrss (peak), whose unit differs by
+    platform (Linux=KiB, macOS/BSD=bytes)."""
+    if _SYS == "Linux":
+        try:
+            with open("/proc/self/statm") as f:
+                return round(int(f.read().split()[1]) * _PAGE / 1e6, 1)
+        except (OSError, ValueError, IndexError):
+            return round(ru.ru_maxrss / 1024, 1)
+    return round(ru.ru_maxrss / 1e6, 1)
+
+
+def _self_proc(dt: float) -> dict | None:
+    """smokemon's own footprint as a proc_samples row named 'smokemon'. The top-N
+    sampler would usually miss it (low cpu), so we record it explicitly - this is what
+    backs the `self` panel that proves the low-RSS claim. cpu% is the delta of cumulative
+    user+system CPU seconds over dt. Read-only of our own /proc, stdlib."""
+    global _prev_self_cpu
+    try:
+        ru = resource.getrusage(resource.RUSAGE_SELF)
+    except (OSError, ValueError):
+        return None
+    cpu_secs = ru.ru_utime + ru.ru_stime
+    cpu_pct = None
+    if _prev_self_cpu is not None and dt > 0:
+        cpu_pct = round(max(0.0, 100.0 * (cpu_secs - _prev_self_cpu) / dt), 1)
+    _prev_self_cpu = cpu_secs
+    return {"pid": os.getpid(), "name": "smokemon", "cpu_pct": cpu_pct, "rss_mb": _self_rss_mb(ru)}
+
+
 # ---------- Main collect() ----------
 
 def collect(conn) -> None:
@@ -581,7 +615,8 @@ def collect(conn) -> None:
         "cpu_freq_mhz": cpu_freq, "cpu_throttle_count": throttle, "pi_throttle_bits": pi_bits,
     }])
     schema.insert(conn, "disk_samples", [{"ts": ts, **d} for d in _disks()])
-    schema.insert(conn, "proc_samples", [{"ts": ts, **p} for p in procs])
+    self_proc = _self_proc(dt)  # S5: always record our own footprint, not just top-N
+    schema.insert(conn, "proc_samples", [{"ts": ts, **p} for p in (procs + ([self_proc] if self_proc else []))])
     if zones:
         schema.insert(conn, "thermal_zones", [{"ts": ts, "zone": z, "temp_c": t} for z, t in zones.items()])
     if rails:

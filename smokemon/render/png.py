@@ -204,6 +204,20 @@ def _build(selected, data):  # noqa: C901 -- straight-line dispatch, intentional
                         fontsize=8, color="#d62728", ha="right", va="bottom",
                         bbox=dict(facecolor="white", alpha=0.7, edgecolor="#d62728", lw=0.5))
         panels.append(draw_freq)
+    if "self" in selected and data.get("self"):
+        def draw_self(ax, d=data["self"]):
+            t = _dt(d["t"])
+            ax.plot(t, d["rss"], color="#9467bd", lw=0.9, label="rss MB")
+            rss = query.last_value(d["rss"])
+            tag = f"   rss {rss:.0f} MB now" if rss is not None else ""
+            ax.set_title(f"smokemon self-footprint{tag}", loc="left", fontsize=10, fontweight="bold")
+            ax.set_ylabel("MB"); ax.set_ylim(bottom=0)
+            if any(v is not None and v > 0 for v in d["cpu"]):
+                ax2 = ax.twinx()
+                ax2.plot(t, d["cpu"], color="#ff7f0e", lw=0.7, label="cpu %")
+                ax2.set_ylabel("cpu %", color="#ff7f0e"); ax2.set_ylim(bottom=0)
+                ax2.tick_params(axis="y", labelcolor="#ff7f0e")
+        panels.append(draw_self)
     return panels
 
 

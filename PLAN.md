@@ -1,8 +1,17 @@
 # smokemon - ideas roadmap
 
 an idea catalog, not a commitment. creative directions worth building, ordered by leverage.
-nothing here is started; entries become real work only when promoted into the changelog and
-code. the thread running through all of it: smokemon's untapped edge is synchronized
+entries become real work only when promoted into the changelog and code.
+
+status (see CHANGELOG [Unreleased]): QW1-4, F1-F3, P1-P3, S1-S5, X2, X5, X6 are now
+implemented. analysis lives in the read-only hub-side `smokemon/analyze.py`; text surfaces
+in `smokemon/report.py` (`smoke status|incidents|digest`, `smoke replay`); alerting in
+`smokemon/notify.py`; hub `/metrics` + `/api/*` in `smokemon/hubapi.py`; the `self` panel
+and the opt-in `smokemon/probes/synthetic.py` round out the node side. Deferred (need
+hardware / a GPU / a multi-day redesign, can't be built+verified blind): X1 (gpio/led),
+X3 (jetson on-device ml), X4 (hubless mesh gossip).
+
+the thread running through all of it: smokemon's untapped edge is synchronized
 multi-signal data on one timeline per node. smokeping sees only the network, netdata only the
 host, wifi tools only the radio - smokemon already stores ping loss/rtt-spread, bandwidth,
 http layer breakdown, per-hop mtr, wifi rssi/roams, iperf throughput, cpu/mem/temp/psi/freq,

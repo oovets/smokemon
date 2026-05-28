@@ -529,6 +529,19 @@ def wear_eta(health_data: dict) -> tuple[str, float] | None:
     return _soonest_eta(health_data, "wear", 100.0)
 
 
+def load_self(conn, since, until, node=None):
+    """S5: smokemon's own rss/cpu over time, from the proc_samples rows the host probe
+    records for itself (name='smokemon'). Proves the low-RSS claim - the monitor shows
+    up in its own data."""
+    nf, np_ = _filt(node)
+    d: dict = {"t": [], "rss": [], "cpu": []}
+    for ts, cpu, rss in _q(conn, "SELECT ts, cpu_pct, rss_mb FROM proc_samples "
+                           "WHERE name='smokemon' AND ts BETWEEN ? AND ?" + nf + " ORDER BY ts",
+                           [since, until, *np_]):
+        d["t"].append(ts); d["cpu"].append(cpu); d["rss"].append(rss)
+    return d if d["t"] else {}
+
+
 def load_all(conn, since, until, targets, node, sel, ping_loader):
     """Load every selected panel's series in one place so the TUI and PNG renderers
     cannot drift apart when a panel is added. The only per-renderer difference is the
@@ -550,4 +563,5 @@ def load_all(conn, since, until, targets, node, sel, ping_loader):
         "tcp":     load_tcp(conn, since, until, node) if "tcp" in sel else {},
         "psi":     load_psi(conn, since, until, node) if "psi" in sel else {},
         "freq":    load_freq(conn, since, until, node) if "freq" in sel else {},
+        "self":    load_self(conn, since, until, node) if "self" in sel else {},
     }

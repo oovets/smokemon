@@ -7,8 +7,9 @@ import json
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlparse
 
-from . import config, core, schema
+from . import config, core, hubapi, schema
 
 _conn = None
 _lock = threading.Lock()  # serialize writes to the single sqlite connection
@@ -92,6 +93,45 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _send_text(self, code: int, body: str, content_type: str) -> None:
+        data = body.encode()
+        self.send_response(code)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def do_GET(self):  # noqa: N802
+        """Read-only S2/S3 surfaces. The hub shares one sqlite connection across threads,
+        so every read takes the same write lock the ingest path uses."""
+        u = urlparse(self.path)
+        qs = parse_qs(u.query)
+        hours = float(qs.get("hours", ["24"])[0])
+        try:
+            if u.path == "/metrics":
+                with _lock:
+                    text = hubapi.prometheus(_conn)
+                return self._send_text(200, text, "text/plain; version=0.0.4; charset=utf-8")
+            if u.path in ("/", "/health"):
+                return self._send(200, {"ok": True, "service": "smokemon-hub"})
+            if u.path == "/api/nodes":
+                with _lock:
+                    return self._send(200, {"nodes": hubapi.nodes(_conn)})
+            if u.path == "/api/latest":
+                with _lock:
+                    return self._send(200, hubapi.latest_metrics(_conn))
+            if u.path == "/api/fleet":
+                with _lock:
+                    return self._send(200, {"fleet": hubapi.fleet(_conn, hours)})
+            if u.path == "/api/heatmap":
+                metric = qs.get("metric", ["loss"])[0]
+                with _lock:
+                    return self._send(200, hubapi.heatmap(_conn, metric, hours))
+        except Exception as e:  # noqa: BLE001
+            core.log(f"GET {u.path} error: {e!r}")
+            return self._send(500, {"error": str(e)})
+        return self._send(404, {"error": "not found"})
+
     def do_POST(self):  # noqa: N802
         if self.path != "/ingest":
             return self._send(404, {"error": "not found"})
@@ -120,7 +160,8 @@ def main() -> int:
     _hub_cols.update({t: {r[1] for r in _conn.execute(f"PRAGMA table_info({t})").fetchall()}
                       for t in schema.STD_TABLES})
     srv = ThreadingHTTPServer((config.HUB_BIND, config.HUB_PORT), Handler)
-    core.log(f"hub ingest listening on {config.HUB_BIND}:{config.HUB_PORT} db={config.HUB_DB}")
+    core.log(f"hub listening on {config.HUB_BIND}:{config.HUB_PORT} db={config.HUB_DB} "
+             "(POST /ingest · GET /metrics /api/latest /api/fleet /api/heatmap /api/nodes)")
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
