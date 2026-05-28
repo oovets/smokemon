@@ -50,7 +50,7 @@ def test_runs():
 def test_classify_target():
     assert analyze.classify_target("192.168.0.1") == "gw"
     assert analyze.classify_target("10.0.0.1") == "gw"
-    assert analyze.classify_target("100.87.219.2") == "tailscale"
+    assert analyze.classify_target("100.100.100.100") == "tailscale"
     assert analyze.classify_target("1.1.1.1") == "internet"
     # label-driven (config maps 192.168.0.1 -> gw, 1.1.1.1 -> internet)
     assert analyze.classify_target("1.1.1.1") == "internet"

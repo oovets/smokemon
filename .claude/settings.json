@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "mcp__morph-mcp__codebase_search",
-      "Bash(system_profiler *)"
-    ]
-  }
-}

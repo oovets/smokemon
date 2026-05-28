@@ -3,23 +3,23 @@
 <!-- ping + net every 10s. bootstrap: launchctl bootstrap gui/$(id -u) <this> -->
 <plist version="1.0">
 <dict>
-    <key>Label</key><string>com.stefan.smokemon-collect-fast</string>
+    <key>Label</key><string>com.smokemon.collect-fast</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/opt/anaconda3/bin/python3</string>
+        <string>/usr/bin/python3</string>
         <string>-m</string><string>smokemon.collect</string><string>fast</string>
     </array>
-    <key>WorkingDirectory</key><string>/Users/stefan/smokemon</string>
+    <key>WorkingDirectory</key><string>/Users/YOUR_USERNAME/smokemon</string>
     <key>EnvironmentVariables</key>
     <dict>
-        <key>PYTHONPATH</key><string>/Users/stefan/smokemon</string>
+        <key>PYTHONPATH</key><string>/Users/YOUR_USERNAME/smokemon</string>
         <key>PATH</key><string>/opt/homebrew/bin:/opt/homebrew/sbin:/usr/bin:/bin:/usr/sbin:/sbin</string>
         <key>SMOKEMON_TARGETS</key><string>1.1.1.1,192.168.0.1</string>
     </dict>
     <key>RunAtLoad</key><true/>
     <key>KeepAlive</key><true/>
     <key>ProcessType</key><string>Background</string>
-    <key>StandardOutPath</key><string>/Users/stefan/smokemon/logs/collect-fast.out.log</string>
-    <key>StandardErrorPath</key><string>/Users/stefan/smokemon/logs/collect-fast.err.log</string>
+    <key>StandardOutPath</key><string>/Users/YOUR_USERNAME/smokemon/logs/collect-fast.out.log</string>
+    <key>StandardErrorPath</key><string>/Users/YOUR_USERNAME/smokemon/logs/collect-fast.err.log</string>
 </dict>
 </plist>

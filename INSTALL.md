@@ -90,12 +90,15 @@ sudo tee /etc/sudoers.d/smokemon >/dev/null <<EOF
 $(whoami) ALL=(root) NOPASSWD: $(command -v mtr)
 EOF
 
+# the plists are templates: replace /Users/YOUR_USERNAME with your home dir (and the
+# python path if not /usr/bin/python3) before bootstrapping.
+sed -i '' "s#/Users/YOUR_USERNAME#$HOME#g" deploy/launchd/*.plist
 cp deploy/launchd/*.plist ~/Library/LaunchAgents/
 for s in collect-fast collect-slow iperf daily; do
-    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.stefan.smokemon-$s.plist
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.smokemon.$s.plist
 done
 # optional shipper (edit SMOKEMON_HUB_URL + SMOKEMON_HUB_SECRET first) and hub:
-#   launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.stefan.smokemon-{shipper,hub}.plist
+#   launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.smokemon.{shipper,hub}.plist
 ```
 
 services: `collect-fast` (RunAtLoad+KeepAlive), `collect-slow` (KeepAlive), `iperf`
@@ -122,7 +125,7 @@ sudo ./install.sh --hub --secret SHARED_SECRET
 #   apt: iperf3 + python3-matplotlib + python3-numpy; writes /etc/smokemon.env
 #   (SMOKEMON_HUB_DB, HUB_BIND=0.0.0.0, HUB_PORT=8765, HUB_SECRET); enables smokemon-hub.
 
-# macOS: use deploy/launchd/com.stefan.smokemon-hub.plist (set SMOKEMON_HUB_SECRET, bind a
+# macOS: use deploy/launchd/com.smokemon.hub.plist (set SMOKEMON_HUB_SECRET, bind a
 # private address), then launchctl bootstrap it.
 ```
 
@@ -236,7 +239,7 @@ db growth               ~5-6 GB/yr; aggregate to lower resolution, do not delete
 
 ```
 macOS
-  for p in ~/Library/LaunchAgents/com.stefan.smokemon*.plist; do
+  for p in ~/Library/LaunchAgents/com.smokemon.*.plist; do
       launchctl bootout gui/$(id -u) "$p"; rm -f "$p"
   done                                  # data/ and logs/ remain
 
