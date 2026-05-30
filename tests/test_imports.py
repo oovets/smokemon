@@ -22,6 +22,8 @@ NODE_MODULES = [
     "smokemon.probes.wifi",
     "smokemon.probes.iperf",
     "smokemon.probes.host",
+    "smokemon.probes.ext",
+    "smokemon.probes.redisq",
 ]
 
 

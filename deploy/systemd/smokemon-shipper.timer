@@ -1,9 +1,9 @@
 [Unit]
-Description=smokemon shipper every 60s
+Description=smokemon shipper every 15s
 
 [Timer]
-OnBootSec=30
-OnUnitActiveSec=60
+OnBootSec=15
+OnUnitActiveSec=15
 Persistent=true
 
 [Install]

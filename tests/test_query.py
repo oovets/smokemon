@@ -40,6 +40,15 @@ def _seed_minimal(conn, ts0):
         schema.insert(conn, "power_samples", [{
             "ts": ts, "rail": "VDD_CPU", "watts": 1.2, "volts": 0.85, "amps": 1.4,
         }])
+        schema.insert(conn, "gpu_samples", [{
+            "ts": ts, "gpu": "gpu.0", "util_pct": 10.0 + i, "freq_mhz": 918.0,
+        }])
+        schema.insert(conn, "redis_samples", [
+            {"ts": ts, "instance": "127.0.0.1:6379", "stream": "__server__",
+             "connected": 1, "used_memory_mb": 12.0 + i, "xlen": None, "pending": None},
+            {"ts": ts, "instance": "127.0.0.1:6379", "stream": "scanner:stats",
+             "connected": 1, "used_memory_mb": None, "xlen": 100 + i, "pending": i},
+        ])
         schema.insert(conn, "net_samples", [{
             "ts": ts, "iface": "eth0",
             "ibytes": i * 10_000_000, "obytes": i * 5_000_000,
@@ -95,6 +104,13 @@ def test_loaders_return_data(tmp_db, ts0):
     power = query.load_power(conn, since, until)
     assert "VDD_CPU" in power
 
+    gpu = query.load_gpu(conn, since, until)
+    assert gpu["gpu.0"]["util"][0] == 10.0
+
+    redis = query.load_redis(conn, since, until)
+    assert redis["server"]["127.0.0.1:6379"]["mem"][0] == 12.0
+    assert redis["streams"]["127.0.0.1:6379 scanner:stats"]["xlen"][-1] == 104
+
     psi = query.load_psi(conn, since, until)
     assert len(psi["t"]) == 5
 
@@ -104,6 +120,9 @@ def test_loaders_return_data(tmp_db, ts0):
 
     net = query.load_net(conn, since, until)
     assert "eth0" in net
+
+    all_data = query.load_all(conn, since, until, None, None, ["gpu", "redis"], query.load_ping_agg)
+    assert all_data["gpu"] and all_data["redis"]
 
     conn.close()
 

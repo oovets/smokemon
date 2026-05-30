@@ -79,6 +79,11 @@ added:
   http (--hub-url) so it works from any terminal; live repaint reuses the smoke live loop
   (--refresh, --bell on any down/stale). no --node needed - it shows the whole fleet.
 
+- smoke footprint: read-only, pure-stdlib collector footprint report for node DBs (or
+  --node on a hub DB). shows rows in the selected window, rows/day, SQLite bytes/day,
+  and a shipper wire estimate using the same compact JSON+gzip shape as POST /ingest;
+  --ship-rtts includes raw ping_rtts in the estimate.
+
 - self panel (S5): the host collector records its own rss/cpu each cycle (proc_samples row
   named smokemon, via resource + /proc/self/statm); a new self panel graphs smokemon's own
   footprint over time to back the low-rss claim.
@@ -87,6 +92,19 @@ added:
   scripted checks beyond single-shot probes - captive-portal / interception detection
   (expects a 204 no-content) and a dns-over-https resolution check. new additive
   synthetic_samples table; runs on the slow tier; smokemon-synthetic entry point. pure urllib.
+
+- lightweight external scrapes smokemon/probes/ext.py: opt-in SMOKEMON_EXT_HTTP endpoints
+  for local app health/json/openmetrics signals. bounded by interval, timeout, response
+  bytes, and metric caps; always stores up + latency_ms and only parses small JSON numeric
+  fields or explicit OpenMetrics allowlists. no Docker logs, journal tails, or continuous
+  log scanning on edge. new additive ext_metrics/ext_events tables; status/digest/incidents
+  can surface external check state and scrape-failure events.
+
+- native edge replacements for heavier Jetson monitors: host.py now reads Jetson GPU
+  util/frequency from sysfs/devfreq (no tegrastats/nvidia-smi), and probes/redisq.py adds
+  opt-in Redis stream health via tiny stdlib RESP socket reads (PING, INFO memory, XLEN,
+  optional XPENDING). new additive gpu_samples/redis_samples tables; status/digest can
+  surface GPU and Redis queue state.
 
 - sonification (X2): --bell on smoke live/kiosk rings the terminal bell once on each
   transition into an unhealthy state (kiosk audible alerting).

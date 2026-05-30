@@ -188,6 +188,27 @@ synthetic transactions (probes.synthetic, opt-in)
   SMOKEMON_DOH_NAME        name to resolve via DoH (default example.com)
   SMOKEMON_CAPTIVE_URL     204-no-content probe URL (default gstatic generate_204)
 
+external lightweight scrapes (probes.ext, opt-in)
+  SMOKEMON_EXT_HTTP        ; separated endpoints:
+                           name=url[|kind=json|metrics][|metrics=a,b,c]
+                           always stores up + latency_ms; JSON stores numeric fields,
+                           OpenMetrics requires an explicit metrics allowlist.
+                           example: app=http://127.0.0.1:8080/health
+  SMOKEMON_EXT_INTERVAL    seconds/cycle          (default 300)
+  SMOKEMON_EXT_TIMEOUT     seconds/request        (default 2)
+  SMOKEMON_EXT_MAX_BYTES   max response bytes     (default 256 KiB)
+  SMOKEMON_EXT_MAX_METRICS max parsed metrics/source/cycle (default 20)
+                           no log streaming, Docker scans, or journal tails on edge.
+
+redis stream health (probes.redisq, opt-in, stdlib socket/RESP; no redis-cli)
+  SMOKEMON_REDIS           1 = enable Redis health sampling (default 0/off)
+  SMOKEMON_REDIS_HOST      host                    (default 127.0.0.1)
+  SMOKEMON_REDIS_PORT      port                    (default 6379)
+  SMOKEMON_REDIS_TIMEOUT   seconds/request         (default 1)
+  SMOKEMON_REDIS_INTERVAL  seconds/cycle           (default 60)
+  SMOKEMON_REDIS_STREAMS   comma-separated streams for XLEN
+  SMOKEMON_REDIS_GROUPS    ; separated stream=group pairs for XPENDING
+
 alerting (notify, S4)
   SMOKEMON_NOTIFY_URL      ntfy / slack / discord / webhook URL (unset -> no alerts)
   SMOKEMON_NOTIFY_KIND     ntfy|slack|discord|generic ("" = auto-detect from host)
@@ -252,6 +273,12 @@ shared time/scope flags (panel + text views):
   smoke incidents      detected incidents + multi-signal blame
   smoke digest         plain-english window summary
                        incidents/digest take --notify -> push qualifying incidents to SMOKEMON_NOTIFY_URL
+
+(4) collector footprint — stdlib only, read-only
+  smoke footprint      rows produced by collectors, estimated rows/day, SQLite bytes/day,
+                       and the current shipper JSON+gzip bytes/day estimate
+    --db PATH          node DB by default; use --node NAME when reading a hub DB
+    --hours N (24) · --minutes N · --since/--until · --ship-rtts · --limit N
 
 node config
   smoke hub            show where this node ships + hub reachability

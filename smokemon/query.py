@@ -181,6 +181,71 @@ def load_http(conn, since, until, node=None):
     return data
 
 
+def load_ext_latest(conn, since, until, node=None):
+    """Latest value per external source/metric from the opt-in ext probe."""
+    nf, np_ = _filt(node)
+    rows = _q(conn, "SELECT ts,source,metric,value,unit,labels FROM ext_metrics "
+              "WHERE ts BETWEEN ? AND ?" + nf + " ORDER BY ts", [since, until, *np_])
+    data: dict[str, dict] = {}
+    for ts, source, metric, value, unit, labels in rows:
+        src = data.setdefault(source, {})
+        src[metric] = {"ts": ts, "value": value, "unit": unit or "", "labels": labels or ""}
+    return data
+
+
+def load_ext_events(conn, since, until, node=None, limit: int = 20):
+    """External events (scrape failures, non-2xx/3xx statuses), newest last."""
+    nf, np_ = _filt(node)
+    rows = _q(conn, "SELECT ts,source,severity,event,detail FROM ext_events "
+              "WHERE ts BETWEEN ? AND ?" + nf + " ORDER BY ts DESC LIMIT ?",
+              [since, until, *np_, limit])
+    return [{"ts": ts, "source": source, "severity": severity, "event": event, "detail": detail}
+            for ts, source, severity, event, detail in reversed(rows)]
+
+
+def load_redis_latest(conn, since, until, node=None):
+    nf, np_ = _filt(node)
+    rows = _q(conn, "SELECT ts,instance,stream,connected,used_memory_mb,xlen,pending FROM redis_samples "
+              "WHERE ts BETWEEN ? AND ?" + nf + " ORDER BY ts", [since, until, *np_])
+    data: dict[str, dict] = {}
+    for ts, instance, stream, connected, mem, xlen, pending in rows:
+        inst = data.setdefault(instance, {"streams": {}})
+        if stream == "__server__":
+            inst.update({"ts": ts, "connected": connected, "used_memory_mb": mem})
+        elif stream:
+            inst["streams"][stream] = {"ts": ts, "xlen": xlen, "pending": pending}
+    return data
+
+
+def load_redis(conn, since, until, node=None):
+    """Redis server memory/connectivity plus per-stream XLEN/PENDING series."""
+    nf, np_ = _filt(node)
+    rows = _q(conn, "SELECT ts,instance,stream,connected,used_memory_mb,xlen,pending FROM redis_samples "
+              "WHERE ts BETWEEN ? AND ?" + nf + " ORDER BY instance, stream, ts", [since, until, *np_])
+    out: dict[str, dict] = {"server": {}, "streams": {}}
+    for ts, instance, stream, connected, mem, xlen, pending in rows:
+        if stream == "__server__":
+            d = out["server"].setdefault(instance, {"t": [], "connected": [], "mem": []})
+            d["t"].append(ts); d["connected"].append(connected); d["mem"].append(mem)
+            continue
+        if stream:
+            key = f"{instance} {stream}" if instance else stream
+            d = out["streams"].setdefault(key, {"t": [], "xlen": [], "pending": [], "stream": stream})
+            d["t"].append(ts); d["xlen"].append(xlen); d["pending"].append(pending)
+    return out if out["server"] or out["streams"] else {}
+
+
+def load_gpu(conn, since, until, node=None):
+    nf, np_ = _filt(node)
+    data: dict[str, dict] = {}
+    for ts, gpu, util, freq in _q(conn, "SELECT ts,gpu,util_pct,freq_mhz FROM gpu_samples "
+                                  "WHERE ts BETWEEN ? AND ?" + nf + " ORDER BY gpu, ts",
+                                  [since, until, *np_]):
+        d = data.setdefault(gpu, {"t": [], "util": [], "freq": []})
+        d["t"].append(ts); d["util"].append(util); d["freq"].append(freq)
+    return data
+
+
 # ---------- QW2: HTTP layer-blame ----------
 
 HTTP_LAYER_LABELS = {"dns": "DNS", "connect": "TCP connect", "tls": "TLS", "server": "server wait"}
@@ -559,6 +624,8 @@ def load_all(conn, since, until, targets, node, sel, ping_loader):
         "wifi":    load_wifi(conn, since, until, node) if "wifi" in sel else {},
         "iperf":   load_iperf(conn, since, until, node) if "iperf" in sel else {},
         "host":    load_host(conn, since, until, node) if "host" in sel else {},
+        "gpu":     load_gpu(conn, since, until, node) if "gpu" in sel else {},
+        "redis":   load_redis(conn, since, until, node) if "redis" in sel else {},
         "disk":    load_disk(conn, since, until, node) if "disk" in sel else {},
         # Not a panel of its own; loaded with disk so the disk death-clock can show SD wear.
         "disk_health": load_disk_health(conn, since, until, node) if "disk" in sel else {},

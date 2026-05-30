@@ -27,7 +27,9 @@ DARK = False
 # left and right tick labels + axis labels match. Applied in both themes.
 _BASE_RC = {"xtick.labelsize": 7, "ytick.labelsize": 7, "axes.labelsize": 7}
 _DARK_RC = {
-    "figure.facecolor": "#0b0e14", "axes.facecolor": "#11151c", "savefig.facecolor": "#0b0e14",
+    # all three the same so the plot area is not a lighter box on a darker figure; matches the
+    # dashboard modal card (--card #11151c) so the embedded PNG blends in seamlessly.
+    "figure.facecolor": "#11151c", "axes.facecolor": "#11151c", "savefig.facecolor": "#11151c",
     "text.color": "#c9d1d9", "axes.labelcolor": "#c9d1d9", "axes.titlecolor": "#c9d1d9",
     "xtick.color": "#9aa4b2", "ytick.color": "#9aa4b2",
     "axes.edgecolor": "#2a2f3a", "grid.color": "#3a4150",
@@ -79,7 +81,7 @@ def _build(selected, data):  # noqa: C901 -- straight-line dispatch, intentional
                 ax.set_title(f"{config.TARGET_LABELS.get(target, target)} ({target})   avg loss {avg:.1f}%",
                              loc="left", fontsize=10, fontweight="bold")
                 ax.set_ylabel("RTT (ms)"); ax.set_ylim(bottom=0)
-            panels.append(draw)
+            panels.append(("ping", draw))
     if "net" in selected and data["net"]:
         def draw_net(ax, net=data["net"]):
             for iface, s in sorted(net.items()):
@@ -87,7 +89,7 @@ def _build(selected, data):  # noqa: C901 -- straight-line dispatch, intentional
                 ax.plot(_dt(s["t"]), s["out"], lw=0.9, ls="--", label=f"{iface} up")
             ax.set_title("Bandwidth per interface (Mbit/s)", loc="left", fontsize=10, fontweight="bold")
             ax.set_ylabel("Mbit/s"); ax.set_ylim(bottom=0)
-        panels.append(draw_net)
+        panels.append(("net", draw_net))
     if "http" in selected and data["http"]:
         def draw_http(ax, http=data["http"]):
             for url, d in sorted(http.items()):
@@ -96,7 +98,7 @@ def _build(selected, data):  # noqa: C901 -- straight-line dispatch, intentional
             tag = f"   slowest layer: {query.HTTP_LAYER_LABELS[blame[0]]} {blame[1]:.0f} ms" if blame else ""
             ax.set_title(f"HTTP TTFB (ms) - time to first byte{tag}", loc="left", fontsize=10, fontweight="bold")
             ax.set_ylabel("ms"); ax.set_ylim(bottom=0)
-        panels.append(draw_http)
+        panels.append(("http", draw_http))
     if "mtr" in selected:
         for target, hops in sorted(data["mtr"].items()):
             def draw_mtr(ax, hops=hops, target=target):
@@ -110,7 +112,7 @@ def _build(selected, data):  # noqa: C901 -- straight-line dispatch, intentional
                 ax.set_title(f"mtr per-hop -> {target}   (worst hop-loss {worst:.0f}%)",
                              loc="left", fontsize=10, fontweight="bold")
                 ax.set_ylabel("avg ms/hop"); ax.set_ylim(bottom=0)
-            panels.append(draw_mtr)
+            panels.append(("mtr", draw_mtr))
     if "wifi" in selected and data["wifi"]:
         def draw_wifi(ax, w=data["wifi"]):
             ax.plot(_dt(w["t"]), w["rssi"], color="#2ca02c", lw=0.9, label="RSSI dBm")
@@ -128,7 +130,7 @@ def _build(selected, data):  # noqa: C901 -- straight-line dispatch, intentional
                 ax2.plot(_dt(w["t"]), w["retry_rate"], color="#d62728", lw=0.7, alpha=0.6, label="retry/s")
                 ax2.set_ylabel("retry/s", color="#d62728"); ax2.set_ylim(bottom=0)
                 ax2.tick_params(axis="y", labelcolor="#d62728")
-        panels.append(draw_wifi)
+        panels.append(("wifi", draw_wifi))
     if "iperf" in selected and data["iperf"]:
         def draw_iperf(ax, d=data["iperf"], ping=data.get("ping", {})):
             ax.plot(_dt(d["t"]), d["down"], lw=1.0, marker="o", ms=3, label="down")
@@ -138,7 +140,7 @@ def _build(selected, data):  # noqa: C901 -- straight-line dispatch, intentional
             ax.set_title(f"iperf3 throughput (Mbit/s) - active test{tag}",
                          loc="left", fontsize=10, fontweight="bold")
             ax.set_ylabel("Mbit/s"); ax.set_ylim(bottom=0)
-        panels.append(draw_iperf)
+        panels.append(("iperf", draw_iperf))
     if "host" in selected and data["host"]:
         def draw_host(ax, d=data["host"]):
             t = _dt(d["t"])
@@ -150,7 +152,41 @@ def _build(selected, data):  # noqa: C901 -- straight-line dispatch, intentional
             ax.set_title(f"Host cpu/mem/swap (%)   {_temp_tag(temp)}",
                          loc="left", fontsize=10, fontweight="bold")
             ax.set_ylabel("%"); ax.set_ylim(bottom=0, top=100)
-        panels.append(draw_host)
+        panels.append(("host", draw_host))
+    if "gpu" in selected and data.get("gpu"):
+        def draw_gpu(ax, gpus=data["gpu"]):
+            t_for_freq = None
+            freq_series = []
+            for gpu, d in sorted(gpus.items()):
+                t = _dt(d["t"])
+                ax.plot(t, d["util"], lw=0.9, label=f"{gpu} util %")
+                if any(v is not None for v in d.get("freq", [])):
+                    t_for_freq = t
+                    freq_series = d["freq"]
+            cur = max((query.last_value(d["util"]) or 0.0) for d in gpus.values())
+            ax.set_title(f"Jetson GPU util/frequency   util {cur:.0f}%",
+                         loc="left", fontsize=10, fontweight="bold")
+            ax.set_ylabel("util %"); ax.set_ylim(bottom=0, top=100)
+            if t_for_freq and freq_series:
+                ax2 = ax.twinx()
+                ax2.plot(t_for_freq, freq_series, color="#9467bd", lw=0.7, ls="--", label="MHz")
+                ax2.set_ylabel("MHz", color="#9467bd"); ax2.set_ylim(bottom=0)
+                ax2.tick_params(axis="y", labelcolor="#9467bd")
+        panels.append(("gpu", draw_gpu))
+    if "redis" in selected and data.get("redis"):
+        def draw_redis(ax, r=data["redis"]):
+            streams = r.get("streams", {})
+            for name, d in sorted(streams.items()):
+                label = d.get("stream", name).rsplit(":", 1)[-1]
+                ax.plot(_dt(d["t"]), d["xlen"], lw=0.9, label=label)
+                if any(v is not None and v > 0 for v in d.get("pending", [])):
+                    ax.plot(_dt(d["t"]), d["pending"], lw=0.8, ls=":", label=f"{label} pending")
+            max_x = max((query.last_value(d["xlen"]) or 0 for d in streams.values()), default=0)
+            mem = max((query.last_value(d["mem"]) or 0 for d in r.get("server", {}).values()), default=0)
+            tag = f"max xlen {max_x}" + (f" . redis {mem:.0f} MB" if mem else "")
+            ax.set_title(f"Redis streams   {tag}", loc="left", fontsize=10, fontweight="bold")
+            ax.set_ylabel("entries"); ax.set_ylim(bottom=0)
+        panels.append(("redis", draw_redis))
     if "disk" in selected and data["disk"]:
         def draw_disk(ax, disk=data["disk"], health=data.get("disk_health", {})):
             # no per-mount legend: a busy box (many loop/snap mounts) drowns the panel; the
@@ -162,14 +198,14 @@ def _build(selected, data):  # noqa: C901 -- straight-line dispatch, intentional
             ax.set_title(f"Disk used (%) per mount{_disk_tag(disk, health)}",
                          loc="left", fontsize=10, fontweight="bold")
             ax.set_ylabel("%"); ax.set_ylim(bottom=0, top=100)
-        panels.append(draw_disk)
+        panels.append(("disk", draw_disk))
     if "thermal" in selected and data["thermal"]:
         def draw_thermal(ax, zones=data["thermal"]):
             for zone, d in sorted(zones.items()):
                 ax.plot(_dt(d["t"]), d["temp"], lw=0.9, label=zone)
             ax.set_title("Thermal zones (degC) - per sensor", loc="left", fontsize=10, fontweight="bold")
             ax.set_ylabel("degC")
-        panels.append(draw_thermal)
+        panels.append(("thermal", draw_thermal))
     if "power" in selected and data["power"]:
         def draw_power(ax, rails=data["power"]):
             total_now = 0.0; rail_count = 0
@@ -181,7 +217,7 @@ def _build(selected, data):  # noqa: C901 -- straight-line dispatch, intentional
             extra = f"total {total_now:.2f} W across {rail_count} rails" if rail_count else ""
             ax.set_title(f"Power draw per rail (W)   {extra}", loc="left", fontsize=10, fontweight="bold")
             ax.set_ylabel("Watts"); ax.set_ylim(bottom=0)
-        panels.append(draw_power)
+        panels.append(("power", draw_power))
     if "tcp" in selected and data["tcp"]:
         def draw_tcp(ax, d=data["tcp"]):
             t = _dt(d["t"])
@@ -195,7 +231,7 @@ def _build(selected, data):  # noqa: C901 -- straight-line dispatch, intentional
                 ax2.plot(t, d["conntrack_pct"], color="#17becf", lw=0.7, alpha=0.7, label="conntrack %")
                 ax2.set_ylabel("conntrack %", color="#17becf"); ax2.set_ylim(0, 100)
                 ax2.tick_params(axis="y", labelcolor="#17becf")
-        panels.append(draw_tcp)
+        panels.append(("tcp", draw_tcp))
     if "psi" in selected and data["psi"]:
         def draw_psi(ax, d=data["psi"]):
             t = _dt(d["t"])
@@ -205,7 +241,7 @@ def _build(selected, data):  # noqa: C901 -- straight-line dispatch, intentional
             ax.set_title("PSI - % time blocked on resource (avg10)",
                          loc="left", fontsize=10, fontweight="bold")
             ax.set_ylabel("% blocked"); ax.set_ylim(bottom=0)
-        panels.append(draw_psi)
+        panels.append(("psi", draw_psi))
     if "freq" in selected and data["freq"]:
         def draw_freq(ax, d=data["freq"]):
             t = _dt(d["t"])
@@ -223,7 +259,7 @@ def _build(selected, data):  # noqa: C901 -- straight-line dispatch, intentional
                 ax.text(0.99, 0.02, "Pi: " + ", ".join(bits), transform=ax.transAxes,
                         fontsize=8, color="#d62728", ha="right", va="bottom",
                         bbox=dict(facecolor="white", alpha=0.7, edgecolor="#d62728", lw=0.5))
-        panels.append(draw_freq)
+        panels.append(("freq", draw_freq))
     if "self" in selected and data.get("self"):
         def draw_self(ax, d=data["self"]):
             t = _dt(d["t"])
@@ -237,7 +273,7 @@ def _build(selected, data):  # noqa: C901 -- straight-line dispatch, intentional
                 ax2.plot(t, d["cpu"], color="#ff7f0e", lw=0.7, label="cpu %")
                 ax2.set_ylabel("cpu %", color="#ff7f0e"); ax2.set_ylim(bottom=0)
                 ax2.tick_params(axis="y", labelcolor="#ff7f0e")
-        panels.append(draw_self)
+        panels.append(("self", draw_self))
     return panels
 
 
@@ -286,12 +322,12 @@ def render_png(opts) -> tuple[bytes | None, list]:
                                  sharex="col", squeeze=False)
         flat = [ax for row in axes for ax in row]
         drawn = []  # (ax, title) for meta after tight_layout settles positions
-        for ax, draw in zip(flat, panels):
+        for ax, (key, draw) in zip(flat, panels):
             draw(ax)
             title = ax.get_title(loc="left")
             if want_meta:
                 ax.set_title("", loc="left")  # off the image -> into a hover tooltip instead
-            ax.grid(True, alpha=0.25)
+            ax.grid(not DARK, alpha=0.25)  # no gridlines in the dark/web theme (clean look)
             handles, labels = ax.get_legend_handles_labels()
             if labels:
                 # Compact legend, loc="best" so it dodges the data. Keeps every series (mtr/
@@ -305,7 +341,7 @@ def render_png(opts) -> tuple[bytes | None, list]:
                           handlelength=1.2, handletextpad=0.35, borderpad=0.25)
             ax.yaxis.set_major_locator(MaxNLocator(integer=True))
             ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
-            drawn.append((ax, title))
+            drawn.append((ax, title, key))
         # Hide unused cells when len(panels) doesn't fill the grid evenly
         for ax in flat[len(panels):]:
             ax.set_visible(False)
@@ -322,10 +358,10 @@ def render_png(opts) -> tuple[bytes | None, list]:
         if want_meta:
             # Final axes positions as figure fractions (y flipped to top-origin for the web
             # overlay). Percent-based, so the dashboard's overlay boxes scale with the image.
-            for ax, title in drawn:
+            for ax, title, key in drawn:
                 p = ax.get_position()
                 meta.append({"x": round(p.x0, 4), "y": round(1 - (p.y0 + p.height), 4),
-                             "w": round(p.width, 4), "h": round(p.height, 4), "t": title})
+                             "w": round(p.width, 4), "h": round(p.height, 4), "t": title, "k": key})
         buf = io.BytesIO()
         fig.savefig(buf, format="png", dpi=opts.dpi)
         plt.close(fig)   # free the figure (matters in a long render loop / subprocess)

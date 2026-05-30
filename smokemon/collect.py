@@ -5,7 +5,7 @@ Production runs `fast` and `slow` as two services so a slow probe never delays p
 import sys
 
 from . import adapters, config, core, schema
-from .probes import host, http, mtr, net, ping, synthetic, wifi
+from .probes import ext, host, http, mtr, net, ping, redisq, synthetic, wifi
 
 
 def _probes(group: str) -> list[tuple[float, object]]:
@@ -14,6 +14,10 @@ def _probes(group: str) -> list[tuple[float, object]]:
             (config.PROBE_INTERVAL, wifi.collect), (config.HOST_INTERVAL, host.collect)]
     if config.SYNTHETIC_ENABLED:  # X6: opt-in scripted checks on the slow tier
         slow.append((config.PROBE_INTERVAL, synthetic.collect))
+    if config.EXT_HTTP:
+        slow.append((config.EXT_INTERVAL, ext.collect))
+    if config.REDIS_ENABLED:
+        slow.append((config.REDIS_INTERVAL, redisq.collect))
     return {"fast": fast, "slow": slow, "all": fast + slow}[group]
 
 

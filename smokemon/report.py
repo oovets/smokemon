@@ -118,8 +118,76 @@ def status_line(conn, since, until, node=None, *, color: bool = False) -> str:
         tag = f" {temp:.0f}C" if temp is not None else ""
         parts.append(f"cpu {spark}{tag}")
 
+    gpu = _gpu_summary(conn, since, until, node)
+    if gpu:
+        parts.append(gpu)
+
+    redis = _redis_summary(conn, since, until, node)
+    if redis:
+        parts.append(redis)
+
+    ext = _ext_summary(conn, since, until, node)
+    if ext:
+        parts.append(ext)
+
     parts.append(_color_verdict(_verdict(ping, http, until), color))
     return " · ".join(parts)
+
+
+def _gpu_summary(conn, since, until, node=None) -> str:
+    gpu = query.load_gpu(conn, since, until, node)
+    if not gpu:
+        return ""
+    vals = []
+    for d in gpu.values():
+        cur = query.last_value(d.get("util", []))
+        if cur is not None:
+            vals.append(cur)
+    if not vals:
+        return ""
+    return f"gpu {max(vals):.0f}%"
+
+
+def _redis_summary(conn, since, until, node=None) -> str:
+    data = query.load_redis_latest(conn, since, until, node)
+    if not data:
+        return ""
+    bad = any((inst.get("connected") or 0) < 1 for inst in data.values())
+    if bad:
+        return "redis down"
+    max_pending = 0
+    max_xlen = 0
+    for inst in data.values():
+        for stream in inst.get("streams", {}).values():
+            max_xlen = max(max_xlen, stream.get("xlen") or 0)
+            max_pending = max(max_pending, stream.get("pending") or 0)
+    tail = f" pending{max_pending}" if max_pending else f" xlen{max_xlen}" if max_xlen else " ok"
+    return "redis" + tail
+
+
+def _ext_summary(conn, since, until, node=None) -> str:
+    """Compact latest external health: 'ext 2/3 ok' or 'ext app down'."""
+    latest = query.load_ext_latest(conn, since, until, node)
+    if not latest:
+        return ""
+    down = []
+    ok = 0
+    for source, metrics in sorted(latest.items()):
+        up = metrics.get("up", {}).get("value")
+        if up is None:
+            continue
+        if up >= 1.0:
+            ok += 1
+        else:
+            down.append(source)
+    total = ok + len(down)
+    if not total:
+        return ""
+    if down:
+        shown = ",".join(down[:2])
+        more = f"+{len(down) - 2}" if len(down) > 2 else ""
+        return f"ext {shown}{more} down"
+    return f"ext {ok}/{total} ok"
 
 
 def verdict(conn, since, until, node=None, recent_s: float = 300.0) -> str:
@@ -166,6 +234,9 @@ def incidents_report(conn, since, until, node=None, *, color: bool = False) -> s
         lines.append(f"[{_hhmm(i['start'])}-{_hhmm(i['end'])}] {klass} "
                      f"{i['scope']:<10} {i['detail']}")
         causes = analyze.explain_incident(frame, i["start"], i["end"], conn, node)
+        ext = query.load_ext_events(conn, i["start"], i["end"], node, limit=3)
+        if ext:
+            causes = [*causes, *[f"{e['source']} {e['event']}" for e in ext]]
         if causes:
             lines.append("   └ correlates with: " + " · ".join(causes))
     return "\n".join(lines)
@@ -244,6 +315,43 @@ def digest(conn, since, until, node=None) -> str:
             head = config.THROTTLE_TEMP_C - peak_t
             head_s = f"{head:.0f}C from throttle" if head > 0 else "THROTTLED"
             lines.append(f"Thermals: peak {peak_t:.0f}C ({head_s}).")
+
+    gpu = query.load_gpu(conn, since, until, node)
+    gpu_peaks = [max(analyze._finite(d.get("util", []))) for d in gpu.values() if analyze._finite(d.get("util", []))]
+    if gpu_peaks:
+        lines.append(f"GPU: peak {max(gpu_peaks):.0f}%.")
+
+    redis = query.load_redis_latest(conn, since, until, node)
+    if redis:
+        down = [inst for inst, d in redis.items() if (d.get("connected") or 0) < 1]
+        if down:
+            lines.append(f"Redis: down ({', '.join(down)}).")
+        else:
+            streams = []
+            for d in redis.values():
+                streams.extend(d.get("streams", {}).items())
+            if streams:
+                top = sorted(streams, key=lambda kv: ((kv[1].get("pending") or 0), (kv[1].get("xlen") or 0)),
+                             reverse=True)[:3]
+                bits = [f"{name} xlen={s.get('xlen') or 0}"
+                        + (f" pending={s.get('pending')}" if s.get("pending") is not None else "")
+                        for name, s in top]
+                lines.append("Redis streams: " + "; ".join(bits) + ".")
+            else:
+                lines.append("Redis: connected.")
+
+    ext = query.load_ext_latest(conn, since, until, node)
+    if ext:
+        bad = [source for source, metrics in sorted(ext.items())
+               if (metrics.get("up", {}).get("value") or 0.0) < 1.0]
+        if bad:
+            lines.append(f"External checks: {', '.join(bad)} down.")
+        else:
+            lines.append(f"External checks: {len(ext)} source(s) ok.")
+    ext_events = query.load_ext_events(conn, since, until, node, limit=5)
+    if ext_events:
+        lines.append("External events: " + "; ".join(
+            f"{_hhmm(e['ts'])} {e['source']} {e['event']}" for e in ext_events))
 
     if incidents:
         # Show the most significant first (severity, then longest); cap the wall of text.

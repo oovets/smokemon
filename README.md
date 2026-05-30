@@ -48,7 +48,10 @@ Linux    curl -fsSL https://raw.githubusercontent.com/oovets/smokemon/main/insta
   smokemon/notify.py (ntfy/slack/discord/webhook).
 
 - node-side: a `self` panel graphs smokemon's own RSS/CPU; opt-in synthetic transactions
-  (captive-portal + DoH) via probes/synthetic.py + the additive synthetic_samples table.
+  (captive-portal + DoH) via probes/synthetic.py; opt-in lightweight external HTTP
+  scrapes via probes/ext.py (bounded timeout/body/metric caps, no log streams);
+  opt-in Redis stream health via probes/redisq.py uses stdlib socket reads only. Jetson
+  GPU util/frequency is read from sysfs, not tegrastats.
 
 == v0.11  rich host metrics + grid layout ==
 
@@ -98,6 +101,10 @@ smoke fleet [live]         aggregated terminal view of every node reporting to t
                            for a node×hour sparkline grid; --hub-url URL reads the hub's
                            read-only /api over HTTP (no hub DB access needed); --bell.
 
+smoke footprint            collector rows/day + SQLite and shipper gzip byte estimates
+                           for a node DB (or --node on a hub DB). --ship-rtts includes
+                           raw ping RTTs in the wire estimate.
+
 smoke png [--width N --dpi N --cols N] | smoke daily   PNG -> Preview / dated 24h PNG
 
 smoke status | smoke incidents | smoke digest [--notify]   text analysis (stdlib, node-ok)
@@ -110,6 +117,8 @@ analysis: smokemon/analyze.py (incident detection + multi-signal blame + anomaly
 
 alerting: set SMOKEMON_NOTIFY_URL (ntfy/slack/discord/webhook) + `smoke digest --notify`
           or the smokemon-notify timer. synthetic checks: SMOKEMON_SYNTHETIC=1.
+          external checks: SMOKEMON_EXT_HTTP='app=http://127.0.0.1:8080/health'.
+          redis streams: SMOKEMON_REDIS=1 + SMOKEMON_REDIS_STREAMS=a,b,c.
 
 daemons: python -m smokemon.collect {fast|slow} | .probes.iperf | .probes.synthetic
          | .ship | .hub | .notify  (PYTHONPATH=repo)

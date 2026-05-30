@@ -9,6 +9,7 @@
   smoke status          one-line sparkline health summary (QW3)
   smoke incidents       detected incidents + multi-signal blame (F1/F2)
   smoke digest          plain-english summary of the window (F3)
+  smoke footprint       collector rows/day + ship bytes/day estimate
 Window is Nh / Nm / bare-number (minutes). Common: --panels --minutes/--hours/
 --since/--until --targets --node --db."""
 
@@ -165,6 +166,22 @@ def _text_report(cmd: str, args) -> int:
             print(f"\n(notify: alerted on {n} incident(s))" if n else "\n(notify: nothing above threshold)")
     finally:
         conn.close()
+    return 0
+
+
+def _footprint(args) -> int:
+    """`smoke footprint`: local collector production and shipper wire estimate."""
+    from . import footprint, query
+    if not os.path.exists(args.db):
+        print(f"No smokemon database at {args.db}\n{query.COLLECT_HINT}", file=sys.stderr)
+        return 1
+    since, until = query.window(args.hours, args.minutes, args.since, args.until)
+    conn = query.open_ro(args.db)
+    try:
+        fp = footprint.analyze(conn, args.db, since, until, args.node, ship_rtts=args.ship_rtts)
+    finally:
+        conn.close()
+    print(footprint.render(fp, limit=args.limit))
     return 0
 
 
@@ -352,6 +369,7 @@ examples:
   smoke status                   one-line health summary (great in a prompt/tmux)
   smoke incidents --hours 48     problems + likely cause over 2 days
   smoke fleet                    every node at once (on the hub)
+  smoke footprint                collector footprint + ship estimate
   smoke fleet --hub-url http://hub:8765    the fleet over HTTP, from any terminal
   smoke hub HUB-HOST             repoint this node to a new hub (writes the env file)
 
@@ -366,6 +384,9 @@ def main() -> int:
 
     p = sub.add_parser("tui", help="static TUI")
     _common(p); p.add_argument("--kiosk", action="store_true"); p.add_argument("--reserve", type=int, default=0)
+    p.add_argument("--no-legend", action="store_true",
+                   help="omit series legends (the hub GUI plot view uses this as a crash-safe fallback)")
+    p.add_argument("--no-frame", action="store_true", help="drop per-panel frames (hub GUI plot view)")
 
     for name in ("live", "kiosk"):
         p = sub.add_parser(name, help=f"{name} TUI")
@@ -420,8 +441,19 @@ def main() -> int:
             p.add_argument("--notify", action="store_true",
                            help="also push qualifying incidents to SMOKEMON_NOTIFY_URL (S4)")
 
+    p = sub.add_parser("footprint", help="collector rows/day + ship bytes/day estimate")
+    p.add_argument("--db", default=config.DB_PATH)
+    p.add_argument("--hours", type=float, default=24.0)
+    p.add_argument("--minutes", type=float)
+    p.add_argument("--since")
+    p.add_argument("--until")
+    p.add_argument("--node", help="filter to one node (useful on a hub DB)")
+    p.add_argument("--ship-rtts", action="store_true",
+                   help="include raw ping_rtts in the ship estimate (default is local-only)")
+    p.add_argument("--limit", type=int, default=8, help="number of top tables to show")
+
     known = {"tui", "live", "kiosk", "replay", "fleet", "hub", "png", "daily",
-             "status", "incidents", "digest"}
+             "status", "incidents", "digest", "footprint"}
     argv = sys.argv[1:]
     if argv and argv[0] in ("-h", "--help"):
         pass  # show the top-level help (subcommands + examples), not the tui subparser's
@@ -435,6 +467,8 @@ def main() -> int:
         return _hub(args)
     if cmd == "fleet":
         return _fleet(args)
+    if cmd == "footprint":
+        return _footprint(args)
     if cmd in ("status", "incidents", "digest"):
         return _text_report(cmd, args)
     if cmd in ("tui", "live", "kiosk", "replay"):

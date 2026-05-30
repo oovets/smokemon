@@ -11,6 +11,10 @@ def _list(name: str, default: str) -> list[str]:
     return [x.strip() for x in os.environ.get(name, default).split(",") if x.strip()]
 
 
+def _semi_list(name: str, default: str) -> list[str]:
+    return [x.strip() for x in os.environ.get(name, default).split(";") if x.strip()]
+
+
 def _f(name: str, default: str) -> float:
     return float(os.environ.get(name, default))
 
@@ -61,6 +65,28 @@ SYNTHETIC_DOH_NAME = os.environ.get("SMOKEMON_DOH_NAME", "example.com")
 SYNTHETIC_CAPTIVE_URL = os.environ.get("SMOKEMON_CAPTIVE_URL",
                                        "http://connectivitycheck.gstatic.com/generate_204")
 
+# External lightweight HTTP scrapes. Off by default; when set, collect slow polls explicit
+# endpoints only. Format:
+#   name=url[|kind=json|metrics][|metrics=a,b,c]
+# multiple endpoints are separated by semicolons. No log streaming, Docker scans, or
+# background tails: each scrape is bounded by timeout/body/metric limits.
+EXT_HTTP = _semi_list("SMOKEMON_EXT_HTTP", "")
+EXT_INTERVAL = _f("SMOKEMON_EXT_INTERVAL", "300")
+EXT_TIMEOUT = _f("SMOKEMON_EXT_TIMEOUT", "2")
+EXT_MAX_BYTES = _i("SMOKEMON_EXT_MAX_BYTES", str(256 * 1024))
+EXT_MAX_METRICS = _i("SMOKEMON_EXT_MAX_METRICS", "20")
+
+# Redis stream/queue health. Off by default; implemented as tiny RESP socket reads
+# instead of redis-cli or Docker/log inspection. Streams are comma-separated; groups use
+# stream=group pairs separated by semicolons.
+REDIS_ENABLED = os.environ.get("SMOKEMON_REDIS", "0") != "0"
+REDIS_HOST = os.environ.get("SMOKEMON_REDIS_HOST", "127.0.0.1")
+REDIS_PORT = _i("SMOKEMON_REDIS_PORT", "6379")
+REDIS_TIMEOUT = _f("SMOKEMON_REDIS_TIMEOUT", "1")
+REDIS_INTERVAL = _f("SMOKEMON_REDIS_INTERVAL", "60")
+REDIS_STREAMS = _list("SMOKEMON_REDIS_STREAMS", "")
+REDIS_GROUPS = _semi_list("SMOKEMON_REDIS_GROUPS", "")
+
 # iperf3 (one-shot); set SMOKEMON_IPERF_SERVER to a reachable `iperf3 -s` host
 IPERF_SERVER = os.environ.get("SMOKEMON_IPERF_SERVER", "")
 IPERF_DURATION = os.environ.get("SMOKEMON_IPERF_DURATION", "5")
@@ -96,4 +122,4 @@ MTR_SUDO = os.environ.get("SMOKEMON_MTR_SUDO", "1") != "0"
 TARGET_LABELS = {"1.1.1.1": "internet", "192.168.0.1": "gw"}
 HTTP_COLORS = ["cyan", "green+", "magenta+", "blue+", "orange+"]
 PANELS = ["ping", "net", "http", "mtr", "wifi", "iperf",
-          "host", "disk", "thermal", "power", "tcp", "psi", "freq", "self"]
+          "host", "gpu", "redis", "disk", "thermal", "power", "tcp", "psi", "freq", "self"]

@@ -6,9 +6,11 @@ import base64
 import gzip
 import hmac
 import json
+import os
 import subprocess
 import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -18,6 +20,8 @@ _conn = None
 _lock = threading.Lock()  # serialize writes to the single sqlite connection
 _render_lock = threading.Lock()  # serialize the (heavy) PNG subprocess renders
 _hub_cols: dict[str, set[str]] = {}
+_last_prune = 0.0  # ingest_log housekeeping throttle (prune at most hourly)
+_INGEST_LOG_RETENTION_S = 14 * 86400
 
 
 def _render_png(node: str, hours: float, panels: str, cols: int) -> tuple[bytes | None, str]:
@@ -44,6 +48,27 @@ def _render_png(node: str, hours: float, panels: str, cols: int) -> tuple[bytes 
             meta = line[len("SMOKEMON_META "):]
             break
     return p.stdout, meta
+
+
+def _render_tui(node: str, hours: float, panels: str, cols: int, width: int, lines: int) -> str | None:
+    """Render the plotext TUI frame (the same braille graphs as `smoke tui`) to an ANSI string
+    in a short-lived subprocess, sized via COLUMNS/LINES. Lets the dashboard show the granular
+    terminal-style plots next to the PNGs. plotext is light (pure python), so unlike the PNG
+    path this needs no render lock."""
+    base = [sys.executable, "-m", "smokemon.cli", "tui", "--db", config.HUB_DB, "--node", node,
+            "--hours", str(hours), "--panels", panels, "--cols", str(cols), "--no-frame"]
+    env = dict(os.environ, COLUMNS=str(width), LINES=str(lines), TERM="xterm-256color")
+    # First try with legends; if plotext crashes on a degenerate panel, retry legend-less
+    # (still shows every graph) rather than failing the whole frame.
+    for extra in ([], ["--no-legend"]):
+        try:
+            p = subprocess.run(base + extra, capture_output=True, timeout=30, env=env)
+        except (subprocess.TimeoutExpired, OSError) as e:  # noqa: BLE001
+            core.log(f"tui render failed: {e!r}")
+            return None
+        if p.returncode == 0 and p.stdout:
+            return p.stdout.decode("utf-8", "replace")
+    return None
 
 
 def _insert_std(conn, table, node, columns, rows, need_id_map: bool = False) -> dict[int, int] | int:
@@ -88,7 +113,8 @@ def _insert_rtts(conn, columns, rows, run_map: dict[int, int]) -> int:
     return len(data)
 
 
-def ingest(payload: dict) -> dict:
+def ingest(payload: dict, wire_bytes: int = 0, raw_bytes: int = 0) -> dict:
+    global _last_prune
     node, tables = payload["node"], payload["tables"]
     counts: dict[str, int] = {}
     with _lock:
@@ -107,6 +133,13 @@ def ingest(payload: dict) -> dict:
                     continue
                 t = tables[table]
                 counts[table] = _insert_std(_conn, table, node, t["columns"], t["rows"])
+            # record actual wire cost of this push (measured, not estimated) for the cost view
+            now = time.time()
+            _conn.execute("INSERT INTO ingest_log (ts, node, wire_bytes, raw_bytes, rows) VALUES (?,?,?,?,?)",
+                          (now, node, wire_bytes, raw_bytes, sum(counts.values())))
+            if now - _last_prune > 3600:  # hourly housekeeping, in-band under the same lock
+                _conn.execute("DELETE FROM ingest_log WHERE ts < ?", (now - _INGEST_LOG_RETENTION_S,))
+                _last_prune = now
             _conn.commit()
         except Exception:
             _conn.rollback()
@@ -167,6 +200,30 @@ class Handler(BaseHTTPRequestHandler):
                 metric = qs.get("metric", ["loss"])[0]
                 with _lock:
                     return self._send(200, hubapi.heatmap(_conn, metric, hours))
+            if u.path == "/api/spark":
+                spark_hours = float(qs.get("hours", ["2"])[0])
+                with _lock:
+                    return self._send(200, {"spark": hubapi.sparklines(_conn, spark_hours)})
+            if u.path == "/api/risks":
+                with _lock:
+                    return self._send(200, hubapi.risks(_conn, hours))
+            if u.path == "/api/cost":
+                with _lock:
+                    return self._send(200, hubapi.ship_volume(_conn, hours))
+            if u.path == "/api/plot":
+                node = qs.get("node", [""])[0]
+                if not node:
+                    return self._send(400, {"error": "node required"})
+                try:
+                    cols = max(1, min(4, int(qs.get("cols", ["1"])[0])))
+                    width = max(60, min(400, int(qs.get("w", ["140"])[0])))
+                    lines = max(16, min(300, int(qs.get("h", ["44"])[0])))
+                except ValueError:
+                    cols, width, lines = 1, 140, 44
+                txt = _render_tui(node, hours, qs.get("panels", ["all"])[0], cols, width, lines)
+                if not txt:
+                    return self._send(404, {"error": "no data for node/window"})
+                return self._send_text(200, txt, "text/plain; charset=utf-8")
             if u.path == "/api/png":
                 node = qs.get("node", [""])[0]
                 if not node:
@@ -196,10 +253,12 @@ class Handler(BaseHTTPRequestHandler):
         if length <= 0 or length > config.HUB_MAX_BODY:
             return self._send(413, {"error": "bad length"})
         try:
-            raw = self.rfile.read(length)
+            compressed = self.rfile.read(length)
+            body = compressed
             if "gzip" in self.headers.get("Content-Encoding", "").lower():
-                raw = gzip.decompress(raw)  # ship._post gzips the body; plain json still works
-            counts = ingest(json.loads(raw))
+                body = gzip.decompress(compressed)  # ship._post gzips the body; plain json still works
+            # wire_bytes = what actually crossed the network (compressed); raw_bytes = decoded size
+            counts = ingest(json.loads(body), wire_bytes=len(compressed), raw_bytes=len(body))
         except Exception as e:  # noqa: BLE001
             core.log(f"ingest error: {e!r}")
             return self._send(500, {"error": str(e)})

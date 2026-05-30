@@ -338,6 +338,45 @@ def _jetson_power_linux() -> list[dict]:
     return rails
 
 
+# ---------- Jetson GPU util/frequency (sysfs only) ----------
+
+def _read_float(path: str, scale: float = 1.0) -> float | None:
+    try:
+        with open(path) as f:
+            return float(f.read().strip()) / scale
+    except (OSError, ValueError, TypeError):
+        return None
+
+
+def _jetson_gpu_linux() -> list[dict]:
+    """Read GPU busy/frequency from sysfs/devfreq. No tegrastats/nvidia-smi process.
+    JetPack paths vary, so this best-effort probe accepts the common actmon/devfreq
+    names and returns an empty list when unavailable."""
+    out = []
+    seen = set()
+    paths = set(glob.glob("/sys/devices/*gpu*/devfreq/*") + glob.glob("/sys/class/devfreq/*gpu*"))
+    for dev in sorted(paths):
+        real = os.path.realpath(dev)
+        if real in seen:
+            continue
+        seen.add(real)
+        name = os.path.basename(dev)
+        util = None
+        for candidate in ("load", "device/load", "busy"):
+            util = _read_float(os.path.join(dev, candidate))
+            if util is not None:
+                break
+        if util is not None and util > 100.0:
+            util = util / 10.0 if util <= 1000.0 else util / 1000.0
+        freq = _read_float(os.path.join(dev, "cur_freq"), 1_000_000.0)
+        if freq is None:
+            freq = _read_float(os.path.join(dev, "device/cur_freq"), 1_000_000.0)
+        if util is not None or freq is not None:
+            out.append({"gpu": name, "util_pct": round(util, 1) if util is not None else None,
+                        "freq_mhz": round(freq, 1) if freq is not None else None})
+    return out
+
+
 # ---------- Pi vcgencmd get_throttled (slow tier) ----------
 
 def _pi_throttle_bits() -> int | None:
@@ -583,6 +622,7 @@ def collect(conn) -> None:
         oom = _oom_count_linux()
         tcp = _tcp_metrics_linux()
         rails = _jetson_power_linux()
+        gpus = _jetson_gpu_linux()
         procs = _procs_linux(dt)
     else:
         cpu_pct = round(min(100.0, 100.0 * load1 / (os.cpu_count() or 1)), 1) if load1 is not None else None
@@ -598,6 +638,7 @@ def collect(conn) -> None:
         psi_cpu = psi_mem = psi_io = cpu_freq = throttle = oom = None
         tcp = _tcp_metrics_macos()
         rails = _power_macos()
+        gpus = []
         procs = _procs_macos()
 
     # Slow tier: vcgencmd is ~30ms, only worth probing every few minutes
@@ -621,6 +662,8 @@ def collect(conn) -> None:
         schema.insert(conn, "thermal_zones", [{"ts": ts, "zone": z, "temp_c": t} for z, t in zones.items()])
     if rails:
         schema.insert(conn, "power_samples", [{"ts": ts, **r} for r in rails])
+    if gpus:
+        schema.insert(conn, "gpu_samples", [{"ts": ts, **g} for g in gpus])
     if tcp:
         schema.insert(conn, "tcp_samples", [{"ts": ts, **tcp}])
 

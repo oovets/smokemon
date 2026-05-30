@@ -13,6 +13,11 @@ install reference -> [INSTALL.md](INSTALL.md)
   jetson / debian boxes that should not need pip install to function. plotext (tui) and
   matplotlib+numpy (png) are extras, never imported from the daemons.
 
+- node footprint is an absolute product constraint. never add node-side probes or
+  integrations that materially increase rss/cpu/io/network use. prefer /proc, /sys,
+  short bounded socket reads, and explicit allowlists; avoid log streaming, docker log
+  scans, broad service discovery, large scrape bodies, and always-on subprocess tails.
+
 - never break working functionality. schema changes must be additive (use
   ensure_body_columns migrations). node<->hub wire-format changes stay backward compatible
   - version the payload, do not remove fields.

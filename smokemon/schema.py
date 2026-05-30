@@ -41,10 +41,16 @@ _BODY = {
                    "conntrack_used INTEGER, conntrack_max INTEGER",
     "disk_health": "ts REAL NOT NULL, device TEXT NOT NULL, wear_pct REAL, ioerr_count INTEGER",
     "synthetic_samples": "ts REAL NOT NULL, probe TEXT NOT NULL, ok INTEGER, latency_ms REAL, detail TEXT",
+    "ext_metrics": "ts REAL NOT NULL, source TEXT NOT NULL, metric TEXT NOT NULL, value REAL, unit TEXT, labels TEXT",
+    "ext_events": "ts REAL NOT NULL, source TEXT NOT NULL, severity TEXT, event TEXT NOT NULL, detail TEXT",
+    "redis_samples": "ts REAL NOT NULL, instance TEXT NOT NULL, stream TEXT, connected INTEGER, "
+                     "used_memory_mb REAL, xlen INTEGER, pending INTEGER",
+    "gpu_samples": "ts REAL NOT NULL, gpu TEXT NOT NULL, util_pct REAL, freq_mhz REAL",
 }
 _IX = {"ping_runs": "target", "net_samples": "iface", "http_samples": "url", "mtr_hops": "target",
        "thermal_zones": "zone", "power_samples": "rail", "disk_health": "device",
-       "synthetic_samples": "probe"}
+       "synthetic_samples": "probe", "ext_metrics": "source", "ext_events": "source",
+       "redis_samples": "instance", "gpu_samples": "gpu"}
 
 STD_TABLES = tuple(_BODY)  # generic append-only tables (id + body + node [+ src_id])
 
@@ -137,6 +143,13 @@ def init_node(conn: sqlite3.Connection) -> None:
 
 def init_hub(conn: sqlite3.Connection) -> None:
     conn.executescript(_hub_ddl())
+    # Per-POST ingest accounting (hub-only): actual compressed bytes received on the wire per
+    # node, so the dashboard can show real ship volume (not a from-the-DB estimate). wire_bytes
+    # = Content-Length of the gzipped body; raw_bytes = decompressed JSON size.
+    conn.executescript(
+        "CREATE TABLE IF NOT EXISTS ingest_log ("
+        "ts REAL NOT NULL, node TEXT, wire_bytes INTEGER, raw_bytes INTEGER, rows INTEGER);"
+        "CREATE INDEX IF NOT EXISTS ix_ingest_log_ts ON ingest_log (ts);")
     conn.commit()
     ensure_body_columns(conn)
 

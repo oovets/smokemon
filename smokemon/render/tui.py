@@ -1,6 +1,6 @@
 """Text TUI renderer (plotext, braille). Panels arranged on a configurable grid
 (default 2 cols when terminal is wide enough, 1 col otherwise). Same panel set as
-the PNG renderer: ping/net/http/mtr/wifi/iperf/host/disk/thermal/power/tcp/psi/freq."""
+the PNG renderer: ping/net/http/mtr/wifi/iperf/host/gpu/redis/disk/thermal/power/tcp/psi/freq."""
 
 import math
 import os
@@ -14,6 +14,12 @@ from .. import config, query
 
 ALL_PANELS = config.PANELS
 KIOSK = False
+# Suppress series labels (-> plotext draws no legend). The web /api/plot retries with this on
+# if a normal render crashes: some panels' degenerate series (e.g. a 100%-loss target with an
+# all-None median, or an all-None wifi sub-series) trip a plotext legend-build IndexError.
+NOLEGEND = False
+# Drop the per-panel frame/border (the hub GUI plot view wants a clean, borderless look).
+NOFRAME = False
 
 
 def _reset_plotext():
@@ -29,7 +35,7 @@ def _reset_plotext():
 
 
 def _L(s):
-    return None if KIOSK else s
+    return None if (KIOSK or NOLEGEND) else s
 
 
 def _title(s):
@@ -90,18 +96,88 @@ def _disk_tag(disk, health):
     return "   " + " . ".join(bits) if bits else ""
 
 
+def _data_xspan(data):
+    """Earliest/latest sample timestamp across every loaded series. The x-axis fits this actual
+    span (like the PNG renderer's autoscale) instead of the full requested window - otherwise a
+    24h window holding only ~1h of data squishes every graph into the rightmost sliver. Using one
+    global span (not per-panel) keeps all panels sharing the same x-axis, so they stay aligned."""
+    lo = hi = None
+
+    def scan(o):
+        nonlocal lo, hi
+        if isinstance(o, dict):
+            for k, v in o.items():
+                if k == "t" and isinstance(v, list) and v:
+                    m0, m1 = min(v), max(v)
+                    lo = m0 if lo is None else min(lo, m0)
+                    hi = m1 if hi is None else max(hi, m1)
+                else:
+                    scan(v)
+        elif isinstance(o, list):
+            for x in o:
+                if isinstance(x, (dict, list)):
+                    scan(x)
+
+    scan(data)
+    return lo, hi
+
+
+def _downsample(data, n):
+    """Bucket-average every series down to ~n points, in place. plotext plots every sample, so a
+    24h window with thousands of points smears each braille column into a vertical block (matplotlib
+    draws a continuous line, which is why the PNG looks clean). Reducing to ~2x the panel's column
+    width restores a readable line. Mutates the same leaf dicts the _build closures captured, so it
+    can run after the grid size is known but before draw()."""
+    def reduce(d):
+        t = d.get("t")
+        if not isinstance(t, list) or len(t) <= n:
+            return
+        k = len(t)
+        bounds = [round(i * k / n) for i in range(n + 1)]
+        keys = [key for key, v in d.items() if isinstance(v, list) and len(v) == k]
+        new = {key: [] for key in keys}
+        for b in range(n):
+            lo, hi = bounds[b], bounds[b + 1]
+            if hi <= lo:
+                continue
+            for key in keys:
+                nums = [x for x in d[key][lo:hi] if isinstance(x, (int, float)) and not isinstance(x, bool)]
+                new[key].append(sum(nums) / len(nums) if nums else None)
+        for key in keys:
+            d[key] = new[key]
+
+    def walk(o):
+        if isinstance(o, dict):
+            if isinstance(o.get("t"), list):
+                reduce(o)
+            else:
+                for v in o.values():
+                    walk(v)
+        elif isinstance(o, list):
+            for x in o:
+                walk(x)
+
+    walk(data)
+
+
 def _build(selected, data):  # noqa: C901
     panels = []
     if "ping" in selected:
         for name, d in sorted(data["ping"].items()):
             def draw(d=d, name=name):
-                plt.plot(d["t"], d["max"], color=240, marker="braille")
-                plt.plot(d["t"], d["min"], color=240, marker="braille")
-                plt.plot(d["t"], d["med"], label=_L("median"), color="orange+", marker="braille")
-                lt = [t for t, l in zip(d["t"], d["loss"]) if l > 0]
-                lm = [m for m, l in zip(d["med"], d["loss"]) if l > 0]
-                if lt:
-                    plt.scatter(lt, lm, color="red", marker="braille", label=_L("loss"))
+                # plotext (unlike matplotlib) crashes on all-None series and on scatter points
+                # with None y. A target at 100% loss has median/min/max all None, so guard every
+                # series + drop loss markers that have no RTT to sit on.
+                if any(v is not None for v in d["max"]):
+                    plt.plot(d["t"], d["max"], color=240, marker="braille")
+                if any(v is not None for v in d["min"]):
+                    plt.plot(d["t"], d["min"], color=240, marker="braille")
+                if any(v is not None for v in d["med"]):
+                    plt.plot(d["t"], d["med"], label=_L("median"), color="orange+", marker="braille")
+                pts = [(t, m) for t, m, l in zip(d["t"], d["med"], d["loss"]) if l > 0 and m is not None]
+                if pts:
+                    plt.scatter([p[0] for p in pts], [p[1] for p in pts],
+                                color="red", marker="braille", label=_L("loss"))
                 avg = sum(d["loss"]) / len(d["loss"]) if d["loss"] else 0.0
                 cur = query.last_value(d["med"])
                 cur_str = f"{cur:.1f} ms" if cur is not None else "-- ms"
@@ -180,6 +256,30 @@ def _build(selected, data):  # noqa: C901
             _ylabel("%")
             _int_yticks(d["cpu"], d["mem"], d.get("swap", []))
         panels.append(draw_host)
+    if "gpu" in selected and data.get("gpu"):
+        def draw_gpu(gpus=data["gpu"]):
+            for gpu, d in sorted(gpus.items()):
+                plt.plot(d["t"], d["util"], label=_L(f"{gpu} util%"), color="green+", marker="braille")
+            cur = max((query.last_value(d["util"]) or 0.0) for d in gpus.values())
+            _title(f"Jetson GPU   util {cur:.0f}%")
+            _ylabel("%")
+            _int_yticks(*[d["util"] for d in gpus.values()])
+        panels.append(draw_gpu)
+    if "redis" in selected and data.get("redis"):
+        def draw_redis(r=data["redis"]):
+            streams = r.get("streams", {})
+            for name, d in sorted(streams.items()):
+                label = d.get("stream", name).rsplit(":", 1)[-1]
+                plt.plot(d["t"], d["xlen"], label=_L(label), marker="braille")
+                if any(v is not None and v > 0 for v in d.get("pending", [])):
+                    plt.plot(d["t"], d["pending"], label=_L(f"{label} pending"), color="red", marker="braille")
+            max_x = max((query.last_value(d["xlen"]) or 0 for d in streams.values()), default=0)
+            mem = max((query.last_value(d["mem"]) or 0 for d in r.get("server", {}).values()), default=0)
+            tag = f"   max xlen {max_x}" + (f" . mem {mem:.0f} MB" if mem else "")
+            _title(f"Redis streams{tag}")
+            _ylabel("entries")
+            _int_yticks(*[d["xlen"] for d in streams.values()], *[d.get("pending", []) for d in streams.values()])
+        panels.append(draw_redis)
     if "disk" in selected and data["disk"]:
         def draw_disk(disk=data["disk"], health=data.get("disk_health", {})):
             for mount, d in sorted(disk.items()):
@@ -280,8 +380,10 @@ def run(opts, *, capture: bool = False):
     """Render the TUI once. With capture=True, return the frame as a string (or an
     error/empty message) instead of printing it, so the live loop can repaint in
     place without a screen-clear flicker."""
-    global KIOSK
+    global KIOSK, NOLEGEND, NOFRAME
     KIOSK = getattr(opts, "kiosk", False)
+    NOLEGEND = getattr(opts, "no_legend", False)
+    NOFRAME = getattr(opts, "no_frame", False)
     if not os.path.exists(opts.db):
         msg = f"No smokemon database at {opts.db}\n{query.COLLECT_HINT}"
         if capture:
@@ -307,7 +409,9 @@ def _render(opts, since, until, *, capture: bool = False):
             return msg
         print(msg, file=sys.stderr)
         return 2
-    ticks, labels = _ticks(since, until)
+    dlo, dhi = _data_xspan(data)
+    xlo, xhi = (dlo, dhi) if (dlo is not None and dhi is not None and dhi > dlo) else (since, until)
+    ticks, labels = _ticks(xlo, xhi)
     cols_term, lines = shutil.get_terminal_size(fallback=(120, 40))
     # Always keep a 1-row/1-col safety margin (even in kiosk, reserve=0): plot lines must
     # never reach the terminal's last column (would wrap to a phantom row if autowrap leaks)
@@ -315,6 +419,8 @@ def _render(opts, since, until, *, capture: bool = False):
     # Either desyncs the cursor-home repaint and the whole frame drifts on the next refresh.
     plotsize_h = max(10, lines - max(1, opts.reserve))
     rows, cols = _grid_dims(len(panels), getattr(opts, "cols", 0), cols_term, plotsize_h)
+    # thin each series to ~2x the per-panel column width so plotext draws a line, not a smear.
+    _downsample(data, max(80, (cols_term // cols) * 2))
 
     _reset_plotext()
     plt.theme("pro")
@@ -324,7 +430,7 @@ def _render(opts, since, until, *, capture: bool = False):
         r = idx // cols + 1
         c = idx % cols + 1
         plt.subplot(r, c)
-        plt.xlim(since, until)
+        plt.xlim(xlo, xhi)
         if KIOSK:
             plt.frame(True)
             plt.ticks_color(240)
@@ -332,6 +438,9 @@ def _render(opts, since, until, *, capture: bool = False):
             plt.yfrequency(0)
         else:
             plt.xticks(ticks, labels)
+        if NOFRAME:
+            plt.frame(False)
+            plt.grid(False, False)
         draw()
     # Blank any trailing grid cells (rows*cols > len(panels)): an undrawn subplot inherits
     # the previous cell's title, so the last panel's title gets repeated in every empty cell.
