@@ -327,7 +327,13 @@ def render_png(opts) -> tuple[bytes | None, list]:
             title = ax.get_title(loc="left")
             if want_meta:
                 ax.set_title("", loc="left")  # off the image -> into a hover tooltip instead
-            ax.grid(not DARK, alpha=0.25)  # no gridlines in the dark/web theme (clean look)
+            # no gridlines in the dark/web theme (clean look). Pass alpha ONLY when enabling:
+            # matplotlib treats grid(False, <line-props>) as "enable anyway", so the alpha kwarg
+            # would silently re-add the grid we are trying to drop.
+            if DARK:
+                ax.grid(False)
+            else:
+                ax.grid(True, alpha=0.25)
             handles, labels = ax.get_legend_handles_labels()
             if labels:
                 # Compact legend, loc="best" so it dodges the data. Keeps every series (mtr/

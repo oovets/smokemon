@@ -179,6 +179,18 @@ fixed:
   per-refresh blink and the ghosted/duplicated rows that showed when full-width plot lines
   wrapped onto an extra row and scrolled.
 
+- hub dashboard plot view: the plotext braille markers come from a fallback font wider than
+  the mono cell, so every data row drifted out of line with the ascii axes and the curve
+  looked jagged. the dashboard now measures the braille-vs-mono cell delta at render time and
+  pulls each braille run back to one cell with letter-spacing, so the plot graphs line up
+  again. the terminal smoke tui was always correct (each line is exactly N columns) - this was
+  a browser-font issue only.
+
+- png dark/web theme gridlines: ax.grid(False, alpha=0.25) re-enabled the grid it meant to
+  drop - matplotlib treats grid(False, <line-prop>) as "enable anyway", so the dashboard's
+  dark graphs carried a grid the code intended to omit. the dark/web theme now renders
+  gridless; the light desktop theme keeps its grid.
+
 internal:
 
 - hoisted the pi vcgencmd throttle-bit labels and decode into a single query.pi_bits_seen()

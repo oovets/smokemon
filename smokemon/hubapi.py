@@ -380,6 +380,11 @@ _DASHBOARD_HTML = """<!doctype html>
  #dplot{margin:0;padding:8px 10px;background:var(--card);color:#c9d1d9;overflow-y:auto;overflow-x:hidden;
         height:80vh;font:12px/1.05 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre}
  #dplot[hidden]{display:none}
+ /* braille glyphs (plotext markers) come from a fallback font that is wider than the mono
+    cell, which drifts every data row out of line with the ascii axes. --brls is measured at
+    render time (mono cell minus braille cell, so negative) to pull each braille char back to
+    exactly one cell -> the curve lines up again. */
+ #dplot .br{letter-spacing:var(--brls,0px)}
  .tabs{display:flex;gap:4px}
  .tab{padding:3px 10px;border:1px solid var(--line);border-radius:6px;cursor:pointer;color:var(--mut);font-size:12px}
  .tab.on{border-color:var(--ok);color:#7ee2a8}
@@ -589,18 +594,24 @@ function xterm256(n){
 // parse plotext ANSI without a regex (a backslash in a regex string gets mangled twice -
 // once by python's triple-quoted string, once by JS - producing an invalid pattern). Split on
 // the ESC byte; each part after the first starts with "[<code>m" (an SGR), the rest is text.
+// wb() escapes html and wraps each braille run (U+2800-U+28FF) in .br so the --brls
+// letter-spacing realigns the wider braille glyphs to the mono cell (see the css note).
+// The range is built via fromCharCode (not a \\u literal) for the same reason the parser
+// below avoids regex backslashes: python's triple-quote would mangle them.
 function ansiToHtml(raw){
  const ESC=String.fromCharCode(27),
-  e2=t=>t.replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
- const parts=raw.split(ESC);let out=e2(parts[0]),open=false;
+  e2=t=>t.replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])),
+  BR=new RegExp("["+String.fromCharCode(0x2800)+"-"+String.fromCharCode(0x28ff)+"]+","g"),
+  wb=t=>e2(t).replace(BR,m=>'<span class="br">'+m+"</span>");
+ const parts=raw.split(ESC);let out=wb(parts[0]),open=false;
  for(let i=1;i<parts.length;i++){
   const seg=parts[i],mi=seg.indexOf("m");
   if(seg[0]==="["&&mi!==-1){
    const code=seg.slice(1,mi),p=code.split(";");
    if(code===""||code==="0"){if(open){out+="</span>";open=false;}}
    else if(p[0]==="38"&&p[1]==="5"){const c=xterm256(+p[2]);if(open)out+="</span>";out+=`<span style="color:rgb(${c[0]},${c[1]},${c[2]})">`;open=true;}
-   out+=e2(seg.slice(mi+1));
-  }else{out+=e2(seg);}
+   out+=wb(seg.slice(mi+1));
+  }else{out+=wb(seg);}
  }
  if(open)out+="</span>";return out;}
 // measure the actual monospace cell size so we can ask plotext for exactly the grid that fits
@@ -609,11 +620,13 @@ function ansiToHtml(raw){
 let _cm=null;
 function charMetrics(){
  if(_cm)return _cm;
- const NL=String.fromCharCode(10),s=document.createElement("span");
- s.style.cssText="position:absolute;visibility:hidden;white-space:pre;font:12px/1.05 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace";
- s.textContent=("0".repeat(100)+NL).repeat(10);
- document.body.appendChild(s);const r=s.getBoundingClientRect();
- _cm={cw:(r.width/100)||7,lh:(r.height/10)||13};document.body.removeChild(s);return _cm;}
+ const NL=String.fromCharCode(10),BRC=String.fromCharCode(0x28ff),
+  mk=txt=>{const s=document.createElement("span");
+   s.style.cssText="position:absolute;visibility:hidden;white-space:pre;font:12px/1.05 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace";
+   s.textContent=txt;document.body.appendChild(s);const r=s.getBoundingClientRect();document.body.removeChild(s);return r;};
+ const r=mk(("0".repeat(100)+NL).repeat(10)),cw=(r.width/100)||7,bw=mk(BRC.repeat(100)).width/100;
+ // bls: negative nudge that shrinks each (wider) braille glyph's advance back to one mono cell.
+ _cm={cw,lh:(r.height/10)||13,bls:(bw?cw-bw:0)};return _cm;}
 function renderFoot(){if(!dNode){dfoot.textContent="";return;}const f=foot[dNode];
  if(!f){dfoot.textContent="shipped: no measured traffic yet";return;}
  const sd=f.wire_bytes_per_day!=null?f.wire_bytes_per_day:f.wire_bytes,pd=f.wire_bytes_per_day!=null;
@@ -666,6 +679,7 @@ async function paintPlot(){
  // lines: few panels fill the box, many panels grow taller and scroll vertically (frimärken
  // otherwise). single-panel via the filter = one big graph, no scroll.
  const cm=charMetrics(),aw=(dplot.clientWidth||1200)-20,ah=(dplot.clientHeight||640)-16;
+ dplot.style.setProperty("--brls",cm.bls+"px");  // realign braille markers to the mono cell
  const w=Math.max(60,Math.min(400,Math.floor(aw/cm.cw)));
  const count=dSel?dSel.size:(dAvail.length||10),rows=Math.max(1,Math.ceil(count/dC));
  const h=Math.max(16,Math.min(300,Math.max(Math.floor(ah/cm.lh),rows*16)));
