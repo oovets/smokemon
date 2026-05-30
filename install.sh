@@ -11,7 +11,7 @@
 set -euo pipefail
 
 MODE="node"; NODE_NAME="$(hostname)"; HUB_URL=""   # empty -> local-only node (ship no-ops)
-SECRET=""; TARGETS="1.1.1.1,192.168.0.1"
+SECRET=""; TARGETS="1.1.1.1,gw"   # 'gw' auto-expands to each node's own default gateway
 while [ $# -gt 0 ]; do
     case "$1" in
         --hub) MODE="hub"; shift ;;

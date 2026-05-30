@@ -3,6 +3,7 @@
 import os
 import shutil
 import socket
+import subprocess
 
 HOME = os.path.expanduser("~")
 
@@ -35,8 +36,47 @@ HUB_DB = os.environ.get("SMOKEMON_HUB_DB", os.path.join(HOME, "smokemon", "data"
 # `smoke hub` to show/repoint where this node ships. Overridable for tests / non-default layouts.
 ENV_FILE = os.environ.get("SMOKEMON_ENV_FILE", "/etc/smokemon.env")
 
-# ping + net (fast loop)
-TARGETS = _list("SMOKEMON_TARGETS", "1.1.1.1,192.168.0.1")
+def default_gateway() -> str | None:
+    """The node's IPv4 default-gateway IP, stdlib-only. Lets every node ping its own first hop
+    without hardcoding a per-site LAN address. Linux reads /proc/net/route; macOS/BSD parse
+    `route -n get default`. Returns None if it can't be determined."""
+    try:  # Linux: the default route is the line with destination 00000000
+        with open("/proc/net/route") as f:
+            for line in f.read().splitlines()[1:]:
+                fields = line.split()
+                if len(fields) > 3 and fields[1] == "00000000" and int(fields[3], 16) & 0x2:
+                    h = fields[2]  # gateway, little-endian hex -> dotted quad
+                    return ".".join(str(int(h[i:i + 2], 16)) for i in (6, 4, 2, 0))
+    except OSError:
+        pass
+    try:  # macOS / BSD
+        out = subprocess.run(["route", "-n", "get", "default"], capture_output=True,
+                             text=True, timeout=3).stdout
+        for line in out.splitlines():
+            if line.strip().startswith("gateway:"):
+                return line.split()[1]
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return None
+
+
+def _resolve_targets(raw: list[str]) -> list[str]:
+    """Expand the literal token 'gw' (or 'gateway'/'auto') to the node's detected default gateway;
+    drop it if detection fails. Other entries (explicit IPs/hosts) pass through unchanged."""
+    out = []
+    for t in raw:
+        if t.lower() in ("gw", "gateway", "auto"):
+            gw = default_gateway()
+            if gw and gw not in out:
+                out.append(gw)
+        elif t not in out:
+            out.append(t)
+    return out
+
+
+# ping + net (fast loop). Default pings 1.1.1.1 + this node's own gateway (auto-detected), so a
+# fresh install needs no per-site address. Set SMOKEMON_TARGETS to override; 'gw' = the gateway.
+TARGETS = _resolve_targets(_list("SMOKEMON_TARGETS", "1.1.1.1,gw"))
 PING_INTERVAL = _f("SMOKEMON_INTERVAL", "10")
 PING_COUNT = _i("SMOKEMON_COUNT", "20")
 PING_PERIOD = _i("SMOKEMON_PERIOD", "50")
@@ -120,6 +160,9 @@ MTR_SUDO = os.environ.get("SMOKEMON_MTR_SUDO", "1") != "0"
 
 # render; map your target IPs to friendly names here
 TARGET_LABELS = {"1.1.1.1": "internet", "192.168.0.1": "gw"}
+_gw = default_gateway()  # label the auto-detected gateway "gw" too, so renders read nicely
+if _gw:
+    TARGET_LABELS.setdefault(_gw, "gw")
 HTTP_COLORS = ["cyan", "green+", "magenta+", "blue+", "orange+"]
 PANELS = ["ping", "net", "http", "mtr", "wifi", "iperf",
           "host", "gpu", "redis", "disk", "thermal", "power", "tcp", "psi", "freq", "self"]
