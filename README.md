@@ -1,5 +1,11 @@
 # smokemon
 
+> full-stack network + host monitoring for the edge — every signal on one timeline, in stdlib python and ~30 mb of ram. no cloud, no dependencies, nothing to install but python.
+
+smokemon watches network and the box it runs on — ping loss & latency spread, bandwidth, http breakdown, per-hop routes, wifi, throughput, cpu/mem/temp/psi/power — and lays it all on a single timeline, so you can see what else was happening the moment things went bad.
+
+the core is pure-stdlib python: a raspberry pi or jetson runs it for ~30 mb of ram and well under 1% of one core — it graphs its own footprint to prove it. point many nodes at one hub and watch the whole fleet from a terminal or a browser.
+
 [![CI](https://img.shields.io/github/actions/workflow/status/oovets/smokemon/ci.yml?branch=main&label=CI)](https://github.com/oovets/smokemon/actions/workflows/ci.yml)
 [![Docs](https://img.shields.io/badge/docs-mkdocs--material-blue.svg)](https://oovets.github.io/smokemon/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)

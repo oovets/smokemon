@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "smokemon"
 version = "0.11.0"
-description = "Passive + active network and host monitor for macOS and Linux (Pi/Jetson) with optional central hub aggregation"
+description = "full-stack network + host monitoring for the edge — every signal on one timeline, in stdlib python and ~30 mb of ram. no cloud, no dependencies, nothing to install but python."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
