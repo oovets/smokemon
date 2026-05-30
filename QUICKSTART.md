@@ -47,6 +47,26 @@ smoke png          # high-res PNG (needs matplotlib; macOS/hub)
 
 common flags: `--hours N` / `--minutes N`, `--panels ping,net,wifi,host,…`, `--targets a,b`.
 
+## what it looks like
+
+the text surfaces are pure stdlib, so they run anywhere. example output (illustrative):
+
+```
+$ smoke status
+internet ▁▂▁▁▃▁ 4ms 0% · wifi ▆▆▅▆ -52dBm · cpu ▁▁▂▁ 45°C · healthy
+
+$ smoke incidents --hours 24
+14:32-14:35  latency-spike  +410%   blame: cpu 98% · new proc "backup" · temp 71°C
+03:10-03:11  packet-loss     18%    blame: wifi roam (2 bssids) · rssi -74dBm
+
+$ smoke digest --hours 24
+uptime 99.8% (2 incidents, 3m hard-down). peak 210ms @14:33 (cpu-correlated).
+bufferbloat B. 2 wifi roams. cpu max 71°C (9°C from throttle). disk full ~14d.
+```
+
+the graphical surfaces — `smoke png`, `smoke tui`, and the hub dashboard at `GET /` — draw
+the same data as panels stacked on one timeline.
+
 ## multi-node + central hub
 
 one hub aggregates many nodes (push model).

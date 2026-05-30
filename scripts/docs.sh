@@ -11,6 +11,19 @@ for f in QUICKSTART.md INSTALL.md PLAN.md CHANGELOG.md CONTRIBUTING.md SECURITY.
     [ -f "$f" ] && cp "$f" "docs/$f"
 done
 
+# Rewrite repo-relative links for the SITE BUILD ONLY (the root .md keep their GitHub-correct
+# links). README.md is the site home, so it becomes index.md; files that are not staged into
+# docs/ (LICENSE, pyproject.toml) point at the GitHub blob instead. Keeps `mkdocs build
+# --strict` clean - any remaining "link not found" warning is then a real broken link.
+blob="https://github.com/oovets/smokemon/blob/main"
+for f in docs/*.md; do
+    sed -i \
+        -e 's#](README\.md#](index.md#g' \
+        -e "s#](pyproject\.toml)#](${blob}/pyproject.toml)#g" \
+        -e "s#](LICENSE)#](${blob}/LICENSE)#g" \
+        "$f"
+done
+
 # Tag bare opening fences as ```bash for the SITE BUILD ONLY (the root .md stays clean on
 # GitHub). This gives every code box Pygments syntax colouring like the already-tagged
 # CONTRIBUTING blocks. Toggles on each fence line so closing fences are left untouched.

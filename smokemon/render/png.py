@@ -231,10 +231,10 @@ def _grid_dims(n: int, cols_opt: int) -> tuple[int, int]:
     return rows, cols
 
 
-def run(opts) -> int:
-    if not os.path.exists(opts.db):
-        print(f"No database found: {opts.db}", file=sys.stderr)
-        return 1
+def render_png(opts) -> bytes | None:
+    """Build the panel grid and return PNG bytes (None if the window holds no data).
+    Shared by `smoke png` (writes a file) and the hub's GET /api/png (serves the bytes)."""
+    import io
     since, until = query.window(opts.hours, opts.minutes, opts.since, opts.until)
     targets = [t.strip() for t in opts.targets.split(",")] if opts.targets else None
     sel = ALL_PANELS if opts.panels == "all" else [s.strip() for s in opts.panels.split(",")]
@@ -244,25 +244,33 @@ def run(opts) -> int:
     conn.close()
     panels = _build(sel, data)
     if not panels:
-        print("No data in selected time window.", file=sys.stderr)
-        return 2
+        return None
 
     rows, cols = _grid_dims(len(panels), getattr(opts, "cols", 0))
     span_h = (until - since) / 3600
     # Per-cell width scales with span (so dots stay distinguishable) but each cell now
     # owns only 1/cols of the total figure width, so multiply column count back in.
     cell_w = opts.width if opts.width > 0 else min(40.0, max(8.0, span_h * 2))
-    fig_w = cell_w * cols
-    fig_h = 3.0 * rows
-    fig, axes = plt.subplots(rows, cols, figsize=(fig_w, fig_h),
+    fig, axes = plt.subplots(rows, cols, figsize=(cell_w * cols, 3.0 * rows),
                              sharex="col", squeeze=False)
     flat = [ax for row in axes for ax in row]
     for ax, draw in zip(flat, panels):
         draw(ax)
         ax.grid(True, alpha=0.25)
-        ax.legend(loc="upper left", fontsize=7, ncol=5, framealpha=0.85)
+        handles, labels = ax.get_legend_handles_labels()
+        if labels:
+            # Compact legend, loc="best" so it dodges the data. Keeps every series (mtr/http/
+            # disk can have many) but scales down: high-cardinality panels get a smaller font
+            # and more columns so the legend stays a flat strip instead of swamping the panel.
+            many = len(labels) > 8
+            ax.legend(handles, labels, loc="best",
+                      fontsize=5 if many else 6,
+                      ncol=min(5 if many else 3, len(labels)),
+                      framealpha=0.5, labelspacing=0.2, columnspacing=0.8,
+                      handlelength=1.2, handletextpad=0.35, borderpad=0.25)
         ax.yaxis.set_major_locator(MaxNLocator(integer=True))
         ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
+        ax.tick_params(labelsize=8)
     # Hide unused cells when len(panels) doesn't fill the grid evenly
     for ax in flat[len(panels):]:
         ax.set_visible(False)
@@ -272,9 +280,27 @@ def run(opts) -> int:
                  f"{datetime.fromtimestamp(until):%H:%M}  ({span_h:.1f}h)  {rows}x{cols} grid",
                  fontsize=12, y=0.997)
     fig.tight_layout(rect=(0, 0, 1, 0.99))
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=opts.dpi)
+    plt.close(fig)   # free the figure (matters in a long render loop / subprocess)
+    return buf.getvalue()
+
+
+def run(opts) -> int:
+    if not os.path.exists(opts.db):
+        print(f"No database found: {opts.db}", file=sys.stderr)
+        return 1
+    png = render_png(opts)
+    if png is None:
+        print("No data in selected time window.", file=sys.stderr)
+        return 2
+    if opts.out == "-":                       # stream raw PNG to stdout (used by GET /api/png)
+        sys.stdout.buffer.write(png)
+        return 0
     os.makedirs(os.path.dirname(opts.out), exist_ok=True)
-    fig.savefig(opts.out, dpi=opts.dpi)
-    print(f"Saved graph: {opts.out}  ({rows} rows x {cols} cols, {len(panels)} panels)")
+    with open(opts.out, "wb") as f:
+        f.write(png)
+    print(f"Saved graph: {opts.out}")
     if not opts.no_open:
         __import__("subprocess").run(["/usr/bin/open", opts.out], check=False)
     return 0

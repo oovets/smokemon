@@ -3,15 +3,13 @@
 an idea catalog, not a commitment. creative directions worth building, ordered by leverage.
 entries become real work only when promoted into the changelog and code.
 
-status (see CHANGELOG [Unreleased]): QW1-4, F1-F3, P1-P3, S1-S5, X2, X5, X6 are now
-implemented. analysis lives in the read-only hub-side `smokemon/analyze.py`; text surfaces
-in `smokemon/report.py` (`smoke status|incidents|digest`, `smoke replay`); alerting in
-`smokemon/notify.py`; hub `/metrics` + `/api/*` + a live fleet dashboard (`GET /`) and a
-terminal fleet view (`smoke fleet`: status / --ranked / --heatmap, over the DB or the hub
-`/api`) - both beyond the original catalog - in `smokemon/hubapi.py` + `smokemon/report.py`;
-the `self` panel and the opt-in `smokemon/probes/synthetic.py` round out the node side. Deferred (need hardware / a GPU /
-a multi-day redesign, can't be built+verified blind): X1 (gpio/led), X3 (jetson on-device
-ml), X4 (hubless mesh gossip).
+status: each entry below is tagged [done] / [deferred]. [done] shipped in 0.12.0 (see
+CHANGELOG) - the analysis engine (`smokemon/analyze.py`), text surfaces (`smokemon/report.py`:
+`smoke status|incidents|digest`, `smoke replay`), alerting (`smokemon/notify.py`), the hub
+`/metrics` + `/api/*` + live dashboard (`GET /`) and terminal `smoke fleet`
+(`smokemon/hubapi.py`), the `self` panel and the opt-in `smokemon/probes/synthetic.py`.
+[deferred] needs hardware / a gpu / a multi-day redesign that can't be built + verified
+blind: X1 (gpio/led), X3 (jetson on-device ml), X4 (hubless mesh gossip).
 
 the thread running through all of it: smokemon's untapped edge is synchronized
 multi-signal data on one timeline per node. smokeping sees only the network, netdata only the
@@ -34,22 +32,22 @@ each entry -> what · data (existing tables/fields) · code (where it lives) · 
 ```
 == tier 1 - quick wins (data already exists, low effort) ==
 
-QW1 bufferbloat grade (A-F). iperf3 -J already returns streams[].rtt_min/mean/max which
+QW1 [done] bufferbloat grade (A-F). iperf3 -J already returns streams[].rtt_min/mean/max which
     probes/iperf.py does not parse yet. combine idle ping vs ping-under-load -> dslreports-
     style grade. surface: iperf panel annotation + digest. effort S. additive column
     rtt_under_load_ms on iperf_samples; iperf is already the 15-min tier so no loop cost.
 
-QW2 http layer-blame. http_samples already splits dns/connect/tls/ttfb. name the dominant
+QW2 [done] http layer-blame. http_samples already splits dns/connect/tls/ttfb. name the dominant
     contributor ("slow = dns resolver, not your link"). code: loader in query.py, render in
     render/png.py + render/tui.py. surface: stacked http panel + culprit label. effort S.
     no schema change.
 
-QW3 sparkline status line. one glanceable row, unicode sparklines:
+QW3 [done] sparkline status line. one glanceable row, unicode sparklines:
     internet _.-^-. 4ms · wifi ^^- -52dBm · cpu .._ 45C · healthy. new `smoke status`
     subcommand in cli.py, reuses existing loaders. drops into a cursor statusline / tmux /
     macos menubar. effort S. pure stdlib.
 
-QW4 death clocks. linear-extrapolate disk_samples.used_pct growth, disk_health.wear_pct
+QW4 [done] death clocks. linear-extrapolate disk_samples.used_pct growth, disk_health.wear_pct
     trend, temp-to-throttle headroom -> countdowns ("disk full ~14d", "sd ~3y left", "temp
     ~6C from throttle"). code: query.py + a status/digest line. effort S-M. no schema change.
 ```
@@ -57,19 +55,19 @@ QW4 death clocks. linear-extrapolate disk_samples.used_pct growth, disk_health.w
 ```
 == tier 2 - flagship (unique to the synchronized data) ==
 
-F1  blame engine (multi-signal incident correlation). on a latency/loss spike, correlate
+F1  [done] blame engine (multi-signal incident correlation). on a latency/loss spike, correlate
     against cpu, temp, wifi rssi, bssid roam, bandwidth, bufferbloat and newly-appeared
     procs -> human-readable cause list ("14:32-14:35 latency +400% - correlates with cpu
     98% + new process backup + temp 71C"). method: pearson/spearman + lag alignment, pure
     stdlib, hub-side at render/report time. code: new read-only smokemon/analyze.py +
     `smoke incidents`. effort M. zero node impact.
 
-F2  event/incident detection. rules over the multi-signal data: link down (loss=100% N
+F2  [done] event/incident detection. rules over the multi-signal data: link down (loss=100% N
     cycles), isp outage (gw ok + internet loss) vs upstream, dns-slow-but-tcp-fast,
     roam-correlated throughput dip. output: incidents table with start/end/duration/class.
     code: smokemon/analyze.py. surface: tui table + digest. effort M.
 
-F3  plain-english daily digest. narrative built on F1/F2: uptime %, blips + total duration,
+F3  [done] plain-english daily digest. narrative built on F1/F2: uptime %, blips + total duration,
     peak latency and what it coincided with, bufferbloat grade, roam count, thermals. code:
     `smoke digest`. surface: text file / stdout / optional push (S4). effort M.
 ```
@@ -77,15 +75,15 @@ F3  plain-english daily digest. narrative built on F1/F2: uptime %, blips + tota
 ```
 == tier 3 - predictive / statistical (stdlib only) ==
 
-P1  time-of-day anomaly baseline. "abnormal for a tuesday 14:00" with no thresholds, no ml.
+P1  [done] time-of-day anomaly baseline. "abnormal for a tuesday 14:00" with no thresholds, no ml.
     baseline per hour-of-day/day-of-week from retained raw ping_rtts; flag via rolling
     median + MAD z-score. code: analyze.py. effort M. hub-side.
 
-P2  change-point / regime-shift detection. catch silent changes - isp dropped your speed
+P2  [done] change-point / regime-shift detection. catch silent changes - isp dropped your speed
     tier, a new device saturates wifi, a route changed permanently ("bandwidth regime shift
     03:00 - median 940->230 Mbps"). cusum or rolling mean-shift. code: analyze.py. effort M.
 
-P3  path intelligence from mtr. detect route changes over time, attribute the bad hop (which
+P3  [done] path intelligence from mtr. detect route changes over time, attribute the bad hop (which
     hop adds loss/latency), compute a path-stability score from mtr_hops. surface: enhanced
     mtr panel + incidents. effort M.
 ```
@@ -93,20 +91,20 @@ P3  path intelligence from mtr. detect route changes over time, attribute the ba
 ```
 == tier 4 - surfaces and interop ==
 
-S1  dvr scrubber. raw data is kept forever -> replay any historical window like a tape deck:
+S1  [done] dvr scrubber. raw data is kept forever -> replay any historical window like a tape deck:
     `smoke replay 2026-05-20`, arrow keys to scrub. code: cli.py + render/tui.py. effort M.
 
-S2  prometheus / openmetrics endpoint. a /metrics route on the existing hub server (hub.py
+S2  [done] prometheus / openmetrics endpoint. a /metrics route on the existing hub server (hub.py
     already runs http.server) exposing latest values -> plugs into grafana/alertmanager.
     effort S-M. stdlib, hub-side.
 
-S3  read-only json api + fleet view. /api for latest/aggregated data; fleet ranking and a
+S3  [done] read-only json api + fleet view. /api for latest/aggregated data; fleet ranking and a
     node x hour heatmap when multiple nodes report. code: hub.py + query.py. effort M.
 
-S4  push / webhook alerting. fire ntfy/slack/webhook/email from F2 incidents. hub-side
+S4  [done] push / webhook alerting. fire ntfy/slack/webhook/email from F2 incidents. hub-side
     notifier using urllib. effort S-M. stdlib.
 
-S5  self-instrumentation panel. smokemon already shows up in proc_samples (it reads its own
+S5  [done] self-instrumentation panel. smokemon already shows up in proc_samples (it reads its own
     rss) -> graph its own footprint/cpu over time to prove the low-rss claim. new `self`
     panel. effort S.
 ```
@@ -114,25 +112,25 @@ S5  self-instrumentation panel. smokemon already shows up in proc_samples (it re
 ```
 == tier 5 - frontier / experimental (opt-in; may need extras or hardware) ==
 
-X1  gpio/led ambient health. a physical led on a pi that goes red on loss/incident. node-
+X1  [deferred] gpio/led ambient health. a physical led on a pi that goes red on loss/incident. node-
     side, gated behind an opt-in extra (gpiozero/RPi.GPIO) so the stdlib-only core is
     untouched. effort S-M.
 
-X2  sonification / audible alerts. terminal-bell patterns or a tone whose pitch tracks
+X2  [done] sonification / audible alerts. terminal-bell patterns or a tone whose pitch tracks
     health, for kiosk mode. code: render/tui.py / cli. effort S. stdlib.
 
-X3  on-device ml on jetson. a tiny anomaly autoencoder running only where there's a gpu.
+X3  [deferred] on-device ml on jetson. a tiny anomaly autoencoder running only where there's a gpu.
     jetson-only, strictly opt-in deps; hub and pi stay stdlib. effort L.
 
-X4  hubless mesh gossip. nodes exchange row deltas peer-to-peer so a fleet works with no
+X4  [deferred] hubless mesh gossip. nodes exchange row deltas peer-to-peer so a fleet works with no
     central hub; UNIQUE(node,src_id) + INSERT OR IGNORE already make merges idempotent.
     code: gossip variant of ship.py/hub.py. effort L. stdlib, big design.
 
-X5  bandwidth attribution. "what's hammering my network" - correlate net_samples spikes with
+X5  [done] bandwidth attribution. "what's hammering my network" - correlate net_samples spikes with
     proc_samples (optionally per-process net counters) to name the culprit process. code:
     analyze.py + optional probe. effort M.
 
-X6  synthetic transactions. scripted multi-step checks beyond single-shot probes - login
+X6  [done] synthetic transactions. scripted multi-step checks beyond single-shot probes - login
     flow, dns-over-https, captive-portal detection. new module under probes/. effort M.
 ```
 

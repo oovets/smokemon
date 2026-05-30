@@ -4,6 +4,7 @@ UNIQUE(node,src_id) + INSERT OR IGNORE in one transaction. Stdlib http.server.""
 
 import hmac
 import json
+import subprocess
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -13,7 +14,25 @@ from . import config, core, hubapi, schema
 
 _conn = None
 _lock = threading.Lock()  # serialize writes to the single sqlite connection
+_render_lock = threading.Lock()  # serialize the (heavy) PNG subprocess renders
 _hub_cols: dict[str, set[str]] = {}
+
+
+def _render_png(node: str, hours: float, panels: str, width: str, dpi: str) -> bytes | None:
+    """Render a node's panel PNG in a short-lived subprocess, so matplotlib never loads
+    into the long-lived hub process (its RSS stays ~20 MB). The child reads the hub DB
+    read-only and streams the PNG to stdout. Serialized via _render_lock; returns the
+    bytes, or None on no-data / error / timeout."""
+    cmd = [sys.executable, "-m", "smokemon.cli", "png",
+           "--db", config.HUB_DB, "--node", node, "--hours", str(hours),
+           "--panels", panels, "--width", width, "--dpi", dpi, "--out", "-", "--no-open"]
+    with _render_lock:
+        try:
+            p = subprocess.run(cmd, capture_output=True, timeout=60)
+        except (subprocess.TimeoutExpired, OSError) as e:  # noqa: BLE001
+            core.log(f"png render failed: {e!r}")
+            return None
+    return p.stdout if (p.returncode == 0 and p.stdout) else None
 
 
 def _insert_std(conn, table, node, columns, rows, need_id_map: bool = False) -> dict[int, int] | int:
@@ -94,7 +113,9 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _send_text(self, code: int, body: str, content_type: str) -> None:
-        data = body.encode()
+        self._send_bytes(code, body.encode(), content_type)
+
+    def _send_bytes(self, code: int, data: bytes, content_type: str) -> None:
         self.send_response(code)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(data)))
@@ -132,6 +153,15 @@ class Handler(BaseHTTPRequestHandler):
                 metric = qs.get("metric", ["loss"])[0]
                 with _lock:
                     return self._send(200, hubapi.heatmap(_conn, metric, hours))
+            if u.path == "/api/png":
+                node = qs.get("node", [""])[0]
+                if not node:
+                    return self._send(400, {"error": "node required"})
+                png = _render_png(node, hours, qs.get("panels", ["all"])[0],
+                                  qs.get("width", ["9"])[0], qs.get("dpi", ["96"])[0])
+                if not png:
+                    return self._send(404, {"error": "no data for node/window"})
+                return self._send_bytes(200, png, "image/png")
         except Exception as e:  # noqa: BLE001
             core.log(f"GET {u.path} error: {e!r}")
             return self._send(500, {"error": str(e)})
@@ -167,7 +197,7 @@ def main() -> int:
     srv = ThreadingHTTPServer((config.HUB_BIND, config.HUB_PORT), Handler)
     core.log(f"hub listening on {config.HUB_BIND}:{config.HUB_PORT} db={config.HUB_DB} "
              "(dashboard GET / · POST /ingest · GET /metrics /api/fleet-status "
-             "/api/latest /api/fleet /api/heatmap /api/nodes)")
+             "/api/latest /api/fleet /api/heatmap /api/nodes /api/png)")
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

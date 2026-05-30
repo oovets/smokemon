@@ -78,9 +78,9 @@ Linux    curl -fsSL https://raw.githubusercontent.com/oovets/smokemon/main/insta
   -> `smoke live|kiosk|daily`. dedup: schema, daemon loop, plot loaders, the duplicate
   wifi_probe (all gone). net caches the TS iface (5 min). hub: ThreadingHTTPServer + write
   lock. entrypoints: python -m smokemon.* (PYTHONPATH=repo, no install needed).
-
-earlier versions (v0.1 - v0.9) -> [CHANGELOG.md](CHANGELOG.md)
 ```
+
+earlier versions (v0.1 - v0.9) → [CHANGELOG.md](CHANGELOG.md)
 
 ```
 smoke [tui]                 static TUI; 14 panel types: ping,net,http,mtr,wifi,iperf,
@@ -125,4 +125,42 @@ deploy: macOS deploy/launchd/*.plist (collect-fast/slow, iperf, daily, shipper, 
 
 deps:   node: fping,mtr,iperf3,iw + python3 stdlib + plotext(TUI);
         hub: +matplotlib/numpy(PNG) + iperf3 (runs iperf3 -s as the nodes' bandwidth target).
+```
+
+```
+== what the metrics mean (the non-obvious ones) ==
+
+rtt spread        the p25-p75 / p0-p100 band around median ping, not a single number - a
+                  wide band = jitter even when the average looks fine.
+bufferbloat grade A+..F from idle ping vs ping-under-load (iperf). F = the link buffers
+                  badly under load (calls/games stutter while something downloads).
+psi               linux pressure-stall info (/proc/pressure): % of time tasks stalled on
+                  cpu/mem/io. rises *before* utilisation hits 100% - an early warning.
+conntrack fill    how full the kernel's connection-tracking table is. near 100% = new
+                  connections get dropped (looks like packet loss, isn't the link).
+death clocks      linear extrapolation to a limit: disk-full eta, sd/emmc wear-out eta, and
+                  headroom (degC) before the cpu thermally throttles.
+roam count        how many times wifi jumped between bssids (access points) in the window;
+                  frequent roams correlate with throughput dips.
+throttle bits     raspberry pi vcgencmd flags (under-voltage / freq-capped / throttled),
+                  past and currently-active - the usual cause of silent pi slowdowns.
+```
+
+```
+== what the metrics mean (the non-obvious ones) ==
+
+rtt spread        the p25-p75 / p0-p100 band around median ping, not a single number - a
+                  wide band = jitter even when the average looks fine.
+bufferbloat grade A+..F from idle ping vs ping-under-load (iperf). F = the link buffers
+                  badly under load (calls/games stutter while something downloads).
+psi               linux pressure-stall info (/proc/pressure): % of time tasks stalled on
+                  cpu/mem/io. rises *before* utilisation hits 100% - an early warning.
+conntrack fill    how full the kernel's connection-tracking table is. near 100% = new
+                  connections get dropped (looks like packet loss, isn't the link).
+death clocks      linear extrapolation to a limit: disk-full eta, sd/emmc wear-out eta, and
+                  headroom (degC) before the cpu thermally throttles.
+roam count        how many times wifi jumped between bssids (access points) in the window;
+                  frequent roams correlate with throughput dips.
+throttle bits     raspberry pi vcgencmd flags (under-voltage / freq-capped / throttled),
+                  past and currently-active - the usual cause of silent pi slowdowns.
 ```

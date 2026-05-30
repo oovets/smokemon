@@ -7,8 +7,8 @@ security advisory -> [open one](https://github.com/oovets/smokemon/security/advi
 == supported versions ==
 
 only main and the most recent tagged release receive security fixes. no lts branch.
-  latest tag (0.11.x)   supported
-  < 0.11                not supported
+  latest tag (0.12.x)   supported
+  < 0.12                not supported
 ```
 
 ```
@@ -48,7 +48,7 @@ flagging even where the trade-off is documented.
 
 - no replay protection on ingest currently. a captured payload can be replayed and is
   silently absorbed by INSERT OR IGNORE on the UNIQUE(node, src_id) index, but a malicious
-  node with the secret can backfill old data. on the v0.12 roadmap.
+  node with the secret can backfill old data. on the roadmap.
 
 - sqlite wal on a shared host is readable by anything with file-system access. no row-level
   encryption is performed.

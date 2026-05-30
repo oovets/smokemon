@@ -4,8 +4,11 @@ all notable changes to smokemon. the format roughly follows [keep a changelog](h
 
 roadmap / ideas -> [PLAN.md](PLAN.md)
 
+(0.1.0 through 0.10.0 landed together during the initial build-out and were not separately
+tagged; dated entries begin at the first release, 0.11.0.)
+
 ```
-== unreleased  analysis engine + text surfaces + alerting + hub api ==
+== 0.12.0 - 2026-05-30  analysis engine + text surfaces + alerting + hub api ==
 
 added:
 
@@ -211,7 +214,7 @@ changed:
 ```
 
 ```
-== 0.10.0 - 2026-05-28  package refactor ==
+== 0.10.0  package refactor ==
 
 changed:
 
@@ -232,7 +235,7 @@ changed:
 ```
 
 ```
-== 0.9.0 - 2026-05-28  cross-platform + central aggregation ==
+== 0.9.0  cross-platform + central aggregation ==
 
 added:
 
@@ -261,7 +264,7 @@ added:
 ```
 
 ```
-== 0.8.0 - 2026-05-28  span-scaled png ==
+== 0.8.0  span-scaled png ==
 
 changed:
 
@@ -271,7 +274,7 @@ changed:
 ```
 
 ```
-== 0.7.0 - 2026-05-28  readable axes ==
+== 0.7.0  readable axes ==
 
 changed:
 
@@ -282,7 +285,7 @@ changed:
 ```
 
 ```
-== 0.6.0 - 2026-05-28  kiosk mode ==
+== 0.6.0  kiosk mode ==
 
 added:
 
@@ -290,7 +293,7 @@ added:
 ```
 
 ```
-== 0.5.0 - 2026-05-28  active probes ==
+== 0.5.0  active probes ==
 
 added:
 
@@ -305,7 +308,7 @@ added:
 ```
 
 ```
-== 0.4.0 - 2026-05-28  live window units ==
+== 0.4.0  live window units ==
 
 added:
 
@@ -313,7 +316,7 @@ added:
 ```
 
 ```
-== 0.3.0 - 2026-05-28  tailscale target ==
+== 0.3.0  tailscale target ==
 
 added:
 
@@ -329,7 +332,7 @@ fixed:
 ```
 
 ```
-== 0.2.0 - 2026-05-28  tui + scheduling ==
+== 0.2.0  tui + scheduling ==
 
 added:
 
@@ -340,7 +343,7 @@ added:
 ```
 
 ```
-== 0.1.0 - 2026-05-28  core collector ==
+== 0.1.0  core collector ==
 
 added:
 

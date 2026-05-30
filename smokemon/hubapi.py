@@ -249,6 +249,22 @@ _DASHBOARD_HTML = """<!doctype html>
  .m{color:var(--mut);font-size:12px;flex:0 0 auto;min-width:44px;text-align:right}
  .m.bad{color:#ff7b72}
  #err{color:#ff7b72;padding:0 14px}
+ .node{cursor:pointer}
+ #detail{position:fixed;inset:0;background:rgba(0,0,0,.72);display:flex;
+         align-items:center;justify-content:center;padding:16px;z-index:20}
+ #detail[hidden]{display:none}
+ .dwin{background:var(--card);border:1px solid var(--line);border-radius:8px;
+       width:min(96vw,1500px);max-height:92vh;display:flex;flex-direction:column;overflow:hidden}
+ .dbar{display:flex;gap:10px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--line)}
+ .dbar .nm{font-weight:600}
+ .dh{display:flex;gap:6px}
+ .dh button,#dclose{background:var(--bg);border:1px solid var(--line);color:var(--fg);
+       border-radius:6px;padding:3px 9px;font:inherit;cursor:pointer}
+ .dh button.on{border-color:var(--ok);color:#7ee2a8}
+ #dclose{margin-left:auto;font-weight:700}
+ .dimg{overflow:auto;background:#fff;min-height:120px}
+ .dimg img{display:block;width:100%;height:auto}
+ #dmsg{padding:28px;color:var(--mut)}
 </style></head>
 <body>
 <header>
@@ -259,6 +275,16 @@ _DASHBOARD_HTML = """<!doctype html>
 </header>
 <div id="err"></div>
 <div id="grid"></div>
+<div id="detail" hidden>
+ <div class="dwin">
+  <div class="dbar">
+   <span class="nm" id="dname"></span>
+   <span class="dh" id="dhours"></span>
+   <button id="dclose">✕</button>
+  </div>
+  <div class="dimg"><img id="dgraph" alt=""><div id="dmsg" hidden>no data in this window</div></div>
+ </div>
+</div>
 <script>
 const params=new URLSearchParams(location.search);
 const REFRESH=Math.max(1,parseFloat(params.get("refresh"))||5)*1000;
@@ -278,7 +304,7 @@ function render(){
   const right=n.state==="stale"
    ?`<span class="m">${fmtAge(n.age_s)} ago</span>`
    :`<span class="m">${fmtRtt(n.rtt_ms)}</span><span class="m${lossBad}">${fmtLoss(n.loss_pct)}</span>`;
-  return `<div class="node ${n.state}" title="${esc(n.node)} · cpu ${n.cpu??"?"}% · ${n.temp??"?"}°C · ${fmtAge(n.age_s)} ago">`
+  return `<div class="node ${n.state}" data-node="${esc(n.node)}" title="${esc(n.node)} · cpu ${n.cpu??"?"}% · ${n.temp??"?"}°C · ${fmtAge(n.age_s)} ago · click for graphs">`
    +`<span class="dot s-${n.state}"></span><span class="name">${esc(n.node)}</span>${right}</div>`;
  }).join("");
  const c=last.counts||{};
@@ -295,6 +321,31 @@ async function tick(){
  }catch(e){err.textContent="fetch error: "+e.message;}
 }
 q.addEventListener("input",render);
+
+// per-node detail: embed the live PNG (same renderer as `smoke png`), refreshed every 60s.
+const detail=document.getElementById("detail"),dgraph=document.getElementById("dgraph"),
+ dname=document.getElementById("dname"),dhours=document.getElementById("dhours"),
+ dmsg=document.getElementById("dmsg");
+const HOURS=[[6,"6h"],[24,"24h"],[168,"7d"]];
+let dNode=null,dH=24,dTimer=null;
+dhours.innerHTML=HOURS.map(([h,l])=>`<button data-h="${h}">${l}</button>`).join("");
+function pngSrc(){return `/api/png?node=${encodeURIComponent(dNode)}&hours=${dH}&_=${Date.now()}`;}
+function paintGraph(){
+ if(!dNode)return;
+ dhours.querySelectorAll("button").forEach(b=>b.classList.toggle("on",+b.dataset.h===dH));
+ dgraph.src=pngSrc();
+}
+function openDetail(node){dNode=node;dname.textContent=node;detail.hidden=false;
+ dmsg.hidden=true;paintGraph();clearInterval(dTimer);dTimer=setInterval(paintGraph,60000);}
+function closeDetail(){detail.hidden=true;dNode=null;clearInterval(dTimer);dgraph.removeAttribute("src");}
+dgraph.onerror=()=>{dmsg.hidden=false;dgraph.removeAttribute("src");};
+dgraph.onload=()=>{dmsg.hidden=true;};
+grid.addEventListener("click",e=>{const n=e.target.closest(".node");if(n&&n.dataset.node)openDetail(n.dataset.node);});
+dhours.addEventListener("click",e=>{if(e.target.dataset.h){dH=+e.target.dataset.h;paintGraph();}});
+document.getElementById("dclose").onclick=closeDetail;
+detail.addEventListener("click",e=>{if(e.target===detail)closeDetail();});
+addEventListener("keydown",e=>{if(e.key==="Escape")closeDetail();});
+
 tick();setInterval(tick,REFRESH);
 </script>
 </body></html>
