@@ -2,6 +2,7 @@
 each panel keeps a 'logical width' proportional to the time span so individual samples
 stay distinguishable. Set --cols 1 for the classic single-column stack."""
 
+import json
 import math
 import os
 import sys
@@ -18,6 +19,20 @@ from matplotlib.ticker import MaxNLocator  # noqa: E402
 from .. import config, query  # noqa: E402
 
 ALL_PANELS = config.PANELS
+
+# Dark theme (the hub dashboard requests it so the embedded graphs match its palette). Set
+# per-render in render_png; the draw() closures read it at call time, like the tui's KIOSK.
+DARK = False
+# Font sizes applied to every axes (incl. the twinx right-hand axes some panels add), so
+# left and right tick labels + axis labels match. Applied in both themes.
+_BASE_RC = {"xtick.labelsize": 7, "ytick.labelsize": 7, "axes.labelsize": 7}
+_DARK_RC = {
+    "figure.facecolor": "#0b0e14", "axes.facecolor": "#11151c", "savefig.facecolor": "#0b0e14",
+    "text.color": "#c9d1d9", "axes.labelcolor": "#c9d1d9", "axes.titlecolor": "#c9d1d9",
+    "xtick.color": "#9aa4b2", "ytick.color": "#9aa4b2",
+    "axes.edgecolor": "#2a2f3a", "grid.color": "#3a4150",
+    "legend.facecolor": "#11151c", "legend.edgecolor": "#2a2f3a",
+}
 
 
 def _dt(ts_list):
@@ -50,9 +65,12 @@ def _build(selected, data):  # noqa: C901 -- straight-line dispatch, intentional
         for target, d in sorted(data["ping"].items()):
             def draw(ax, d=d, target=target):
                 t = _dt(d["t"])
-                ax.fill_between(t, d["p0"], d["p100"], color="#3b6ea5", alpha=0.18, label="min-max")
-                ax.fill_between(t, d["p25"], d["p75"], color="#3b6ea5", alpha=0.35, label="p25-p75")
-                ax.plot(t, d["p50"], color="#15324f", lw=1.0, label="median")
+                ax.fill_between(t, d["p0"], d["p100"], color="#3b6ea5",
+                                alpha=0.25 if DARK else 0.18, label="min-max")
+                ax.fill_between(t, d["p25"], d["p75"], color="#3b6ea5",
+                                alpha=0.45 if DARK else 0.35, label="p25-p75")
+                # the light-theme median is near-black navy; brighten it so it shows on dark.
+                ax.plot(t, d["p50"], color="#8ab4f8" if DARK else "#15324f", lw=1.0, label="median")
                 loss = np.array(d["loss"]); m = loss > 0
                 if m.any():
                     ax.scatter(np.array(t)[m], np.array(d["p50"])[m], c=loss[m], cmap="autumn_r",
@@ -135,10 +153,12 @@ def _build(selected, data):  # noqa: C901 -- straight-line dispatch, intentional
         panels.append(draw_host)
     if "disk" in selected and data["disk"]:
         def draw_disk(ax, disk=data["disk"], health=data.get("disk_health", {})):
+            # no per-mount legend: a busy box (many loop/snap mounts) drowns the panel; the
+            # mounts + death-clock live in the title/tooltip instead.
             for mount, d in sorted(disk.items()):
-                ax.plot(_dt(d["t"]), d["used"], lw=0.9, label=mount)
+                ax.plot(_dt(d["t"]), d["used"], lw=0.9)
                 if any(v is not None and v > 0 for v in d.get("inode", [])):
-                    ax.plot(_dt(d["t"]), d["inode"], lw=0.6, ls=":", label=f"{mount} inode%")
+                    ax.plot(_dt(d["t"]), d["inode"], lw=0.6, ls=":")
             ax.set_title(f"Disk used (%) per mount{_disk_tag(disk, health)}",
                          loc="left", fontsize=10, fontweight="bold")
             ax.set_ylabel("%"); ax.set_ylim(bottom=0, top=100)
@@ -231,10 +251,16 @@ def _grid_dims(n: int, cols_opt: int) -> tuple[int, int]:
     return rows, cols
 
 
-def render_png(opts) -> bytes | None:
-    """Build the panel grid and return PNG bytes (None if the window holds no data).
-    Shared by `smoke png` (writes a file) and the hub's GET /api/png (serves the bytes)."""
+def render_png(opts) -> tuple[bytes | None, list]:
+    """Build the panel grid; return (PNG bytes, panel-meta). PNG is None if the window holds
+    no data. Shared by `smoke png` (writes a file) and the hub's GET /api/png. theme='dark'
+    renders on the dashboard's dark palette. With opts.meta the per-panel titles are pulled
+    OFF the image and returned as meta (each panel's position in 0..1 fractions + its title
+    text) so the dashboard can show them as hover tooltips instead."""
+    global DARK
     import io
+    DARK = getattr(opts, "theme", "light") == "dark"
+    want_meta = getattr(opts, "meta", False)
     since, until = query.window(opts.hours, opts.minutes, opts.since, opts.until)
     targets = [t.strip() for t in opts.targets.split(",")] if opts.targets else None
     sel = ALL_PANELS if opts.panels == "all" else [s.strip() for s in opts.panels.split(",")]
@@ -244,58 +270,80 @@ def render_png(opts) -> bytes | None:
     conn.close()
     panels = _build(sel, data)
     if not panels:
-        return None
+        return None, []
 
     rows, cols = _grid_dims(len(panels), getattr(opts, "cols", 0))
     span_h = (until - since) / 3600
     # Per-cell width scales with span (so dots stay distinguishable) but each cell now
     # owns only 1/cols of the total figure width, so multiply column count back in.
     cell_w = opts.width if opts.width > 0 else min(40.0, max(8.0, span_h * 2))
-    fig, axes = plt.subplots(rows, cols, figsize=(cell_w * cols, 3.0 * rows),
-                             sharex="col", squeeze=False)
-    flat = [ax for row in axes for ax in row]
-    for ax, draw in zip(flat, panels):
-        draw(ax)
-        ax.grid(True, alpha=0.25)
-        handles, labels = ax.get_legend_handles_labels()
-        if labels:
-            # Compact legend, loc="best" so it dodges the data. Keeps every series (mtr/http/
-            # disk can have many) but scales down: high-cardinality panels get a smaller font
-            # and more columns so the legend stays a flat strip instead of swamping the panel.
-            many = len(labels) > 8
-            ax.legend(handles, labels, loc="best",
-                      fontsize=5 if many else 6,
-                      ncol=min(5 if many else 3, len(labels)),
-                      framealpha=0.5, labelspacing=0.2, columnspacing=0.8,
-                      handlelength=1.2, handletextpad=0.35, borderpad=0.25)
-        ax.yaxis.set_major_locator(MaxNLocator(integer=True))
-        ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
-        ax.tick_params(labelsize=8)
-    # Hide unused cells when len(panels) doesn't fill the grid evenly
-    for ax in flat[len(panels):]:
-        ax.set_visible(False)
-    fig.autofmt_xdate()
-    tag = f" [{node}]" if node else ""
-    fig.suptitle(f"smokemon{tag} - {datetime.fromtimestamp(since):%Y-%m-%d %H:%M} -> "
-                 f"{datetime.fromtimestamp(until):%H:%M}  ({span_h:.1f}h)  {rows}x{cols} grid",
-                 fontsize=12, y=0.997)
-    fig.tight_layout(rect=(0, 0, 1, 0.99))
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=opts.dpi)
-    plt.close(fig)   # free the figure (matters in a long render loop / subprocess)
-    return buf.getvalue()
+    # Row height tracks column width to keep each panel ~2.6:1, so a narrow 3-col grid gets
+    # proportionally shorter rows. Clamped so wide (1-2 col / span-scaled Preview) panels keep
+    # the familiar 3in height and don't balloon.
+    row_h = max(2.0, min(3.0, cell_w / 2.6))
+    with matplotlib.rc_context({**_BASE_RC, **(_DARK_RC if DARK else {})}):
+        fig, axes = plt.subplots(rows, cols, figsize=(cell_w * cols, row_h * rows),
+                                 sharex="col", squeeze=False)
+        flat = [ax for row in axes for ax in row]
+        drawn = []  # (ax, title) for meta after tight_layout settles positions
+        for ax, draw in zip(flat, panels):
+            draw(ax)
+            title = ax.get_title(loc="left")
+            if want_meta:
+                ax.set_title("", loc="left")  # off the image -> into a hover tooltip instead
+            ax.grid(True, alpha=0.25)
+            handles, labels = ax.get_legend_handles_labels()
+            if labels:
+                # Compact legend, loc="best" so it dodges the data. Keeps every series (mtr/
+                # http/disk can have many) but scales down: high-cardinality panels get a
+                # smaller font + more columns so it stays a flat strip, not a panel-swamping box.
+                many = len(labels) > 8
+                ax.legend(handles, labels, loc="best",
+                          fontsize=5 if many else 6,
+                          ncol=min(5 if many else 3, len(labels)),
+                          framealpha=0.5, labelspacing=0.2, columnspacing=0.8,
+                          handlelength=1.2, handletextpad=0.35, borderpad=0.25)
+            ax.yaxis.set_major_locator(MaxNLocator(integer=True))
+            ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
+            drawn.append((ax, title))
+        # Hide unused cells when len(panels) doesn't fill the grid evenly
+        for ax in flat[len(panels):]:
+            ax.set_visible(False)
+        fig.autofmt_xdate()
+        have_title = not getattr(opts, "no_title", False)
+        if have_title:
+            tag = f" [{node}]" if node else ""
+            fig.suptitle(f"smokemon{tag} - {datetime.fromtimestamp(since):%Y-%m-%d %H:%M} -> "
+                         f"{datetime.fromtimestamp(until):%H:%M}  ({span_h:.1f}h)  {rows}x{cols} grid",
+                         fontsize=12, y=0.997)
+        fig.tight_layout(pad=0.3, w_pad=0.4, h_pad=0.5,
+                         rect=(0, 0, 1, 0.99 if have_title else 1.0))
+        meta = []
+        if want_meta:
+            # Final axes positions as figure fractions (y flipped to top-origin for the web
+            # overlay). Percent-based, so the dashboard's overlay boxes scale with the image.
+            for ax, title in drawn:
+                p = ax.get_position()
+                meta.append({"x": round(p.x0, 4), "y": round(1 - (p.y0 + p.height), 4),
+                             "w": round(p.width, 4), "h": round(p.height, 4), "t": title})
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=opts.dpi)
+        plt.close(fig)   # free the figure (matters in a long render loop / subprocess)
+    return buf.getvalue(), meta
 
 
 def run(opts) -> int:
     if not os.path.exists(opts.db):
         print(f"No database found: {opts.db}", file=sys.stderr)
         return 1
-    png = render_png(opts)
+    png, meta = render_png(opts)
     if png is None:
         print("No data in selected time window.", file=sys.stderr)
         return 2
     if opts.out == "-":                       # stream raw PNG to stdout (used by GET /api/png)
         sys.stdout.buffer.write(png)
+        if getattr(opts, "meta", False):      # panel tooltips: emit meta on stderr for the hub
+            sys.stderr.write("SMOKEMON_META " + json.dumps(meta) + "\n")
         return 0
     os.makedirs(os.path.dirname(opts.out), exist_ok=True)
     with open(opts.out, "wb") as f:

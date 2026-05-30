@@ -127,6 +127,19 @@ added:
 - linux-only by design: psi (no equivalent on macos without sudo powermetrics) and freq
   (apple silicon does not expose per-core clock speed without sudo).
 
+changed:
+
+- ship traffic trimmed (node net-footprint): raw per-ping rtts no longer ship to the hub by
+  default - set SMOKEMON_SHIP_RTTS=1 to re-enable. the hub renders percentile bands from the
+  pre-aggregated rtt_min/p25/median/p75/max in ping_runs and never reads raw ping_rtts for
+  fresh rows, so this is ~85% fewer shipped rows for zero hub-side change; raw rtts stay in
+  the node DB at full fidelity for local views. it also removes a latent catch-up spike
+  (ping_rtts was exempt from the SHIP_BATCH cap, so a backlog could ship ~20x batch at once).
+
+- /ingest bodies are gzipped (Content-Encoding: gzip; ~5-10x on numeric row-json, gzip level
+  3 for sub-ms cpu on pi-class nodes). the hub decompresses by header and still accepts plain
+  bodies, so node and hub upgrade together but neither rejects an un-gzipped payload.
+
 fixed:
 
 - concurrent-upgrade crash: ensure_body_columns and ensure_node_column now guard each ALTER

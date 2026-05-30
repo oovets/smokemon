@@ -241,10 +241,9 @@ _DASHBOARD_HTML = """<!doctype html>
  .meta{color:var(--mut);font-size:12px;margin-left:auto}
  #grid{padding:8px 12px;column-width:230px;column-gap:14px}
  .node{display:flex;align-items:center;gap:8px;padding:3px 6px;border-radius:5px;
-       break-inside:avoid;border-left:3px solid var(--stale)}
+       break-inside:avoid}
  .node:hover{background:var(--card)}
- .node.healthy{border-left-color:var(--ok)}.node.warn{border-left-color:var(--warn)}
- .node.down{border-left-color:var(--down)}.node.stale{border-left-color:var(--stale);color:var(--mut)}
+ .node.stale{color:var(--mut)}
  .name{flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
  .m{color:var(--mut);font-size:12px;flex:0 0 auto;min-width:44px;text-align:right}
  .m.bad{color:#ff7b72}
@@ -254,7 +253,7 @@ _DASHBOARD_HTML = """<!doctype html>
          align-items:center;justify-content:center;padding:16px;z-index:20}
  #detail[hidden]{display:none}
  .dwin{background:var(--card);border:1px solid var(--line);border-radius:8px;
-       width:min(96vw,1500px);max-height:92vh;display:flex;flex-direction:column;overflow:hidden}
+       width:min(96vw,1400px);max-height:92vh;display:flex;flex-direction:column;overflow:hidden}
  .dbar{display:flex;gap:10px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--line)}
  .dbar .nm{font-weight:600}
  .dh{display:flex;gap:6px}
@@ -262,8 +261,12 @@ _DASHBOARD_HTML = """<!doctype html>
        border-radius:6px;padding:3px 9px;font:inherit;cursor:pointer}
  .dh button.on{border-color:var(--ok);color:#7ee2a8}
  #dclose{margin-left:auto;font-weight:700}
- .dimg{overflow:auto;background:#fff;min-height:120px}
- .dimg img{display:block;width:100%;height:auto}
+ .dimg{overflow:auto;background:var(--bg);min-height:120px}
+ #dwrap{position:relative;width:100%}
+ #dwrap img{display:block;width:100%;height:auto}
+ #dover{position:absolute;inset:0}
+ #dover .p{position:absolute;cursor:help}
+ #dover .p:hover{background:rgba(94,215,94,.07);outline:1px solid rgba(94,215,94,.25)}
  #dmsg{padding:28px;color:var(--mut)}
 </style></head>
 <body>
@@ -280,9 +283,10 @@ _DASHBOARD_HTML = """<!doctype html>
   <div class="dbar">
    <span class="nm" id="dname"></span>
    <span class="dh" id="dhours"></span>
+   <span class="dh" id="dcols"></span>
    <button id="dclose">✕</button>
   </div>
-  <div class="dimg"><img id="dgraph" alt=""><div id="dmsg" hidden>no data in this window</div></div>
+  <div class="dimg"><div id="dwrap"><img id="dgraph" alt=""><div id="dover"></div></div><div id="dmsg" hidden>no data in this window</div></div>
  </div>
 </div>
 <script>
@@ -325,23 +329,35 @@ q.addEventListener("input",render);
 // per-node detail: embed the live PNG (same renderer as `smoke png`), refreshed every 60s.
 const detail=document.getElementById("detail"),dgraph=document.getElementById("dgraph"),
  dname=document.getElementById("dname"),dhours=document.getElementById("dhours"),
+ dcols=document.getElementById("dcols"),dover=document.getElementById("dover"),
  dmsg=document.getElementById("dmsg");
-const HOURS=[[6,"6h"],[24,"24h"],[168,"7d"]];
-let dNode=null,dH=24,dTimer=null;
+const HOURS=[[6,"6h"],[24,"24h"],[168,"7d"]],COLS=[[1,"1 col"],[2,"2 cols"],[3,"3 cols"]];
+let dNode=null,dH=24,dC=2,dTimer=null;
 dhours.innerHTML=HOURS.map(([h,l])=>`<button data-h="${h}">${l}</button>`).join("");
-function pngSrc(){return `/api/png?node=${encodeURIComponent(dNode)}&hours=${dH}&_=${Date.now()}`;}
-function paintGraph(){
+dcols.innerHTML=COLS.map(([c,l])=>`<button data-c="${c}">${l}</button>`).join("");
+function pngSrc(){return `/api/png?node=${encodeURIComponent(dNode)}&hours=${dH}&cols=${dC}&_=${Date.now()}`;}
+function decodeMeta(b64){try{return JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(b64),c=>c.charCodeAt(0))));}catch(e){return [];}}
+function freeBlob(){if(dgraph.src&&dgraph.src.startsWith("blob:"))URL.revokeObjectURL(dgraph.src);}
+async function paintGraph(){
  if(!dNode)return;
  dhours.querySelectorAll("button").forEach(b=>b.classList.toggle("on",+b.dataset.h===dH));
- dgraph.src=pngSrc();
+ dcols.querySelectorAll("button").forEach(b=>b.classList.toggle("on",+b.dataset.c===dC));
+ try{
+  const r=await fetch(pngSrc(),{cache:"no-store"});
+  if(!r.ok){dmsg.hidden=false;dover.innerHTML="";freeBlob();dgraph.removeAttribute("src");return;}
+  // titles live in this header now (not on the image); overlay them as hover tooltips,
+  // positioned in % so the boxes scale with the image at any size.
+  const panels=decodeMeta(r.headers.get("X-Smokemon-Panels")||"");
+  const url=URL.createObjectURL(await r.blob());freeBlob();dgraph.src=url;dmsg.hidden=true;
+  dover.innerHTML=panels.map(p=>`<div class="p" style="left:${(p.x*100).toFixed(2)}%;top:${(p.y*100).toFixed(2)}%;width:${(p.w*100).toFixed(2)}%;height:${(p.h*100).toFixed(2)}%" title="${esc(p.t)}"></div>`).join("");
+ }catch(e){dmsg.hidden=false;}
 }
 function openDetail(node){dNode=node;dname.textContent=node;detail.hidden=false;
  dmsg.hidden=true;paintGraph();clearInterval(dTimer);dTimer=setInterval(paintGraph,60000);}
-function closeDetail(){detail.hidden=true;dNode=null;clearInterval(dTimer);dgraph.removeAttribute("src");}
-dgraph.onerror=()=>{dmsg.hidden=false;dgraph.removeAttribute("src");};
-dgraph.onload=()=>{dmsg.hidden=true;};
+function closeDetail(){detail.hidden=true;dNode=null;clearInterval(dTimer);dover.innerHTML="";freeBlob();dgraph.removeAttribute("src");}
 grid.addEventListener("click",e=>{const n=e.target.closest(".node");if(n&&n.dataset.node)openDetail(n.dataset.node);});
 dhours.addEventListener("click",e=>{if(e.target.dataset.h){dH=+e.target.dataset.h;paintGraph();}});
+dcols.addEventListener("click",e=>{if(e.target.dataset.c){dC=+e.target.dataset.c;paintGraph();}});
 document.getElementById("dclose").onclick=closeDetail;
 detail.addEventListener("click",e=>{if(e.target===detail)closeDetail();});
 addEventListener("keydown",e=>{if(e.key==="Escape")closeDetail();});

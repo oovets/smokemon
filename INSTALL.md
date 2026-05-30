@@ -198,6 +198,10 @@ ship (push -> hub)   (repoint a node any time with `smoke hub NEW-HUB`)
   SMOKEMON_HUB_SECRET      shared secret          (default changeme - CHANGE)
   SMOKEMON_SHIP_BATCH      max rows/batch/table   (default 2000)
   SMOKEMON_SHIP_INTERVAL   loop seconds; 0 = drain once and exit (for a timer)
+  SMOKEMON_SHIP_RTTS       1 = also ship raw per-ping rtts (default 0). off keeps the raw
+                           rtts node-local: the hub renders percentile bands from the
+                           aggregates in ping_runs, so this cuts ~85% of ship traffic for
+                           no hub-side change. ingest bodies are gzipped either way.
 
 hub (smokemon.hub)
   SMOKEMON_HUB_DB          hub DB path            (default <home>/smokemon/data/smokemon-hub.db)

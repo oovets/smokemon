@@ -2,6 +2,8 @@
 via POST /ingest and writes a hub DB (same schema + node + src_id). Idempotent via
 UNIQUE(node,src_id) + INSERT OR IGNORE in one transaction. Stdlib http.server."""
 
+import base64
+import gzip
 import hmac
 import json
 import subprocess
@@ -18,21 +20,30 @@ _render_lock = threading.Lock()  # serialize the (heavy) PNG subprocess renders
 _hub_cols: dict[str, set[str]] = {}
 
 
-def _render_png(node: str, hours: float, panels: str, width: str, dpi: str) -> bytes | None:
+def _render_png(node: str, hours: float, panels: str, cols: int) -> tuple[bytes | None, str]:
     """Render a node's panel PNG in a short-lived subprocess, so matplotlib never loads
     into the long-lived hub process (its RSS stays ~20 MB). The child reads the hub DB
     read-only and streams the PNG to stdout. Serialized via _render_lock; returns the
     bytes, or None on no-data / error / timeout."""
+    width = round(16.0 / max(1, cols), 1)  # keep total figure ~16in wide regardless of cols
     cmd = [sys.executable, "-m", "smokemon.cli", "png",
            "--db", config.HUB_DB, "--node", node, "--hours", str(hours),
-           "--panels", panels, "--width", width, "--dpi", dpi, "--out", "-", "--no-open"]
+           "--panels", panels, "--width", str(width), "--dpi", "96", "--cols", str(cols),
+           "--theme", "dark", "--no-title", "--meta", "--out", "-", "--no-open"]
     with _render_lock:
         try:
             p = subprocess.run(cmd, capture_output=True, timeout=60)
         except (subprocess.TimeoutExpired, OSError) as e:  # noqa: BLE001
             core.log(f"png render failed: {e!r}")
-            return None
-    return p.stdout if (p.returncode == 0 and p.stdout) else None
+            return None, ""
+    if p.returncode != 0 or not p.stdout:
+        return None, ""
+    meta = ""  # per-panel tooltip metadata, emitted on stderr with a sentinel prefix
+    for line in p.stderr.decode("utf-8", "replace").splitlines():
+        if line.startswith("SMOKEMON_META "):
+            meta = line[len("SMOKEMON_META "):]
+            break
+    return p.stdout, meta
 
 
 def _insert_std(conn, table, node, columns, rows, need_id_map: bool = False) -> dict[int, int] | int:
@@ -115,10 +126,13 @@ class Handler(BaseHTTPRequestHandler):
     def _send_text(self, code: int, body: str, content_type: str) -> None:
         self._send_bytes(code, body.encode(), content_type)
 
-    def _send_bytes(self, code: int, data: bytes, content_type: str) -> None:
+    def _send_bytes(self, code: int, data: bytes, content_type: str, extra: dict | None = None) -> None:
         self.send_response(code)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")  # always serve fresh html/css/png
+        for k, v in (extra or {}).items():
+            self.send_header(k, v)
         self.end_headers()
         self.wfile.write(data)
 
@@ -157,11 +171,17 @@ class Handler(BaseHTTPRequestHandler):
                 node = qs.get("node", [""])[0]
                 if not node:
                     return self._send(400, {"error": "node required"})
-                png = _render_png(node, hours, qs.get("panels", ["all"])[0],
-                                  qs.get("width", ["9"])[0], qs.get("dpi", ["96"])[0])
+                try:
+                    cols = max(1, min(4, int(qs.get("cols", ["2"])[0])))
+                except ValueError:
+                    cols = 2
+                png, meta = _render_png(node, hours, qs.get("panels", ["all"])[0], cols)
                 if not png:
                     return self._send(404, {"error": "no data for node/window"})
-                return self._send_bytes(200, png, "image/png")
+                # panel tooltips: ship the meta (utf-8 json) base64'd in a header (titles
+                # carry °C / -> etc., which aren't header-safe raw).
+                extra = {"X-Smokemon-Panels": base64.b64encode(meta.encode()).decode()} if meta else None
+                return self._send_bytes(200, png, "image/png", extra)
         except Exception as e:  # noqa: BLE001
             core.log(f"GET {u.path} error: {e!r}")
             return self._send(500, {"error": str(e)})
@@ -176,7 +196,10 @@ class Handler(BaseHTTPRequestHandler):
         if length <= 0 or length > config.HUB_MAX_BODY:
             return self._send(413, {"error": "bad length"})
         try:
-            counts = ingest(json.loads(self.rfile.read(length)))
+            raw = self.rfile.read(length)
+            if "gzip" in self.headers.get("Content-Encoding", "").lower():
+                raw = gzip.decompress(raw)  # ship._post gzips the body; plain json still works
+            counts = ingest(json.loads(raw))
         except Exception as e:  # noqa: BLE001
             core.log(f"ingest error: {e!r}")
             return self._send(500, {"error": str(e)})

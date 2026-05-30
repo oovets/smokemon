@@ -377,6 +377,10 @@ def main() -> int:
     _common(p)
     p.add_argument("--out", default=os.path.join(GRAPHS, "smokemon.png"))
     p.add_argument("--dpi", type=int, default=96); p.add_argument("--width", type=float, default=0)
+    p.add_argument("--theme", choices=["light", "dark"], default="light", help="dark palette for the hub GUI")
+    p.add_argument("--no-title", action="store_true", help="omit the figure suptitle (hub GUI has its own)")
+    p.add_argument("--meta", action="store_true",
+                   help="pull per-panel titles off the image; emit them + positions on stderr (hub GUI tooltips)")
     p.add_argument("--no-open", action="store_true")
 
     p = sub.add_parser("daily", help="dated 24h PNG")

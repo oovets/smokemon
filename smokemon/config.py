@@ -77,6 +77,11 @@ HUB_URL = os.environ.get("SMOKEMON_HUB_URL", "")
 HUB_SECRET = os.environ.get("SMOKEMON_HUB_SECRET", "changeme")
 SHIP_BATCH = _i("SMOKEMON_SHIP_BATCH", "2000")
 SHIP_INTERVAL = _f("SMOKEMON_SHIP_INTERVAL", "0")  # 0 = drain once and exit
+# Raw per-ping rtts stay node-local by default: the hub renders percentile bands from the
+# pre-aggregated rtt_min/p25/median/p75/max in ping_runs and never reads raw ping_rtts for
+# fresh rows, so shipping them is ~85% of ship traffic for zero hub-side gain. Opt in if a
+# hub-side consumer ever needs the raw distribution.
+SHIP_RTTS = os.environ.get("SMOKEMON_SHIP_RTTS", "0") != "0"
 HUB_BIND = os.environ.get("SMOKEMON_HUB_BIND", "0.0.0.0")
 HUB_PORT = _i("SMOKEMON_HUB_PORT", "8765")
 HUB_MAX_BODY = _i("SMOKEMON_HUB_MAX_BODY", str(64 * 1024 * 1024))

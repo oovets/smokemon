@@ -1,11 +1,15 @@
 """Hub ingest: first POST inserts, identical replay inserts zero (idempotent via
 UNIQUE(node, src_id)), partial overlap inserts only the new rows."""
 
+import gzip
+import json
+import threading
 import time
+import urllib.request
 
 import pytest
 
-from smokemon import core, hub, schema
+from smokemon import config, core, hub, schema, ship
 
 
 @pytest.fixture
@@ -100,3 +104,68 @@ def test_run_map_links_rtts_to_new_run_ids(hub_ready):
     hub_run_ids = {r[0] for r in hub_ready.execute("SELECT id FROM ping_runs").fetchall()}
     rtt_refs = {r[0] for r in hub_ready.execute("SELECT run_id FROM ping_rtts").fetchall()}
     assert rtt_refs.issubset(hub_run_ids), (rtt_refs, hub_run_ids)
+
+
+# --- ship-side: raw rtts stay node-local by default, gzipped wire format ---
+
+@pytest.fixture
+def node_conn(tmp_db):
+    """A node-side DB with a ping_run + its raw rtts, plus the shipper cursor table."""
+    conn = core.connect(str(tmp_db))
+    schema.init_node(conn)
+    ship.init_state(conn)
+    rid = schema.insert_one(conn, "ping_runs", {"ts": time.time(), "target": "1.1.1.1",
+                                                "sent": 3, "recv": 3, "loss_pct": 0.0})
+    conn.executemany("INSERT INTO ping_rtts (run_id, rtt_ms) VALUES (?,?)",
+                     [(rid, 1.0), (rid, 2.0), (rid, 3.0)])
+    conn.commit()
+    yield conn, rid
+    conn.close()
+
+
+def test_rtts_not_shipped_by_default(node_conn, monkeypatch):
+    """Default: raw ping_rtts stay node-local; the aggregated ping_run still ships."""
+    monkeypatch.setattr(config, "SHIP_RTTS", False)
+    conn, _ = node_conn
+    payload, maxids = ship.gather(conn)
+    assert "ping_runs" in payload
+    assert "ping_rtts" not in payload
+    assert "ping_rtts" not in maxids
+
+
+def test_rtts_shipped_when_opted_in(node_conn, monkeypatch):
+    """SHIP_RTTS=1: raw rtts ship, capped to already-gathered ping_runs."""
+    monkeypatch.setattr(config, "SHIP_RTTS", True)
+    conn, rid = node_conn
+    payload, maxids = ship.gather(conn)
+    assert payload["ping_rtts"]["rows"] == [[rid, 1.0], [rid, 2.0], [rid, 3.0]]
+    assert maxids["ping_rtts"] == rid
+
+
+def test_gzip_ingest_roundtrip(hub_ready, monkeypatch):
+    """A gzipped /ingest POST (what ship._post sends) is decompressed and ingested;
+    a plain-JSON body still works (back-compat)."""
+    monkeypatch.setattr(config, "HUB_SECRET", "s3cret")
+    srv = core_http_server()
+    try:
+        port = srv.server_address[1]
+        ts0 = time.time()
+        body = gzip.compress(json.dumps(_payload(ts0)).encode())
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/ingest", data=body, method="POST",
+            headers={"Content-Type": "application/json", "Content-Encoding": "gzip",
+                     "X-Smokemon-Key": "s3cret"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            assert resp.status == 200
+            assert json.loads(resp.read())["ok"] is True
+    finally:
+        srv.shutdown()
+        srv.server_close()
+    assert hub_ready.execute("SELECT COUNT(*) FROM ping_runs").fetchone()[0] == 2
+
+
+def core_http_server():
+    from http.server import ThreadingHTTPServer
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), hub.Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv

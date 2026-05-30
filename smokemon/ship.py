@@ -4,6 +4,7 @@ idempotent (UNIQUE(node,src_id)) so optimistic advancement is safe.
 
 Default: drain once and exit (for a timer). Set SMOKEMON_SHIP_INTERVAL>0 to loop."""
 
+import gzip
 import json
 import sqlite3
 import sys
@@ -44,9 +45,10 @@ def gather(conn) -> tuple[dict, dict]:
             payload[t] = {"columns": cols, "rows": [list(r) for r in rows]}
             maxids[t] = rows[-1][cols.index("id")]
     # ping_rtts ships keyed to already-shipped ping_runs (run_id <= their max).
+    # Off by default (SHIP_RTTS): the hub reads percentiles from ping_runs, not raw rtts.
     runs_cap = maxids.get("ping_runs", _last(conn, "ping_runs"))
     rtt_last = _last(conn, "ping_rtts")
-    if runs_cap > rtt_last:
+    if config.SHIP_RTTS and runs_cap > rtt_last:
         try:
             rrows = conn.execute("SELECT run_id, rtt_ms FROM ping_rtts WHERE run_id>? AND run_id<=? ORDER BY run_id",
                                  (rtt_last, runs_cap)).fetchall()
@@ -59,9 +61,15 @@ def gather(conn) -> tuple[dict, dict]:
 
 
 def _post(payload: dict) -> bool:
+    # gzip the body: numeric row-JSON compresses ~5-10x. level 3 captures almost all of the
+    # ratio for sub-millisecond CPU on Pi-class hardware. The hub decompresses by header, so
+    # an old hub (which would 500 on a gzipped body) is the only incompatibility - both ends
+    # ship together. The hub's 413/MAX_BODY guard then applies to the compressed size.
+    body = gzip.compress(json.dumps(payload).encode(), compresslevel=3)
     req = urllib.request.Request(
-        config.HUB_URL, data=json.dumps(payload).encode(), method="POST",
-        headers={"Content-Type": "application/json", "X-Smokemon-Key": config.HUB_SECRET})
+        config.HUB_URL, data=body, method="POST",
+        headers={"Content-Type": "application/json", "Content-Encoding": "gzip",
+                 "X-Smokemon-Key": config.HUB_SECRET})
     try:
         with urllib.request.urlopen(req, timeout=60) as resp:
             return resp.status == 200
