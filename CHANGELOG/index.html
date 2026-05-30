@@ -1,0 +1,890 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="full-stack network + host monitoring for the edge — every signal on one timeline, in stdlib python and ~30 mb of ram. no cloud, no dependencies, nothing to install but python.">
+      
+      
+      
+        <link rel="canonical" href="https://oovets.github.io/smokemon/CHANGELOG/">
+      
+      
+        <link rel="prev" href="../PLAN/">
+      
+      
+        <link rel="next" href="../CONTRIBUTING/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>changelog - smokemon</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=JetBrains+Mono:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"JetBrains Mono";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../extra.css">
+    
+      <link rel="stylesheet" href="https://stevoo.net/theme.css">
+    
+      <link rel="stylesheet" href="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="green">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#smokemon-changelog" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="/" title="smokemon" class="md-header__button md-logo" aria-label="smokemon" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            smokemon
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              changelog
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="/" title="smokemon" class="md-nav__button md-logo" aria-label="smokemon" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    smokemon
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    readme
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../QUICKSTART/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../INSTALL/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    install
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../PLAN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CONTRIBUTING/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../SECURITY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="smokemon-changelog">smokemon - changelog<a class="headerlink" href="#smokemon-changelog" title="Permanent link">&para;</a></h1>
+<p>all notable changes to smokemon. the format roughly follows <a href="https://keepachangelog.com/en/1.1.0/">keep a changelog</a> and the project uses <a href="https://semver.org/spec/v2.0.0.html">semantic versioning</a>.</p>
+<p>roadmap / ideas -&gt; <a href="../PLAN/">PLAN.md</a></p>
+<p>(0.1.0 through 0.10.0 landed together during the initial build-out and were not separately
+tagged; dated entries begin at the first release, 0.11.0.)</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="o">==</span><span class="w"> </span><span class="m">0</span>.13.0<span class="w"> </span>-<span class="w"> </span><span class="m">2026</span>-05-31<span class="w">  </span>docker<span class="w"> </span>+<span class="w"> </span>pipeline<span class="w"> </span>collectors,<span class="w"> </span>redis<span class="w"> </span><span class="nv">enrichment</span><span class="w"> </span><span class="o">==</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>added:
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>-<span class="w"> </span>probes.dockerps<span class="w"> </span><span class="o">(</span>opt-in,<span class="w"> </span>SMOKEMON_DOCKER<span class="o">)</span>:<span class="w"> </span>container<span class="w"> </span>health<span class="w"> </span>via<span class="w"> </span>one<span class="w"> </span>bounded<span class="w"> </span>HTTP<span class="w"> </span>GET
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">  </span>over<span class="w"> </span>the<span class="w"> </span>docker<span class="w"> </span>unix<span class="w"> </span>socket<span class="w"> </span>per<span class="w"> </span>slow<span class="w"> </span>cycle<span class="w"> </span><span class="o">(</span>stdlib<span class="w"> </span>socket<span class="w"> </span>+<span class="w"> </span>manual<span class="w"> </span>HTTP/1.0,<span class="w"> </span>no<span class="w"> </span>docker
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">  </span>CLI,<span class="w"> </span>no<span class="w"> </span><span class="sb">`</span>docker<span class="w"> </span>logs<span class="sb">`</span>,<span class="w"> </span>no<span class="w"> </span>log/journal<span class="w"> </span>tails<span class="o">)</span>.<span class="w"> </span>records<span class="w"> </span>state/running,<span class="w"> </span>health,<span class="w"> </span>exit_code,
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">  </span>restart_count,<span class="w"> </span>oom_killed<span class="p">;</span><span class="w"> </span>optional<span class="w"> </span>per-container<span class="w"> </span>cpu/mem/pids<span class="w"> </span>from<span class="w"> </span>cgroup-v2<span class="w"> </span>sysfs<span class="w"> </span>and
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">  </span>an<span class="w"> </span>optional<span class="w"> </span>small<span class="w"> </span>per-container<span class="w"> </span>inspect.<span class="w"> </span>new<span class="w"> </span>docker_samples<span class="w"> </span>table<span class="p">;</span><span class="w"> </span>status/digest<span class="w"> </span>surface
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">  </span>unhealthy<span class="w"> </span>/<span class="w"> </span>non-zero-exit<span class="w"> </span>/<span class="w"> </span>restarting<span class="w"> </span>containers,<span class="w"> </span>or<span class="w"> </span>a<span class="w"> </span>daemon-down<span class="w"> </span>sentinel<span class="w"> </span>row.
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>-<span class="w"> </span>probes.pipeline<span class="w"> </span><span class="o">(</span>opt-in,<span class="w"> </span>SMOKEMON_PROC_WATCH<span class="w"> </span>/<span class="w"> </span>SMOKEMON_RTSP_URLS<span class="o">)</span>:<span class="w"> </span>process<span class="w"> </span>+<span class="w"> </span>stream
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="w">  </span>liveness.<span class="w"> </span>one<span class="w"> </span>/proc<span class="w"> </span>scan<span class="w"> </span>matches<span class="w"> </span>configured<span class="w"> </span>cmdline<span class="w"> </span>substrings<span class="w"> </span><span class="o">(</span>e.g.<span class="w"> </span>gst-launch-1.0<span class="o">)</span><span class="w"> </span>and
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="w">  </span>reports<span class="w"> </span>count,<span class="w"> </span>summed<span class="w"> </span>cpu/rss,<span class="w"> </span>the<span class="w"> </span>youngest<span class="w"> </span>process<span class="s1">&#39;s uptime and a cumulative restart</span>
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="s1">  count (flips when the youngest starttime changes); a bounded RTSP OPTIONS confirms a</span>
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="s1">  stream is actually being served. new proc_watch + stream_probes tables; status/digest</span>
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="s1">  surface down watches and down streams. pure stdlib, no ps/ffprobe, no log tails.</span>
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>
+<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="s1">- probes.redisq: the server row now also records connected_clients, blocked_clients,</span>
+<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="s1">  instantaneous ops/sec, evicted_keys and rejected_connections, parsed from INFO</span>
+<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a><span class="s1">  clients/stats on the existing connection (no extra socket, no redis-cli).</span>
+<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>
+<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a><span class="s1">== 0.12.0 - 2026-05-30  analysis engine + text surfaces + alerting + hub api ==</span>
+<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>
+<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a><span class="s1">added:</span>
+<a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>
+<a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a><span class="s1">- analysis engine smokemon/analyze.py (roadmap F1/F2/P1/P2/P3/X5): hub-side,</span>
+<a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a><span class="s1">  read-only, pure-stdlib. derives everything from already-collected metrics; never</span>
+<a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a><span class="s1">  imported by collectors/ship/probes.</span>
+<a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a>
+<a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a><span class="s1">  - F2 incident detection: contiguous loss/latency runs over the ping series classified</span>
+<a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a><span class="s1">    as isp-outage / upstream-loss / link-down (internet-down vs gateway-clean</span>
+<a id="__codelineno-0-33" name="__codelineno-0-33" href="#__codelineno-0-33"></a><span class="s1">    disambiguation), packet-loss, latency-spike, dns-slow (dns phase dominant while tcp</span>
+<a id="__codelineno-0-34" name="__codelineno-0-34" href="#__codelineno-0-34"></a><span class="s1">    connect stays fast). minor transient loss is filtered (a non-total run must peak &gt;=10%).</span>
+<a id="__codelineno-0-35" name="__codelineno-0-35" href="#__codelineno-0-35"></a>
+<a id="__codelineno-0-36" name="__codelineno-0-36" href="#__codelineno-0-36"></a><span class="s1">  - F1 multi-signal blame: for each incident window, every signal (cpu, mem, swap, temp,</span>
+<a id="__codelineno-0-37" name="__codelineno-0-37" href="#__codelineno-0-37"></a><span class="s1">    psi, wifi rssi/retry, tcp retrans, bandwidth, cpu clock) that deviates from its</span>
+<a id="__codelineno-0-38" name="__codelineno-0-38" href="#__codelineno-0-38"></a><span class="s1">    out-of-window baseline by &gt;=3 robust-sigma (MAD), plus processes that appeared during</span>
+<a id="__codelineno-0-39" name="__codelineno-0-39" href="#__codelineno-0-39"></a><span class="s1">    the window, ranked by deviation.</span>
+<a id="__codelineno-0-40" name="__codelineno-0-40" href="#__codelineno-0-40"></a>
+<a id="__codelineno-0-41" name="__codelineno-0-41" href="#__codelineno-0-41"></a><span class="s1">  - P1 time-of-day baseline: per-(weekday, hour) median+MAD baseline + robust-z anomaly</span>
+<a id="__codelineno-0-42" name="__codelineno-0-42" href="#__codelineno-0-42"></a><span class="s1">    flag - &quot;abnormal for a tuesday 14:00&quot; with no thresholds, no ml.</span>
+<a id="__codelineno-0-43" name="__codelineno-0-43" href="#__codelineno-0-43"></a>
+<a id="__codelineno-0-44" name="__codelineno-0-44" href="#__codelineno-0-44"></a><span class="s1">  - P2 change-point detection: variance-weighted recursive mean-shift split, catches silent</span>
+<a id="__codelineno-0-45" name="__codelineno-0-45" href="#__codelineno-0-45"></a><span class="s1">    regime changes (an isp speed-tier drop, a permanent route change).</span>
+<a id="__codelineno-0-46" name="__codelineno-0-46" href="#__codelineno-0-46"></a>
+<a id="__codelineno-0-47" name="__codelineno-0-47" href="#__codelineno-0-47"></a><span class="s1">  - P3 mtr path intelligence: route-change detection (a hop whose resolved host changed),</span>
+<a id="__codelineno-0-48" name="__codelineno-0-48" href="#__codelineno-0-48"></a><span class="s1">    worst-hop attribution, path-stability score, read per-sample from mtr_hops.</span>
+<a id="__codelineno-0-49" name="__codelineno-0-49" href="#__codelineno-0-49"></a>
+<a id="__codelineno-0-50" name="__codelineno-0-50" href="#__codelineno-0-50"></a><span class="s1">  - X5 bandwidth attribution: bandwidth spikes (robust-z) cross-referenced with the top-cpu</span>
+<a id="__codelineno-0-51" name="__codelineno-0-51" href="#__codelineno-0-51"></a><span class="s1">    processes during each spike - explicitly heuristic (proc_samples has no per-process byte</span>
+<a id="__codelineno-0-52" name="__codelineno-0-52" href="#__codelineno-0-52"></a><span class="s1">    counters).</span>
+<a id="__codelineno-0-53" name="__codelineno-0-53" href="#__codelineno-0-53"></a>
+<a id="__codelineno-0-54" name="__codelineno-0-54" href="#__codelineno-0-54"></a><span class="s1">- text surfaces smokemon/report.py, renderer-free (stdlib, run on a node too):</span>
+<a id="__codelineno-0-55" name="__codelineno-0-55" href="#__codelineno-0-55"></a>
+<a id="__codelineno-0-56" name="__codelineno-0-56" href="#__codelineno-0-56"></a><span class="s1">  - smoke status (QW3): one-line unicode-sparkline health summary - internet rtt/loss, wifi</span>
+<a id="__codelineno-0-57" name="__codelineno-0-57" href="#__codelineno-0-57"></a><span class="s1">    rssi, cpu temp, and a verdict word.</span>
+<a id="__codelineno-0-58" name="__codelineno-0-58" href="#__codelineno-0-58"></a>
+<a id="__codelineno-0-59" name="__codelineno-0-59" href="#__codelineno-0-59"></a><span class="s1">  - smoke incidents (F1/F2): incident table with per-incident multi-signal blame.</span>
+<a id="__codelineno-0-60" name="__codelineno-0-60" href="#__codelineno-0-60"></a>
+<a id="__codelineno-0-61" name="__codelineno-0-61" href="#__codelineno-0-61"></a><span class="s1">  - smoke digest (F3): plain-english window summary - uptime %, incident class breakdown,</span>
+<a id="__codelineno-0-62" name="__codelineno-0-62" href="#__codelineno-0-62"></a><span class="s1">    honest hard-downtime (outage spans unioned, never summed), peak latency + what it</span>
+<a id="__codelineno-0-63" name="__codelineno-0-63" href="#__codelineno-0-63"></a><span class="s1">    coincided with, bufferbloat grade, wifi roams, thermals.</span>
+<a id="__codelineno-0-64" name="__codelineno-0-64" href="#__codelineno-0-64"></a>
+<a id="__codelineno-0-65" name="__codelineno-0-65" href="#__codelineno-0-65"></a><span class="s1">- smoke replay (S1): dvr-style scrubber over any historical window - a sliding playhead</span>
+<a id="__codelineno-0-66" name="__codelineno-0-66" href="#__codelineno-0-66"></a><span class="s1">  frame moved with left/right (vim h/l), step size on up/down, q to quit. raw data is kept</span>
+<a id="__codelineno-0-67" name="__codelineno-0-67" href="#__codelineno-0-67"></a><span class="s1">  forever, so any past window is reachable.</span>
+<a id="__codelineno-0-68" name="__codelineno-0-68" href="#__codelineno-0-68"></a>
+<a id="__codelineno-0-69" name="__codelineno-0-69" href="#__codelineno-0-69"></a><span class="s1">- push/webhook alerting smokemon/notify.py (S4): fire incident alerts to ntfy, a slack or</span>
+<a id="__codelineno-0-70" name="__codelineno-0-70" href="#__codelineno-0-70"></a><span class="s1">  discord incoming webhook, or a generic json endpoint (kind auto-detected from the url).</span>
+<a id="__codelineno-0-71" name="__codelineno-0-71" href="#__codelineno-0-71"></a><span class="s1">  severity-gated via SMOKEMON_NOTIFY_MIN_SEVERITY; --notify on smoke incidents/digest, plus</span>
+<a id="__codelineno-0-72" name="__codelineno-0-72" href="#__codelineno-0-72"></a><span class="s1">  a smokemon-notify timer entry point. pure urllib.</span>
+<a id="__codelineno-0-73" name="__codelineno-0-73" href="#__codelineno-0-73"></a>
+<a id="__codelineno-0-74" name="__codelineno-0-74" href="#__codelineno-0-74"></a><span class="s1">- hub http surfaces smokemon/hubapi.py on the existing hub server:</span>
+<a id="__codelineno-0-75" name="__codelineno-0-75" href="#__codelineno-0-75"></a>
+<a id="__codelineno-0-76" name="__codelineno-0-76" href="#__codelineno-0-76"></a><span class="s1">  - GET / : live fleet dashboard (self-contained html, no external assets) - polls</span>
+<a id="__codelineno-0-77" name="__codelineno-0-77" href="#__codelineno-0-77"></a><span class="s1">    /api/fleet-status and renders a dense, worst-first, colour-coded one-line-per-node grid.</span>
+<a id="__codelineno-0-78" name="__codelineno-0-78" href="#__codelineno-0-78"></a>
+<a id="__codelineno-0-79" name="__codelineno-0-79" href="#__codelineno-0-79"></a><span class="s1">  - GET /metrics (S2): prometheus/openmetrics exposition of the latest per-node gauges</span>
+<a id="__codelineno-0-80" name="__codelineno-0-80" href="#__codelineno-0-80"></a><span class="s1">    (ping rtt/loss, cpu, mem, temp).</span>
+<a id="__codelineno-0-81" name="__codelineno-0-81" href="#__codelineno-0-81"></a>
+<a id="__codelineno-0-82" name="__codelineno-0-82" href="#__codelineno-0-82"></a><span class="s1">  - GET /api/{nodes,latest,fleet,heatmap,fleet-status} (S3): read-only json - fleet ranking</span>
+<a id="__codelineno-0-83" name="__codelineno-0-83" href="#__codelineno-0-83"></a><span class="s1">    (uptime %, median rtt, incident count, downtime), a node x hour loss/rtt heatmap, and a</span>
+<a id="__codelineno-0-84" name="__codelineno-0-84" href="#__codelineno-0-84"></a><span class="s1">    fast latest-sample fleet-status (healthy/warn/down/stale) for the dashboard.</span>
+<a id="__codelineno-0-85" name="__codelineno-0-85" href="#__codelineno-0-85"></a>
+<a id="__codelineno-0-86" name="__codelineno-0-86" href="#__codelineno-0-86"></a><span class="s1">- smoke fleet: terminal twin of the GET / dashboard - an aggregated, worst-first view of</span>
+<a id="__codelineno-0-87" name="__codelineno-0-87" href="#__codelineno-0-87"></a><span class="s1">  every node reporting to the hub, pure-stdlib (no plotext/matplotlib) like the other text</span>
+<a id="__codelineno-0-88" name="__codelineno-0-88" href="#__codelineno-0-88"></a><span class="s1">  surfaces. three modes share one renderer in report.py: default latest-sample status</span>
+<a id="__codelineno-0-89" name="__codelineno-0-89" href="#__codelineno-0-89"></a><span class="s1">  table (state/rtt/loss/cpu/temp), --ranked incident ranking, and --heatmap (node x hour</span>
+<a id="__codelineno-0-90" name="__codelineno-0-90" href="#__codelineno-0-90"></a><span class="s1">  loss/rtt sparkline grid). reads the hub DB by default or the hub&#39;</span>s<span class="w"> </span>read-only<span class="w"> </span>/api<span class="w"> </span>over
+<a id="__codelineno-0-91" name="__codelineno-0-91" href="#__codelineno-0-91"></a><span class="w">  </span>http<span class="w"> </span><span class="o">(</span>--hub-url<span class="o">)</span><span class="w"> </span>so<span class="w"> </span>it<span class="w"> </span>works<span class="w"> </span>from<span class="w"> </span>any<span class="w"> </span>terminal<span class="p">;</span><span class="w"> </span>live<span class="w"> </span>repaint<span class="w"> </span>reuses<span class="w"> </span>the<span class="w"> </span>smoke<span class="w"> </span>live<span class="w"> </span>loop
+<a id="__codelineno-0-92" name="__codelineno-0-92" href="#__codelineno-0-92"></a><span class="w">  </span><span class="o">(</span>--refresh,<span class="w"> </span>--bell<span class="w"> </span>on<span class="w"> </span>any<span class="w"> </span>down/stale<span class="o">)</span>.<span class="w"> </span>no<span class="w"> </span>--node<span class="w"> </span>needed<span class="w"> </span>-<span class="w"> </span>it<span class="w"> </span>shows<span class="w"> </span>the<span class="w"> </span>whole<span class="w"> </span>fleet.
+<a id="__codelineno-0-93" name="__codelineno-0-93" href="#__codelineno-0-93"></a>
+<a id="__codelineno-0-94" name="__codelineno-0-94" href="#__codelineno-0-94"></a>-<span class="w"> </span>smoke<span class="w"> </span>footprint:<span class="w"> </span>read-only,<span class="w"> </span>pure-stdlib<span class="w"> </span>collector<span class="w"> </span>footprint<span class="w"> </span>report<span class="w"> </span><span class="k">for</span><span class="w"> </span>node<span class="w"> </span>DBs<span class="w"> </span><span class="o">(</span>or
+<a id="__codelineno-0-95" name="__codelineno-0-95" href="#__codelineno-0-95"></a><span class="w">  </span>--node<span class="w"> </span>on<span class="w"> </span>a<span class="w"> </span>hub<span class="w"> </span>DB<span class="o">)</span>.<span class="w"> </span>shows<span class="w"> </span>rows<span class="w"> </span><span class="k">in</span><span class="w"> </span>the<span class="w"> </span>selected<span class="w"> </span>window,<span class="w"> </span>rows/day,<span class="w"> </span>SQLite<span class="w"> </span>bytes/day,
+<a id="__codelineno-0-96" name="__codelineno-0-96" href="#__codelineno-0-96"></a><span class="w">  </span>and<span class="w"> </span>a<span class="w"> </span>shipper<span class="w"> </span>wire<span class="w"> </span>estimate<span class="w"> </span>using<span class="w"> </span>the<span class="w"> </span>same<span class="w"> </span>compact<span class="w"> </span>JSON+gzip<span class="w"> </span>shape<span class="w"> </span>as<span class="w"> </span>POST<span class="w"> </span>/ingest<span class="p">;</span>
+<a id="__codelineno-0-97" name="__codelineno-0-97" href="#__codelineno-0-97"></a><span class="w">  </span>--ship-rtts<span class="w"> </span>includes<span class="w"> </span>raw<span class="w"> </span>ping_rtts<span class="w"> </span><span class="k">in</span><span class="w"> </span>the<span class="w"> </span>estimate.
+<a id="__codelineno-0-98" name="__codelineno-0-98" href="#__codelineno-0-98"></a>
+<a id="__codelineno-0-99" name="__codelineno-0-99" href="#__codelineno-0-99"></a>-<span class="w"> </span>self<span class="w"> </span>panel<span class="w"> </span><span class="o">(</span>S5<span class="o">)</span>:<span class="w"> </span>the<span class="w"> </span>host<span class="w"> </span>collector<span class="w"> </span>records<span class="w"> </span>its<span class="w"> </span>own<span class="w"> </span>rss/cpu<span class="w"> </span>each<span class="w"> </span>cycle<span class="w"> </span><span class="o">(</span>proc_samples<span class="w"> </span>row
+<a id="__codelineno-0-100" name="__codelineno-0-100" href="#__codelineno-0-100"></a><span class="w">  </span>named<span class="w"> </span>smokemon,<span class="w"> </span>via<span class="w"> </span>resource<span class="w"> </span>+<span class="w"> </span>/proc/self/statm<span class="o">)</span><span class="p">;</span><span class="w"> </span>a<span class="w"> </span>new<span class="w"> </span>self<span class="w"> </span>panel<span class="w"> </span>graphs<span class="w"> </span>smokemon<span class="s1">&#39;s own</span>
+<a id="__codelineno-0-101" name="__codelineno-0-101" href="#__codelineno-0-101"></a><span class="s1">  footprint over time to back the low-rss claim.</span>
+<a id="__codelineno-0-102" name="__codelineno-0-102" href="#__codelineno-0-102"></a>
+<a id="__codelineno-0-103" name="__codelineno-0-103" href="#__codelineno-0-103"></a><span class="s1">- synthetic transactions smokemon/probes/synthetic.py (X6): opt-in (SMOKEMON_SYNTHETIC=1)</span>
+<a id="__codelineno-0-104" name="__codelineno-0-104" href="#__codelineno-0-104"></a><span class="s1">  scripted checks beyond single-shot probes - captive-portal / interception detection</span>
+<a id="__codelineno-0-105" name="__codelineno-0-105" href="#__codelineno-0-105"></a><span class="s1">  (expects a 204 no-content) and a dns-over-https resolution check. new additive</span>
+<a id="__codelineno-0-106" name="__codelineno-0-106" href="#__codelineno-0-106"></a><span class="s1">  synthetic_samples table; runs on the slow tier; smokemon-synthetic entry point. pure urllib.</span>
+<a id="__codelineno-0-107" name="__codelineno-0-107" href="#__codelineno-0-107"></a>
+<a id="__codelineno-0-108" name="__codelineno-0-108" href="#__codelineno-0-108"></a><span class="s1">- lightweight external scrapes smokemon/probes/ext.py: opt-in SMOKEMON_EXT_HTTP endpoints</span>
+<a id="__codelineno-0-109" name="__codelineno-0-109" href="#__codelineno-0-109"></a><span class="s1">  for local app health/json/openmetrics signals. bounded by interval, timeout, response</span>
+<a id="__codelineno-0-110" name="__codelineno-0-110" href="#__codelineno-0-110"></a><span class="s1">  bytes, and metric caps; always stores up + latency_ms and only parses small JSON numeric</span>
+<a id="__codelineno-0-111" name="__codelineno-0-111" href="#__codelineno-0-111"></a><span class="s1">  fields or explicit OpenMetrics allowlists. no Docker logs, journal tails, or continuous</span>
+<a id="__codelineno-0-112" name="__codelineno-0-112" href="#__codelineno-0-112"></a><span class="s1">  log scanning on edge. new additive ext_metrics/ext_events tables; status/digest/incidents</span>
+<a id="__codelineno-0-113" name="__codelineno-0-113" href="#__codelineno-0-113"></a><span class="s1">  can surface external check state and scrape-failure events.</span>
+<a id="__codelineno-0-114" name="__codelineno-0-114" href="#__codelineno-0-114"></a>
+<a id="__codelineno-0-115" name="__codelineno-0-115" href="#__codelineno-0-115"></a><span class="s1">- native edge replacements for heavier Jetson monitors: host.py now reads Jetson GPU</span>
+<a id="__codelineno-0-116" name="__codelineno-0-116" href="#__codelineno-0-116"></a><span class="s1">  util/frequency from sysfs/devfreq (no tegrastats/nvidia-smi), and probes/redisq.py adds</span>
+<a id="__codelineno-0-117" name="__codelineno-0-117" href="#__codelineno-0-117"></a><span class="s1">  opt-in Redis stream health via tiny stdlib RESP socket reads (PING, INFO memory, XLEN,</span>
+<a id="__codelineno-0-118" name="__codelineno-0-118" href="#__codelineno-0-118"></a><span class="s1">  optional XPENDING). new additive gpu_samples/redis_samples tables; status/digest can</span>
+<a id="__codelineno-0-119" name="__codelineno-0-119" href="#__codelineno-0-119"></a><span class="s1">  surface GPU and Redis queue state.</span>
+<a id="__codelineno-0-120" name="__codelineno-0-120" href="#__codelineno-0-120"></a>
+<a id="__codelineno-0-121" name="__codelineno-0-121" href="#__codelineno-0-121"></a><span class="s1">- sonification (X2): --bell on smoke live/kiosk rings the terminal bell once on each</span>
+<a id="__codelineno-0-122" name="__codelineno-0-122" href="#__codelineno-0-122"></a><span class="s1">  transition into an unhealthy state (kiosk audible alerting).</span>
+<a id="__codelineno-0-123" name="__codelineno-0-123" href="#__codelineno-0-123"></a>
+<a id="__codelineno-0-124" name="__codelineno-0-124" href="#__codelineno-0-124"></a><span class="s1">- kiosk titles: kiosk keeps a minimal panel title (the label, with the live-stats suffix</span>
+<a id="__codelineno-0-125" name="__codelineno-0-125" href="#__codelineno-0-125"></a><span class="s1">  stripped) so each graph stays identifiable on a wall display; previously kiosk dropped</span>
+<a id="__codelineno-0-126" name="__codelineno-0-126" href="#__codelineno-0-126"></a><span class="s1">  panel titles entirely.</span>
+<a id="__codelineno-0-127" name="__codelineno-0-127" href="#__codelineno-0-127"></a>
+<a id="__codelineno-0-128" name="__codelineno-0-128" href="#__codelineno-0-128"></a><span class="s1">- bufferbloat grade (QW1): probes/iperf.py now parses the per-stream tcp rtt iperf3 reports</span>
+<a id="__codelineno-0-129" name="__codelineno-0-129" href="#__codelineno-0-129"></a><span class="s1">  (end.streams[].sender.mean_rtt) and stores it in the new additive</span>
+<a id="__codelineno-0-130" name="__codelineno-0-130" href="#__codelineno-0-130"></a><span class="s1">  iperf_samples.rtt_under_load_ms column. the renderers compare it against the idle ping</span>
+<a id="__codelineno-0-131" name="__codelineno-0-131" href="#__codelineno-0-131"></a><span class="s1">  baseline (largest per-target median) and annotate the iperf panel with a dslreports-style</span>
+<a id="__codelineno-0-132" name="__codelineno-0-132" href="#__codelineno-0-132"></a><span class="s1">  A+..F grade and the added latency under load.</span>
+<a id="__codelineno-0-133" name="__codelineno-0-133" href="#__codelineno-0-133"></a>
+<a id="__codelineno-0-134" name="__codelineno-0-134" href="#__codelineno-0-134"></a><span class="s1">- http layer-blame (QW2): the http panel names the dominant latency layer (dns / tcp connect</span>
+<a id="__codelineno-0-135" name="__codelineno-0-135" href="#__codelineno-0-135"></a><span class="s1">  / tls / server wait) by decomposing curl&#39;</span>s<span class="w"> </span>cumulative<span class="w"> </span>phase<span class="w"> </span>timestamps<span class="w"> </span>already<span class="w"> </span>stored<span class="w"> </span><span class="k">in</span>
+<a id="__codelineno-0-136" name="__codelineno-0-136" href="#__codelineno-0-136"></a><span class="w">  </span>http_samples.<span class="w"> </span>no<span class="w"> </span>schema<span class="w"> </span>change.
+<a id="__codelineno-0-137" name="__codelineno-0-137" href="#__codelineno-0-137"></a>
+<a id="__codelineno-0-138" name="__codelineno-0-138" href="#__codelineno-0-138"></a>-<span class="w"> </span>death<span class="w"> </span>clocks<span class="w"> </span><span class="o">(</span>QW4<span class="o">)</span>:<span class="w"> </span>render-side<span class="w"> </span>linear<span class="w"> </span>extrapolation<span class="w"> </span>of<span class="w"> </span>disk_samples.used_pct<span class="w"> </span><span class="o">(</span>disk-full
+<a id="__codelineno-0-139" name="__codelineno-0-139" href="#__codelineno-0-139"></a><span class="w">  </span>countdown<span class="o">)</span>,<span class="w"> </span>disk_health.wear_pct<span class="w"> </span><span class="o">(</span>sd/emmc<span class="w"> </span>wear<span class="w"> </span>countdown<span class="o">)</span>,<span class="w"> </span>and<span class="w"> </span>cpu-temp<span class="w"> </span>headroom<span class="w"> </span>to<span class="w"> </span>the
+<a id="__codelineno-0-140" name="__codelineno-0-140" href="#__codelineno-0-140"></a><span class="w">  </span>throttle<span class="w"> </span>threshold<span class="w"> </span><span class="o">(</span>SMOKEMON_THROTTLE_TEMP,<span class="w"> </span>default<span class="w"> </span>80C<span class="o">)</span>.<span class="w"> </span>surfaced<span class="w"> </span>as<span class="w"> </span>compact<span class="w"> </span>~14d<span class="w"> </span>/<span class="w"> </span>~3y<span class="w"> </span>/
+<a id="__codelineno-0-141" name="__codelineno-0-141" href="#__codelineno-0-141"></a><span class="w">  </span>25C<span class="w"> </span>to<span class="w"> </span>throttle<span class="w"> </span>annotations<span class="w"> </span>on<span class="w"> </span>the<span class="w"> </span>disk<span class="w"> </span>and<span class="w"> </span>host<span class="w"> </span>panel<span class="w"> </span>titles.
+<a id="__codelineno-0-142" name="__codelineno-0-142" href="#__codelineno-0-142"></a>
+<a id="__codelineno-0-143" name="__codelineno-0-143" href="#__codelineno-0-143"></a>-<span class="w"> </span>macos<span class="w"> </span>implementations<span class="w"> </span><span class="k">for</span><span class="w"> </span>thermal<span class="w"> </span>/<span class="w"> </span>power<span class="w"> </span>/<span class="w"> </span>tcp<span class="w"> </span>panels<span class="w"> </span><span class="o">(</span>previously<span class="w"> </span>linux-only<span class="o">)</span>:
+<a id="__codelineno-0-144" name="__codelineno-0-144" href="#__codelineno-0-144"></a>
+<a id="__codelineno-0-145" name="__codelineno-0-145" href="#__codelineno-0-145"></a><span class="w">  </span>-<span class="w"> </span>thermal:<span class="w"> </span>pmset<span class="w"> </span>-g<span class="w"> </span>therm<span class="w"> </span>-&gt;<span class="w"> </span>cpu_speed_limit_pct<span class="w"> </span>pseudo-zone<span class="w"> </span><span class="o">(</span><span class="nv">100</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>no<span class="w"> </span>thermal<span class="w"> </span>throttling,
+<a id="__codelineno-0-146" name="__codelineno-0-146" href="#__codelineno-0-146"></a><span class="w">    </span>less<span class="w"> </span>means<span class="w"> </span>the<span class="w"> </span>kernel<span class="w"> </span>is<span class="w"> </span>capping<span class="w"> </span>clock<span class="w"> </span>speed<span class="w"> </span><span class="k">for</span><span class="w"> </span>heat<span class="o">)</span>.
+<a id="__codelineno-0-147" name="__codelineno-0-147" href="#__codelineno-0-147"></a>
+<a id="__codelineno-0-148" name="__codelineno-0-148" href="#__codelineno-0-148"></a><span class="w">  </span>-<span class="w"> </span>power:<span class="w"> </span>ioreg<span class="w"> </span>-rc<span class="w"> </span>AppleSmartBattery<span class="w"> </span>-&gt;<span class="w"> </span>single<span class="w"> </span>battery<span class="w"> </span>rail<span class="w"> </span>with<span class="w"> </span>watts<span class="w"> </span>/<span class="w"> </span>volts<span class="w"> </span>/<span class="w"> </span>amps.
+<a id="__codelineno-0-149" name="__codelineno-0-149" href="#__codelineno-0-149"></a><span class="w">    </span>empty<span class="w"> </span>on<span class="w"> </span>desktops<span class="w"> </span><span class="o">(</span>no<span class="w"> </span>battery<span class="o">)</span>.
+<a id="__codelineno-0-150" name="__codelineno-0-150" href="#__codelineno-0-150"></a>
+<a id="__codelineno-0-151" name="__codelineno-0-151" href="#__codelineno-0-151"></a><span class="w">  </span>-<span class="w"> </span>tcp:<span class="w"> </span>netstat<span class="w"> </span>-s<span class="w"> </span>-p<span class="w"> </span>tcp<span class="w"> </span>and<span class="w"> </span>-p<span class="w"> </span>udp<span class="w"> </span>parsed<span class="w"> </span><span class="k">for</span><span class="w"> </span>retransmits,<span class="w"> </span>rsts,<span class="w"> </span>rexmit<span class="w"> </span>drops,<span class="w"> </span>udp<span class="w"> </span>bad
+<a id="__codelineno-0-152" name="__codelineno-0-152" href="#__codelineno-0-152"></a><span class="w">    </span>checksums,<span class="w"> </span>udp<span class="w"> </span>no-socket<span class="w"> </span>drops.<span class="w"> </span>conntrack<span class="w"> </span>remains<span class="w"> </span>none<span class="w"> </span><span class="o">(</span>pf<span class="w"> </span>state<span class="w"> </span>count<span class="w"> </span>needs<span class="w"> </span>root<span class="o">)</span>.
+<a id="__codelineno-0-153" name="__codelineno-0-153" href="#__codelineno-0-153"></a>
+<a id="__codelineno-0-154" name="__codelineno-0-154" href="#__codelineno-0-154"></a><span class="w">  </span>-<span class="w"> </span>host<span class="w"> </span>panel<span class="w"> </span>also<span class="w"> </span>gets<span class="w"> </span>swap_used_pct<span class="w"> </span><span class="o">(</span>sysctl<span class="w"> </span>vm.swapusage<span class="o">)</span><span class="w"> </span>and<span class="w"> </span>cache_mb<span class="w"> </span><span class="o">(</span>vm_stat
+<a id="__codelineno-0-155" name="__codelineno-0-155" href="#__codelineno-0-155"></a><span class="w">    </span>file-backed<span class="w"> </span>pages<span class="o">)</span><span class="w"> </span>on<span class="w"> </span>macos.
+<a id="__codelineno-0-156" name="__codelineno-0-156" href="#__codelineno-0-156"></a>
+<a id="__codelineno-0-157" name="__codelineno-0-157" href="#__codelineno-0-157"></a>-<span class="w"> </span>linux-only<span class="w"> </span>by<span class="w"> </span>design:<span class="w"> </span>psi<span class="w"> </span><span class="o">(</span>no<span class="w"> </span>equivalent<span class="w"> </span>on<span class="w"> </span>macos<span class="w"> </span>without<span class="w"> </span>sudo<span class="w"> </span>powermetrics<span class="o">)</span><span class="w"> </span>and<span class="w"> </span>freq
+<a id="__codelineno-0-158" name="__codelineno-0-158" href="#__codelineno-0-158"></a><span class="w">  </span><span class="o">(</span>apple<span class="w"> </span>silicon<span class="w"> </span>does<span class="w"> </span>not<span class="w"> </span>expose<span class="w"> </span>per-core<span class="w"> </span>clock<span class="w"> </span>speed<span class="w"> </span>without<span class="w"> </span>sudo<span class="o">)</span>.
+<a id="__codelineno-0-159" name="__codelineno-0-159" href="#__codelineno-0-159"></a>
+<a id="__codelineno-0-160" name="__codelineno-0-160" href="#__codelineno-0-160"></a>changed:
+<a id="__codelineno-0-161" name="__codelineno-0-161" href="#__codelineno-0-161"></a>
+<a id="__codelineno-0-162" name="__codelineno-0-162" href="#__codelineno-0-162"></a>-<span class="w"> </span>ship<span class="w"> </span>traffic<span class="w"> </span>trimmed<span class="w"> </span><span class="o">(</span>node<span class="w"> </span>net-footprint<span class="o">)</span>:<span class="w"> </span>raw<span class="w"> </span>per-ping<span class="w"> </span>rtts<span class="w"> </span>no<span class="w"> </span>longer<span class="w"> </span>ship<span class="w"> </span>to<span class="w"> </span>the<span class="w"> </span>hub<span class="w"> </span>by
+<a id="__codelineno-0-163" name="__codelineno-0-163" href="#__codelineno-0-163"></a><span class="w">  </span>default<span class="w"> </span>-<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">SMOKEMON_SHIP_RTTS</span><span class="o">=</span><span class="m">1</span><span class="w"> </span>to<span class="w"> </span>re-enable.<span class="w"> </span>the<span class="w"> </span>hub<span class="w"> </span>renders<span class="w"> </span>percentile<span class="w"> </span>bands<span class="w"> </span>from<span class="w"> </span>the
+<a id="__codelineno-0-164" name="__codelineno-0-164" href="#__codelineno-0-164"></a><span class="w">  </span>pre-aggregated<span class="w"> </span>rtt_min/p25/median/p75/max<span class="w"> </span><span class="k">in</span><span class="w"> </span>ping_runs<span class="w"> </span>and<span class="w"> </span>never<span class="w"> </span>reads<span class="w"> </span>raw<span class="w"> </span>ping_rtts<span class="w"> </span><span class="k">for</span>
+<a id="__codelineno-0-165" name="__codelineno-0-165" href="#__codelineno-0-165"></a><span class="w">  </span>fresh<span class="w"> </span>rows,<span class="w"> </span>so<span class="w"> </span>this<span class="w"> </span>is<span class="w"> </span>~85%<span class="w"> </span>fewer<span class="w"> </span>shipped<span class="w"> </span>rows<span class="w"> </span><span class="k">for</span><span class="w"> </span>zero<span class="w"> </span>hub-side<span class="w"> </span>change<span class="p">;</span><span class="w"> </span>raw<span class="w"> </span>rtts<span class="w"> </span>stay<span class="w"> </span><span class="k">in</span>
+<a id="__codelineno-0-166" name="__codelineno-0-166" href="#__codelineno-0-166"></a><span class="w">  </span>the<span class="w"> </span>node<span class="w"> </span>DB<span class="w"> </span>at<span class="w"> </span>full<span class="w"> </span>fidelity<span class="w"> </span><span class="k">for</span><span class="w"> </span><span class="nb">local</span><span class="w"> </span>views.<span class="w"> </span>it<span class="w"> </span>also<span class="w"> </span>removes<span class="w"> </span>a<span class="w"> </span>latent<span class="w"> </span>catch-up<span class="w"> </span>spike
+<a id="__codelineno-0-167" name="__codelineno-0-167" href="#__codelineno-0-167"></a><span class="w">  </span><span class="o">(</span>ping_rtts<span class="w"> </span>was<span class="w"> </span>exempt<span class="w"> </span>from<span class="w"> </span>the<span class="w"> </span>SHIP_BATCH<span class="w"> </span>cap,<span class="w"> </span>so<span class="w"> </span>a<span class="w"> </span>backlog<span class="w"> </span>could<span class="w"> </span>ship<span class="w"> </span>~20x<span class="w"> </span>batch<span class="w"> </span>at<span class="w"> </span>once<span class="o">)</span>.
+<a id="__codelineno-0-168" name="__codelineno-0-168" href="#__codelineno-0-168"></a>
+<a id="__codelineno-0-169" name="__codelineno-0-169" href="#__codelineno-0-169"></a>-<span class="w"> </span>/ingest<span class="w"> </span>bodies<span class="w"> </span>are<span class="w"> </span>gzipped<span class="w"> </span><span class="o">(</span>Content-Encoding:<span class="w"> </span>gzip<span class="p">;</span><span class="w"> </span>~5-10x<span class="w"> </span>on<span class="w"> </span>numeric<span class="w"> </span>row-json,<span class="w"> </span>gzip<span class="w"> </span>level
+<a id="__codelineno-0-170" name="__codelineno-0-170" href="#__codelineno-0-170"></a><span class="w">  </span><span class="m">3</span><span class="w"> </span><span class="k">for</span><span class="w"> </span>sub-ms<span class="w"> </span>cpu<span class="w"> </span>on<span class="w"> </span>pi-class<span class="w"> </span>nodes<span class="o">)</span>.<span class="w"> </span>the<span class="w"> </span>hub<span class="w"> </span>decompresses<span class="w"> </span>by<span class="w"> </span>header<span class="w"> </span>and<span class="w"> </span>still<span class="w"> </span>accepts<span class="w"> </span>plain
+<a id="__codelineno-0-171" name="__codelineno-0-171" href="#__codelineno-0-171"></a><span class="w">  </span>bodies,<span class="w"> </span>so<span class="w"> </span>node<span class="w"> </span>and<span class="w"> </span>hub<span class="w"> </span>upgrade<span class="w"> </span>together<span class="w"> </span>but<span class="w"> </span>neither<span class="w"> </span>rejects<span class="w"> </span>an<span class="w"> </span>un-gzipped<span class="w"> </span>payload.
+<a id="__codelineno-0-172" name="__codelineno-0-172" href="#__codelineno-0-172"></a>
+<a id="__codelineno-0-173" name="__codelineno-0-173" href="#__codelineno-0-173"></a>fixed:
+<a id="__codelineno-0-174" name="__codelineno-0-174" href="#__codelineno-0-174"></a>
+<a id="__codelineno-0-175" name="__codelineno-0-175" href="#__codelineno-0-175"></a>-<span class="w"> </span>concurrent-upgrade<span class="w"> </span>crash:<span class="w"> </span>ensure_body_columns<span class="w"> </span>and<span class="w"> </span>ensure_node_column<span class="w"> </span>now<span class="w"> </span>guard<span class="w"> </span>each<span class="w"> </span>ALTER
+<a id="__codelineno-0-176" name="__codelineno-0-176" href="#__codelineno-0-176"></a><span class="w">  </span>TABLE<span class="w"> </span>ADD<span class="w"> </span>COLUMN<span class="w"> </span>against<span class="w"> </span>duplicate<span class="w"> </span>column<span class="w"> </span>name.<span class="w"> </span>on<span class="w"> </span>an<span class="w"> </span><span class="k">in</span>-place<span class="w"> </span>upgrade<span class="w"> </span>the<span class="w"> </span>two<span class="w"> </span>collector
+<a id="__codelineno-0-177" name="__codelineno-0-177" href="#__codelineno-0-177"></a><span class="w">  </span>daemons<span class="w"> </span><span class="o">(</span>plus<span class="w"> </span>iperf<span class="o">)</span><span class="w"> </span>race<span class="w"> </span>the<span class="w"> </span>migration<span class="p">;</span><span class="w"> </span>the<span class="w"> </span>loser<span class="w"> </span>would<span class="w"> </span>hit<span class="w"> </span>that<span class="w"> </span>error,<span class="w"> </span>which<span class="w"> </span>is
+<a id="__codelineno-0-178" name="__codelineno-0-178" href="#__codelineno-0-178"></a><span class="w">  </span>SQLITE_ERROR<span class="w"> </span>not<span class="w"> </span>SQLITE_BUSY,<span class="w"> </span>so<span class="w"> </span>busy_timeout<span class="w"> </span>does<span class="w"> </span>not<span class="w"> </span>retry<span class="w"> </span>it<span class="w"> </span>and<span class="w"> </span>the<span class="w"> </span>daemon<span class="w"> </span>would<span class="w"> </span>crash
+<a id="__codelineno-0-179" name="__codelineno-0-179" href="#__codelineno-0-179"></a><span class="w">  </span>before<span class="w"> </span>its<span class="w"> </span>scheduler<span class="w"> </span>started.
+<a id="__codelineno-0-180" name="__codelineno-0-180" href="#__codelineno-0-180"></a>
+<a id="__codelineno-0-181" name="__codelineno-0-181" href="#__codelineno-0-181"></a>-<span class="w"> </span>macos<span class="w"> </span>tcp<span class="w"> </span>metrics:<span class="w"> </span>netstat<span class="w"> </span>-s<span class="w"> </span>parsing<span class="w"> </span>is<span class="w"> </span>now<span class="w"> </span>plural-tolerant<span class="w"> </span><span class="o">(</span>data<span class="w"> </span>packets/bytes,
+<a id="__codelineno-0-182" name="__codelineno-0-182" href="#__codelineno-0-182"></a><span class="w">  </span>connections<span class="w"> </span>dropped<span class="o">)</span>,<span class="w"> </span>so<span class="w"> </span>retrans_segs/estab_resets<span class="w"> </span>populate<span class="w"> </span><span class="k">for</span><span class="w"> </span>real<span class="w"> </span>counts<span class="w"> </span>instead<span class="w"> </span>of
+<a id="__codelineno-0-183" name="__codelineno-0-183" href="#__codelineno-0-183"></a><span class="w">  </span>reading<span class="w"> </span>null<span class="w"> </span><span class="k">for</span><span class="w"> </span>anything<span class="w"> </span>above<span class="w"> </span>zero.
+<a id="__codelineno-0-184" name="__codelineno-0-184" href="#__codelineno-0-184"></a>
+<a id="__codelineno-0-185" name="__codelineno-0-185" href="#__codelineno-0-185"></a>-<span class="w"> </span>jetson<span class="w"> </span>power:<span class="w"> </span>guarded<span class="w"> </span>the<span class="w"> </span>os.listdir<span class="w"> </span>of<span class="w"> </span>the<span class="w"> </span>INA3221<span class="w"> </span>sysfs<span class="w"> </span>directory<span class="w"> </span>so<span class="w"> </span>a<span class="w"> </span>device
+<a id="__codelineno-0-186" name="__codelineno-0-186" href="#__codelineno-0-186"></a><span class="w">  </span>unbind/suspend<span class="w"> </span>mid-cycle<span class="w"> </span>no<span class="w"> </span>longer<span class="w"> </span>raises<span class="w"> </span>and<span class="w"> </span>skips<span class="w"> </span>that<span class="w"> </span>cycle<span class="s1">&#39;s host inserts.</span>
+<a id="__codelineno-0-187" name="__codelineno-0-187" href="#__codelineno-0-187"></a>
+<a id="__codelineno-0-188" name="__codelineno-0-188" href="#__codelineno-0-188"></a><span class="s1">- smoke live/kiosk flicker: the refresh loop repaints the frame in place - absolute per-row</span>
+<a id="__codelineno-0-189" name="__codelineno-0-189" href="#__codelineno-0-189"></a><span class="s1">  cursor addressing (ESC[row;1H), line-wrap disabled, and each line clipped to stay one</span>
+<a id="__codelineno-0-190" name="__codelineno-0-190" href="#__codelineno-0-190"></a><span class="s1">  row/column inside the terminal - instead of clearing the screen each tick. kills both the</span>
+<a id="__codelineno-0-191" name="__codelineno-0-191" href="#__codelineno-0-191"></a><span class="s1">  per-refresh blink and the ghosted/duplicated rows that showed when full-width plot lines</span>
+<a id="__codelineno-0-192" name="__codelineno-0-192" href="#__codelineno-0-192"></a><span class="s1">  wrapped onto an extra row and scrolled.</span>
+<a id="__codelineno-0-193" name="__codelineno-0-193" href="#__codelineno-0-193"></a>
+<a id="__codelineno-0-194" name="__codelineno-0-194" href="#__codelineno-0-194"></a><span class="s1">- hub dashboard plot view: the plotext braille markers come from a fallback font wider than</span>
+<a id="__codelineno-0-195" name="__codelineno-0-195" href="#__codelineno-0-195"></a><span class="s1">  the mono cell, so every data row drifted out of line with the ascii axes and the curve</span>
+<a id="__codelineno-0-196" name="__codelineno-0-196" href="#__codelineno-0-196"></a><span class="s1">  looked jagged. the dashboard now measures the braille-vs-mono cell delta at render time and</span>
+<a id="__codelineno-0-197" name="__codelineno-0-197" href="#__codelineno-0-197"></a><span class="s1">  pulls each braille run back to one cell with letter-spacing, so the plot graphs line up</span>
+<a id="__codelineno-0-198" name="__codelineno-0-198" href="#__codelineno-0-198"></a><span class="s1">  again. the terminal smoke tui was always correct (each line is exactly N columns) - this was</span>
+<a id="__codelineno-0-199" name="__codelineno-0-199" href="#__codelineno-0-199"></a><span class="s1">  a browser-font issue only.</span>
+<a id="__codelineno-0-200" name="__codelineno-0-200" href="#__codelineno-0-200"></a>
+<a id="__codelineno-0-201" name="__codelineno-0-201" href="#__codelineno-0-201"></a><span class="s1">- png dark/web theme gridlines: ax.grid(False, alpha=0.25) re-enabled the grid it meant to</span>
+<a id="__codelineno-0-202" name="__codelineno-0-202" href="#__codelineno-0-202"></a><span class="s1">  drop - matplotlib treats grid(False, &lt;line-prop&gt;) as &quot;enable anyway&quot;, so the dashboard&#39;</span>s
+<a id="__codelineno-0-203" name="__codelineno-0-203" href="#__codelineno-0-203"></a><span class="w">  </span>dark<span class="w"> </span>graphs<span class="w"> </span>carried<span class="w"> </span>a<span class="w"> </span>grid<span class="w"> </span>the<span class="w"> </span>code<span class="w"> </span>intended<span class="w"> </span>to<span class="w"> </span>omit.<span class="w"> </span>the<span class="w"> </span>dark/web<span class="w"> </span>theme<span class="w"> </span>now<span class="w"> </span>renders
+<a id="__codelineno-0-204" name="__codelineno-0-204" href="#__codelineno-0-204"></a><span class="w">  </span>gridless<span class="p">;</span><span class="w"> </span>the<span class="w"> </span>light<span class="w"> </span>desktop<span class="w"> </span>theme<span class="w"> </span>keeps<span class="w"> </span>its<span class="w"> </span>grid.
+<a id="__codelineno-0-205" name="__codelineno-0-205" href="#__codelineno-0-205"></a>
+<a id="__codelineno-0-206" name="__codelineno-0-206" href="#__codelineno-0-206"></a>internal:
+<a id="__codelineno-0-207" name="__codelineno-0-207" href="#__codelineno-0-207"></a>
+<a id="__codelineno-0-208" name="__codelineno-0-208" href="#__codelineno-0-208"></a>-<span class="w"> </span>hoisted<span class="w"> </span>the<span class="w"> </span>pi<span class="w"> </span>vcgencmd<span class="w"> </span>throttle-bit<span class="w"> </span>labels<span class="w"> </span>and<span class="w"> </span>decode<span class="w"> </span>into<span class="w"> </span>a<span class="w"> </span>single<span class="w"> </span>query.pi_bits_seen<span class="o">()</span>
+<a id="__codelineno-0-209" name="__codelineno-0-209" href="#__codelineno-0-209"></a><span class="w">  </span>helper,<span class="w"> </span>shared<span class="w"> </span>by<span class="w"> </span>both<span class="w"> </span>renderers<span class="w"> </span><span class="o">(</span>the<span class="w"> </span>png<span class="w"> </span>and<span class="w"> </span>tui<span class="w"> </span>copies<span class="w"> </span>had<span class="w"> </span>drifted<span class="w"> </span>apart<span class="o">)</span>.
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="o">==</span><span class="w"> </span><span class="m">0</span>.11.0<span class="w"> </span>-<span class="w"> </span><span class="m">2026</span>-05-28<span class="w">  </span>rich<span class="w"> </span>host<span class="w"> </span>metrics<span class="w"> </span>+<span class="w"> </span>grid<span class="w"> </span><span class="nv">layout</span><span class="w"> </span><span class="o">==</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>added:
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>-<span class="w"> </span>psi<span class="w"> </span>metrics:<span class="w"> </span>psi_cpu,<span class="w"> </span>psi_mem,<span class="w"> </span>psi_io<span class="w"> </span><span class="o">(</span><span class="m">10</span>-second<span class="w"> </span>rolling<span class="w"> </span>averages<span class="w"> </span>from<span class="w"> </span>/proc/pressure/*<span class="o">)</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">  </span><span class="k">in</span><span class="w"> </span>host_samples.<span class="w"> </span>early-warning<span class="w"> </span>signal<span class="w"> </span><span class="k">for</span><span class="w"> </span>latency<span class="w"> </span>before<span class="w"> </span>resources<span class="w"> </span>hit<span class="w"> </span><span class="m">100</span>%.
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>-<span class="w"> </span>memory<span class="w"> </span>pressure:<span class="w"> </span>swap_used_pct,<span class="w"> </span>cache_mb,<span class="w"> </span>oom_kill_count<span class="w"> </span><span class="k">in</span><span class="w"> </span>host_samples.
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>-<span class="w"> </span>cpu<span class="w"> </span>frequency<span class="w"> </span>+<span class="w"> </span>throttle:<span class="w"> </span>cpu_freq_mhz,<span class="w"> </span>cpu_throttle_count,<span class="w"> </span>pi_throttle_bits<span class="w"> </span><span class="k">in</span>
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">  </span>host_samples.<span class="w"> </span>detects<span class="w"> </span>silent<span class="w"> </span>perf<span class="w"> </span>regressions<span class="w"> </span><span class="o">(</span><span class="m">100</span>%<span class="w"> </span>busy<span class="w"> </span>at<span class="w"> </span><span class="m">600</span><span class="w"> </span>MHz<span class="w"> </span>looks<span class="w"> </span>the<span class="w"> </span>same<span class="w"> </span>as<span class="w"> </span>at
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="w">  </span><span class="m">1500</span><span class="w"> </span>MHz<span class="o">)</span>.<span class="w"> </span>the<span class="w"> </span>pi<span class="w"> </span>bit<span class="w"> </span>field<span class="w"> </span><span class="o">(</span>vcgencmd<span class="w"> </span>get_throttled<span class="o">)</span><span class="w"> </span>is<span class="w"> </span>sampled<span class="w"> </span>on<span class="w"> </span>a<span class="w"> </span><span class="m">5</span>-minute<span class="w"> </span>slow<span class="w"> </span>tier.
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>
+<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>-<span class="w"> </span>thermal<span class="w"> </span>zones<span class="w"> </span>table<span class="w"> </span>thermal_zones<span class="w"> </span><span class="o">(</span>ts,<span class="w"> </span>zone,<span class="w"> </span>temp_c<span class="o">)</span>:<span class="w"> </span>every<span class="w"> </span>zone<span class="w"> </span>sampled<span class="w"> </span>individually
+<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a><span class="w">  </span><span class="o">(</span>jetson<span class="w"> </span>has<span class="w"> </span>~10<span class="o">)</span>.<span class="w"> </span>the<span class="w"> </span>legacy<span class="w"> </span>temp_c<span class="w"> </span>column<span class="w"> </span><span class="k">in</span><span class="w"> </span>host_samples<span class="w"> </span>still<span class="w"> </span>carries<span class="w"> </span>the<span class="w"> </span>max-of-zones
+<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a><span class="w">  </span><span class="k">for</span><span class="w"> </span>back-compat.
+<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a>
+<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a>-<span class="w"> </span>power<span class="w"> </span>rails<span class="w"> </span>table<span class="w"> </span>power_samples<span class="w"> </span><span class="o">(</span>ts,<span class="w"> </span>rail,<span class="w"> </span>watts,<span class="w"> </span>volts,<span class="w"> </span>amps<span class="o">)</span>:<span class="w"> </span>jetson<span class="w"> </span>INA3221<span class="w"> </span>i2c
+<a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a><span class="w">  </span>readings<span class="w"> </span><span class="o">(</span>/sys/bus/i2c/drivers/ina3221x/*<span class="o">)</span>.
+<a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a>
+<a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a>-<span class="w"> </span>tcp/udp/conntrack<span class="w"> </span>table<span class="w"> </span>tcp_samples:<span class="w"> </span>kernel<span class="w"> </span>counters<span class="w"> </span>from<span class="w"> </span>/proc/net/snmp<span class="w"> </span>+<span class="w"> </span>conntrack<span class="w"> </span>fill
+<a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a><span class="w">  </span>from<span class="w"> </span>/proc/sys/net/netfilter/nf_conntrack_*.
+<a id="__codelineno-1-23" name="__codelineno-1-23" href="#__codelineno-1-23"></a>
+<a id="__codelineno-1-24" name="__codelineno-1-24" href="#__codelineno-1-24"></a>-<span class="w"> </span>disk<span class="w"> </span>health<span class="w"> </span>table<span class="w"> </span>disk_health:<span class="w"> </span>sd/emmc<span class="w"> </span>wear-level<span class="w"> </span><span class="o">(</span>/sys/block/mmcblk*/device/life_time<span class="o">)</span><span class="w"> </span>on
+<a id="__codelineno-1-25" name="__codelineno-1-25" href="#__codelineno-1-25"></a><span class="w">  </span>a<span class="w"> </span><span class="m">60</span>-minute<span class="w"> </span>very-slow<span class="w"> </span>tier.
+<a id="__codelineno-1-26" name="__codelineno-1-26" href="#__codelineno-1-26"></a>
+<a id="__codelineno-1-27" name="__codelineno-1-27" href="#__codelineno-1-27"></a>-<span class="w"> </span>wifi<span class="w"> </span>extras:<span class="w"> </span>bssid,<span class="w"> </span>retry_count,<span class="w"> </span>discard_count,<span class="w"> </span>beacon_loss<span class="w"> </span><span class="k">in</span><span class="w"> </span>wifi_samples.<span class="w"> </span>roams<span class="w"> </span>across
+<a id="__codelineno-1-28" name="__codelineno-1-28" href="#__codelineno-1-28"></a><span class="w">  </span>bssids<span class="w"> </span>are<span class="w"> </span>summarised<span class="w"> </span><span class="k">in</span><span class="w"> </span>the<span class="w"> </span>render.
+<a id="__codelineno-1-29" name="__codelineno-1-29" href="#__codelineno-1-29"></a>
+<a id="__codelineno-1-30" name="__codelineno-1-30" href="#__codelineno-1-30"></a>-<span class="w"> </span>inode<span class="w"> </span>usage:<span class="w"> </span>inode_used_pct<span class="w"> </span><span class="k">in</span><span class="w"> </span>disk_samples.
+<a id="__codelineno-1-31" name="__codelineno-1-31" href="#__codelineno-1-31"></a>
+<a id="__codelineno-1-32" name="__codelineno-1-32" href="#__codelineno-1-32"></a>-<span class="w"> </span>grid<span class="w"> </span>layout<span class="w"> </span><span class="k">for</span><span class="w"> </span>plots:<span class="w"> </span>png<span class="w"> </span>and<span class="w"> </span>tui<span class="w"> </span>auto-arrange<span class="w"> </span>panels<span class="w"> </span><span class="k">in</span><span class="w"> </span>a<span class="w"> </span><span class="m">2</span>-column<span class="w"> </span>grid<span class="w"> </span>when<span class="w"> </span>there<span class="w"> </span>are
+<a id="__codelineno-1-33" name="__codelineno-1-33" href="#__codelineno-1-33"></a><span class="w">  </span>&gt;<span class="o">=</span><span class="m">3</span><span class="w"> </span>panels<span class="w"> </span>and<span class="w"> </span>the<span class="w"> </span>canvas<span class="w"> </span>is<span class="w"> </span>wide<span class="w"> </span>enough.<span class="w"> </span>--cols<span class="w"> </span>N<span class="w"> </span>forces<span class="w"> </span>a<span class="w"> </span>specific<span class="w"> </span>count.
+<a id="__codelineno-1-34" name="__codelineno-1-34" href="#__codelineno-1-34"></a>
+<a id="__codelineno-1-35" name="__codelineno-1-35" href="#__codelineno-1-35"></a>-<span class="w"> </span>five<span class="w"> </span>new<span class="w"> </span>panels:<span class="w"> </span>thermal,<span class="w"> </span>power,<span class="w"> </span>tcp,<span class="w"> </span>psi,<span class="w"> </span>freq.<span class="w"> </span>all<span class="w"> </span>optional<span class="w"> </span>and<span class="w"> </span>selected<span class="w"> </span>via<span class="w"> </span>--panels.
+<a id="__codelineno-1-36" name="__codelineno-1-36" href="#__codelineno-1-36"></a>
+<a id="__codelineno-1-37" name="__codelineno-1-37" href="#__codelineno-1-37"></a>-<span class="w"> </span>migration:<span class="w"> </span>ensure_body_columns<span class="o">()</span><span class="w"> </span>ALTERs<span class="w"> </span><span class="k">in</span><span class="w"> </span>any<span class="w"> </span>missing<span class="w"> </span>body<span class="w"> </span>columns<span class="w"> </span>on<span class="w"> </span>existing<span class="w"> </span>tables,<span class="w"> </span>so
+<a id="__codelineno-1-38" name="__codelineno-1-38" href="#__codelineno-1-38"></a><span class="w">  </span>upgrades<span class="w"> </span>from<span class="w"> </span>older<span class="w"> </span>dbs<span class="w"> </span>are<span class="w"> </span>transparent<span class="w"> </span><span class="o">(</span>old<span class="w"> </span>rows<span class="w"> </span>get<span class="w"> </span>null<span class="w"> </span><span class="k">for</span><span class="w"> </span>new<span class="w"> </span>columns<span class="o">)</span>.
+<a id="__codelineno-1-39" name="__codelineno-1-39" href="#__codelineno-1-39"></a>
+<a id="__codelineno-1-40" name="__codelineno-1-40" href="#__codelineno-1-40"></a>changed:
+<a id="__codelineno-1-41" name="__codelineno-1-41" href="#__codelineno-1-41"></a>
+<a id="__codelineno-1-42" name="__codelineno-1-42" href="#__codelineno-1-42"></a>-<span class="w"> </span>ping<span class="w"> </span>percentiles<span class="w"> </span>pre-aggregated:<span class="w"> </span>rtt_p25<span class="w"> </span>and<span class="w"> </span>rtt_p75<span class="w"> </span>are<span class="w"> </span>computed<span class="w"> </span>at<span class="w"> </span>insert<span class="w"> </span>time.
+<a id="__codelineno-1-43" name="__codelineno-1-43" href="#__codelineno-1-43"></a><span class="w">  </span>load_ping_smoke<span class="w"> </span>reads<span class="w"> </span>them<span class="w"> </span>straight<span class="w"> </span>from<span class="w"> </span>ping_runs<span class="w"> </span>instead<span class="w"> </span>of<span class="w"> </span>scanning<span class="w"> </span>ping_rtts.<span class="w"> </span>old<span class="w"> </span>rows
+<a id="__codelineno-1-44" name="__codelineno-1-44" href="#__codelineno-1-44"></a><span class="w">  </span>fall<span class="w"> </span>back<span class="w"> </span>to<span class="w"> </span>a<span class="w"> </span>join-based<span class="w"> </span>percentile<span class="w"> </span>calculation<span class="w"> </span>against<span class="w"> </span>a<span class="w"> </span>temp-id<span class="w"> </span>table<span class="w"> </span><span class="o">(</span>no<span class="w"> </span><span class="k">in</span>-list
+<a id="__codelineno-1-45" name="__codelineno-1-45" href="#__codelineno-1-45"></a><span class="w">  </span>variable<span class="w"> </span>limit<span class="o">)</span>.
+<a id="__codelineno-1-46" name="__codelineno-1-46" href="#__codelineno-1-46"></a>
+<a id="__codelineno-1-47" name="__codelineno-1-47" href="#__codelineno-1-47"></a>-<span class="w"> </span>hub<span class="w"> </span>ingest<span class="w"> </span>uses<span class="w"> </span>executemany<span class="w"> </span><span class="k">for</span><span class="w"> </span>all<span class="w"> </span>non-ping<span class="w"> </span>tables<span class="w"> </span><span class="o">(</span>per-row<span class="w"> </span>execute<span class="w"> </span>is<span class="w"> </span>kept<span class="w"> </span>only<span class="w"> </span><span class="k">for</span>
+<a id="__codelineno-1-48" name="__codelineno-1-48" href="#__codelineno-1-48"></a><span class="w">  </span>ping_runs<span class="w"> </span>where<span class="w"> </span>lastrowid<span class="w"> </span>is<span class="w"> </span>needed<span class="w"> </span><span class="k">for</span><span class="w"> </span>the<span class="w"> </span>run_map<span class="o">)</span>.<span class="w"> </span>~30-40%<span class="w"> </span>faster<span class="w"> </span>ingest<span class="w"> </span>on<span class="w"> </span>pi-class
+<a id="__codelineno-1-49" name="__codelineno-1-49" href="#__codelineno-1-49"></a><span class="w">  </span>hardware.
+<a id="__codelineno-1-50" name="__codelineno-1-50" href="#__codelineno-1-50"></a>
+<a id="__codelineno-1-51" name="__codelineno-1-51" href="#__codelineno-1-51"></a>-<span class="w"> </span>load_net<span class="w"> </span>uses<span class="w"> </span>sql<span class="w"> </span>LAG<span class="o">()</span><span class="w"> </span><span class="k">for</span><span class="w"> </span><span class="k">in</span>-database<span class="w"> </span>delta<span class="w"> </span>computation<span class="w"> </span>when<span class="w"> </span>sqlite<span class="w"> </span>&gt;<span class="o">=</span><span class="w"> </span><span class="m">3</span>.25<span class="p">;</span><span class="w"> </span>falls<span class="w"> </span>back
+<a id="__codelineno-1-52" name="__codelineno-1-52" href="#__codelineno-1-52"></a><span class="w">  </span>to<span class="w"> </span>the<span class="w"> </span>python<span class="w"> </span>loop<span class="w"> </span>otherwise.
+<a id="__codelineno-1-53" name="__codelineno-1-53" href="#__codelineno-1-53"></a>
+<a id="__codelineno-1-54" name="__codelineno-1-54" href="#__codelineno-1-54"></a>-<span class="w"> </span>host._procs_linux<span class="w"> </span>uses<span class="w"> </span>os.scandir<span class="o">(</span><span class="s2">&quot;/proc&quot;</span><span class="o">)</span><span class="w"> </span>instead<span class="w"> </span>of<span class="w"> </span>os.listdir.
+<a id="__codelineno-1-55" name="__codelineno-1-55" href="#__codelineno-1-55"></a>
+<a id="__codelineno-1-56" name="__codelineno-1-56" href="#__codelineno-1-56"></a>-<span class="w"> </span>probes/http.py<span class="w"> </span>caches<span class="w"> </span>the<span class="w"> </span>curl<span class="w"> </span>path<span class="w"> </span>at<span class="w"> </span>import<span class="w"> </span><span class="o">(</span>was<span class="w"> </span>resolved<span class="w"> </span>on<span class="w"> </span>every<span class="w"> </span>probe<span class="o">)</span>.
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="o">==</span><span class="w"> </span><span class="m">0</span>.10.0<span class="w">  </span>package<span class="w"> </span><span class="nv">refactor</span><span class="w"> </span><span class="o">==</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>changed:
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>-<span class="w"> </span>package<span class="w"> </span>refactor:<span class="w"> </span>flat<span class="w"> </span>scripts<span class="w"> </span>collapsed<span class="w"> </span>into<span class="w"> </span>a<span class="w"> </span>smokemon/<span class="w"> </span>package<span class="w"> </span>-<span class="w"> </span>config<span class="w"> </span><span class="o">(</span>env/node/
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">  </span>paths<span class="o">)</span>,<span class="w"> </span>core<span class="w"> </span><span class="o">(</span>log/connect/signals/run_scheduler<span class="o">)</span>,<span class="w"> </span>schema<span class="w"> </span><span class="o">(</span>single-source<span class="w"> </span>ddl,<span class="w"> </span>generic
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">  </span>insert<span class="o">)</span>,<span class="w"> </span>adapters/<span class="o">{</span>darwin,linux<span class="o">}</span>,<span class="w"> </span>probes/<span class="o">{</span>ping,net,http,mtr,wifi,iperf,host<span class="o">}</span>,<span class="w"> </span>collect<span class="w"> </span><span class="o">(</span>one
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">  </span>daemon,<span class="w"> </span>group<span class="w"> </span>fast<span class="p">|</span>slow<span class="p">|</span>all<span class="o">)</span>,<span class="w"> </span>ship,<span class="w"> </span>hub,<span class="w"> </span>query<span class="w"> </span><span class="o">(</span>shared<span class="w"> </span>loaders<span class="w"> </span>+<span class="w"> </span>--node<span class="o">)</span>,<span class="w"> </span>render/<span class="o">{</span>tui,png<span class="o">}</span>,
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">  </span>cli<span class="w"> </span><span class="o">(</span>smoke<span class="w"> </span>subcommands<span class="o">)</span>.
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>-<span class="w"> </span><span class="m">3</span><span class="w"> </span>collector<span class="w"> </span>daemons<span class="w"> </span>collapsed<span class="w"> </span>to<span class="w"> </span><span class="m">2</span><span class="w"> </span><span class="o">(</span><span class="nv">fast</span><span class="o">=</span>ping/net<span class="p">;</span><span class="w"> </span><span class="nv">slow</span><span class="o">=</span>http/mtr/wifi/host<span class="o">)</span>.<span class="w"> </span>live.sh/
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="w">  </span>daily_graph.sh<span class="w"> </span>replaced<span class="w"> </span>by<span class="w"> </span>smoke<span class="w"> </span>live/kiosk/daily.
+<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>
+<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>-<span class="w"> </span>deduplication:<span class="w"> </span>schema,<span class="w"> </span>daemon<span class="w"> </span>loop,<span class="w"> </span>plot<span class="w"> </span>loaders,<span class="w"> </span>and<span class="w"> </span>a<span class="w"> </span>duplicate<span class="w"> </span>wifi_probe<span class="w"> </span>all
+<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a><span class="w">  </span>consolidated.<span class="w"> </span>net<span class="w"> </span>caches<span class="w"> </span>the<span class="w"> </span>tailscale<span class="w"> </span>interface<span class="w"> </span><span class="k">for</span><span class="w"> </span><span class="m">5</span><span class="w"> </span>minutes.<span class="w"> </span>hub<span class="w"> </span>uses
+<a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a><span class="w">  </span>ThreadingHTTPServer<span class="w"> </span>+<span class="w"> </span>write<span class="w"> </span>lock.
+<a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a>
+<a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a>-<span class="w"> </span>entry<span class="w"> </span>points:<span class="w"> </span>python<span class="w"> </span>-m<span class="w"> </span>smokemon.*<span class="w"> </span><span class="o">(</span><span class="nv">PYTHONPATH</span><span class="o">=</span>repo,<span class="w"> </span>no<span class="w"> </span>install<span class="w"> </span>needed<span class="o">)</span>.
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="o">==</span><span class="w"> </span><span class="m">0</span>.9.0<span class="w">  </span>cross-platform<span class="w"> </span>+<span class="w"> </span>central<span class="w"> </span><span class="nv">aggregation</span><span class="w"> </span><span class="o">==</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>added:
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>-<span class="w"> </span>cross-platform<span class="w"> </span>adapters<span class="w"> </span><span class="o">(</span>platform.system<span class="o">()</span><span class="w"> </span>dispatch<span class="o">)</span>:<span class="w"> </span>linux<span class="w"> </span>paths<span class="w"> </span>use<span class="w"> </span>/proc/net/dev,
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">  </span>tailscale0<span class="w"> </span><span class="o">(</span>or<span class="w"> </span><span class="m">100</span>.64.0.0/10<span class="w"> </span>scan<span class="w"> </span>via<span class="w"> </span>ip<span class="o">)</span>,<span class="w"> </span>iw<span class="w"> </span>dev<span class="w"> </span>+<span class="w"> </span>/proc/net/wireless.<span class="w"> </span>macos<span class="w"> </span>paths
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">  </span>unchanged.<span class="w"> </span>cli<span class="w"> </span>tool<span class="w"> </span>paths<span class="w"> </span>resolved<span class="w"> </span>via<span class="w"> </span>env<span class="w"> </span>-&gt;<span class="w"> </span>shutil.which.
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>-<span class="w"> </span>node<span class="w"> </span>dimension:<span class="w"> </span>every<span class="w"> </span>table<span class="w"> </span>gains<span class="w"> </span>a<span class="w"> </span>node<span class="w"> </span>column<span class="w"> </span><span class="o">(</span>defaults<span class="w"> </span>to<span class="w"> </span>hostname,<span class="w"> </span>override<span class="w"> </span>via
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="w">  </span>SMOKEMON_NODE<span class="o">)</span>.<span class="w"> </span>additive<span class="w"> </span>migration<span class="w"> </span><span class="o">(</span>alter<span class="w"> </span>+<span class="w"> </span>backfill<span class="o">)</span><span class="w"> </span>so<span class="w"> </span>node<span class="w"> </span>and<span class="w"> </span>hub<span class="w"> </span>dbs<span class="w"> </span>share<span class="w"> </span>one<span class="w"> </span>schema
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="w">  </span>-&gt;<span class="w"> </span>one<span class="w"> </span>plotter<span class="w"> </span>codebase.
+<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a>
+<a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a>-<span class="w"> </span>host<span class="w"> </span>health<span class="w"> </span>collector<span class="w"> </span>@30s.<span class="w"> </span>linux:<span class="w"> </span>cpu<span class="w"> </span><span class="o">(</span>/proc/stat<span class="o">)</span>,<span class="w"> </span>load,<span class="w"> </span>mem<span class="w"> </span><span class="o">(</span>/proc/meminfo<span class="o">)</span>,<span class="w"> </span>temp
+<a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a><span class="w">  </span><span class="o">(</span>/sys/class/thermal,<span class="w"> </span>incl.<span class="w"> </span>jetson<span class="o">)</span>,<span class="w"> </span>disk<span class="w"> </span>used<span class="w"> </span><span class="o">(</span>statvfs<span class="o">)</span><span class="w"> </span>+<span class="w"> </span>io<span class="w"> </span><span class="o">(</span>/proc/diskstats<span class="o">)</span>,<span class="w"> </span>top-n<span class="w"> </span>procs
+<a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a><span class="w">  </span><span class="o">(</span>/proc/&lt;pid&gt;/stat<span class="o">)</span>.<span class="w"> </span>macos<span class="w"> </span>subset.<span class="w"> </span>new<span class="w"> </span>tables:<span class="w"> </span>host_samples,<span class="w"> </span>disk_samples,<span class="w"> </span>proc_samples.
+<a id="__codelineno-3-16" name="__codelineno-3-16" href="#__codelineno-3-16"></a>
+<a id="__codelineno-3-17" name="__codelineno-3-17" href="#__codelineno-3-17"></a>-<span class="w"> </span>central<span class="w"> </span>aggregation<span class="w"> </span><span class="o">(</span>push<span class="o">)</span>:<span class="w"> </span>shipper<span class="w"> </span>drains<span class="w"> </span>new<span class="w"> </span>rows<span class="w"> </span>per<span class="w"> </span>table<span class="w"> </span><span class="o">(</span>delta<span class="w"> </span>by<span class="w"> </span>id,<span class="w"> </span>cursor<span class="w"> </span><span class="k">in</span>
+<a id="__codelineno-3-18" name="__codelineno-3-18" href="#__codelineno-3-18"></a><span class="w">  </span>ship_state<span class="o">)</span><span class="w"> </span>and<span class="w"> </span>posts<span class="w"> </span>to<span class="w"> </span>the<span class="w"> </span>hub.<span class="w"> </span>hub<span class="w"> </span>writes<span class="w"> </span>smokemon-hub.db<span class="w"> </span>with<span class="w"> </span>node<span class="w"> </span>+<span class="w"> </span>src_id,
+<a id="__codelineno-3-19" name="__codelineno-3-19" href="#__codelineno-3-19"></a><span class="w">  </span>UNIQUE<span class="o">(</span>node,<span class="w"> </span>src_id<span class="o">)</span><span class="w"> </span>+<span class="w"> </span>INSERT<span class="w"> </span>OR<span class="w"> </span>IGNORE<span class="w"> </span><span class="k">in</span><span class="w"> </span>one<span class="w"> </span><span class="nv">transaction</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>idempotent.<span class="w"> </span>ping_rtts<span class="w"> </span>remapped
+<a id="__codelineno-3-20" name="__codelineno-3-20" href="#__codelineno-3-20"></a><span class="w">  </span>to<span class="w"> </span>hub<span class="w"> </span>run<span class="w"> </span>ids,<span class="w"> </span>inserted<span class="w"> </span>only<span class="w"> </span><span class="k">for</span><span class="w"> </span>newly-inserted<span class="w"> </span>runs.<span class="w"> </span>shared-secret<span class="w"> </span>header<span class="w"> </span>X-Smokemon-Key.
+<a id="__codelineno-3-21" name="__codelineno-3-21" href="#__codelineno-3-21"></a>
+<a id="__codelineno-3-22" name="__codelineno-3-22" href="#__codelineno-3-22"></a>-<span class="w"> </span>plotters:<span class="w"> </span>--node<span class="w"> </span>filter<span class="w"> </span><span class="o">(</span>required<span class="w"> </span>on<span class="w"> </span>hub<span class="w"> </span>db<span class="o">)</span>.<span class="w"> </span>host<span class="w"> </span>+<span class="w"> </span>disk<span class="w"> </span>panels.<span class="w"> </span>matplotlib<span class="w"> </span>stays<span class="w"> </span>hub-only
+<a id="__codelineno-3-23" name="__codelineno-3-23" href="#__codelineno-3-23"></a><span class="w">  </span>so<span class="w"> </span>nodes<span class="w"> </span>need<span class="w"> </span>only<span class="w"> </span>python3<span class="w"> </span>stdlib<span class="w"> </span>+<span class="w"> </span>plotext<span class="w"> </span><span class="o">(</span>tui<span class="o">)</span>.
+<a id="__codelineno-3-24" name="__codelineno-3-24" href="#__codelineno-3-24"></a>
+<a id="__codelineno-3-25" name="__codelineno-3-25" href="#__codelineno-3-25"></a>-<span class="w"> </span>linux<span class="w"> </span>deploy:<span class="w"> </span>install.sh<span class="w"> </span><span class="o">(</span>apt<span class="w"> </span>deps,<span class="w"> </span>setcap<span class="w"> </span>cap_net_raw<span class="w"> </span>on<span class="w"> </span>fping/mtr<span class="w"> </span>to<span class="w"> </span>skip<span class="w"> </span>sudo,
+<a id="__codelineno-3-26" name="__codelineno-3-26" href="#__codelineno-3-26"></a><span class="w">  </span>/etc/smokemon.env,<span class="w"> </span>systemd<span class="w"> </span>units<span class="o">)</span>.<span class="w"> </span>macos<span class="w"> </span>launchd<span class="w"> </span>plists.
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="o">==</span><span class="w"> </span><span class="m">0</span>.8.0<span class="w">  </span>span-scaled<span class="w"> </span><span class="nv">png</span><span class="w"> </span><span class="o">==</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>changed:
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>-<span class="w"> </span>png<span class="w"> </span>width<span class="w"> </span>scales<span class="w"> </span>with<span class="w"> </span><span class="nb">time</span><span class="w"> </span>span<span class="w"> </span><span class="o">(</span>~2<span class="w"> </span>inches<span class="w"> </span>per<span class="w"> </span>hour,<span class="w"> </span>clamp<span class="w"> </span><span class="m">16</span>-80<span class="s2">&quot;). every 10s sample stays</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="s2">  horizontally distinguishable. dpi lowered 130 -&gt; 96 (granularity from width, not pixel</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="s2">  density). 24h = ~4608xN px (~1 MB). new flags: --width, --dpi.</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="o">==</span><span class="w"> </span><span class="m">0</span>.7.0<span class="w">  </span>readable<span class="w"> </span><span class="nv">axes</span><span class="w"> </span><span class="o">==</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>changed:
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>-<span class="w"> </span>x<span class="w"> </span>ticks<span class="w"> </span>formatted<span class="w"> </span>%H:%M<span class="w"> </span><span class="o">(</span>never<span class="w"> </span>seconds<span class="o">)</span>,<span class="w"> </span>y<span class="w"> </span>integer<span class="w"> </span>ticks.<span class="w"> </span>http<span class="w"> </span>labels<span class="w"> </span>strip<span class="w"> </span>tld
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">  </span><span class="o">(</span>cloudflare.com<span class="w"> </span>-&gt;<span class="w"> </span>cloudflare<span class="o">)</span>.<span class="w"> </span>loss<span class="w"> </span>marker<span class="w"> </span>switched<span class="w"> </span>from<span class="w"> </span>X<span class="w"> </span>to<span class="w"> </span>braille<span class="w"> </span>dot.<span class="w"> </span>http<span class="w"> </span>lines<span class="w"> </span>use
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">  </span>a<span class="w"> </span>fixed<span class="w"> </span>non-red<span class="w"> </span>palette<span class="w"> </span><span class="o">(</span>cyan/green/magenta<span class="o">)</span><span class="w"> </span>so<span class="w"> </span>they<span class="w"> </span>cannot<span class="w"> </span>be<span class="w"> </span>confused<span class="w"> </span>with<span class="w"> </span>red<span class="w"> </span>loss.
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="w">  </span>kiosk<span class="w"> </span>keeps<span class="w"> </span>a<span class="w"> </span>subtle<span class="w"> </span>gray<span class="w"> </span>frame,<span class="w"> </span>titles<span class="w"> </span>off.
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="o">==</span><span class="w"> </span><span class="m">0</span>.6.0<span class="w">  </span>kiosk<span class="w"> </span><span class="nv">mode</span><span class="w"> </span><span class="o">==</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>added:
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>-<span class="w"> </span>kiosk<span class="w"> </span>mode<span class="w"> </span><span class="o">(</span>term_plot<span class="w"> </span>--kiosk,<span class="w"> </span>smokekiosk<span class="o">)</span>:<span class="w"> </span>no<span class="w"> </span>legend/ticks/labels/title/header.
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="o">==</span><span class="w"> </span><span class="m">0</span>.5.0<span class="w">  </span>active<span class="w"> </span><span class="nv">probes</span><span class="w"> </span><span class="o">==</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>added:
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>-<span class="w"> </span>active<span class="w"> </span>probes<span class="w"> </span>@60s:<span class="w"> </span>http<span class="w"> </span>timing<span class="w"> </span>via<span class="w"> </span>curl<span class="w"> </span>-sI<span class="w"> </span>-w<span class="w"> </span><span class="o">(</span>dns/connect/tls/ttfb/total<span class="o">)</span>,<span class="w"> </span>mtr<span class="w"> </span>--json
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">  </span>-c10<span class="w"> </span><span class="k">for</span><span class="w"> </span>per-hop<span class="w"> </span>loss/avg/best/worst/stddev,<span class="w"> </span>wifi<span class="w"> </span>rssi/noise/tx/channel<span class="w"> </span>via
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="w">  </span>system_profiler.<span class="w"> </span>mtr<span class="w"> </span>requires<span class="w"> </span>passwordless<span class="w"> </span>sudo<span class="w"> </span><span class="o">(</span>or<span class="w"> </span>setcap<span class="w"> </span>cap_net_raw<span class="w"> </span>on<span class="w"> </span>linux<span class="o">)</span>.
+<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>
+<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a>-<span class="w"> </span>iperf3<span class="w"> </span>probe<span class="w"> </span>@900s:<span class="w"> </span>-J<span class="w"> </span><span class="o">(</span>up<span class="o">)</span><span class="w"> </span>+<span class="w"> </span>-R<span class="w"> </span><span class="o">(</span>down<span class="o">)</span>.<span class="w"> </span>consumes<span class="w"> </span>real<span class="w"> </span>bandwidth<span class="p">;</span><span class="w"> </span>requires<span class="w"> </span>iperf3<span class="w"> </span>-s<span class="w"> </span>on
+<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="w">  </span>the<span class="w"> </span>server.
+<a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a>
+<a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a>-<span class="w"> </span>new<span class="w"> </span>tables:<span class="w"> </span>http_samples,<span class="w"> </span>mtr_hops,<span class="w"> </span>wifi_samples,<span class="w"> </span>iperf_samples.<span class="w"> </span><span class="m">6</span><span class="w"> </span>panel<span class="w"> </span>types.
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="o">==</span><span class="w"> </span><span class="m">0</span>.4.0<span class="w">  </span>live<span class="w"> </span>window<span class="w"> </span><span class="nv">units</span><span class="w"> </span><span class="o">==</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>added:
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>-<span class="w"> </span>live<span class="w"> </span>window<span class="w"> </span>units<span class="w"> </span><span class="o">(</span>Nh/Nm/bare-number<span class="w"> </span>minutes<span class="o">)</span>:<span class="w"> </span>smokelive<span class="w"> </span>24h<span class="w"> </span><span class="m">30</span>.
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="o">==</span><span class="w"> </span><span class="m">0</span>.3.0<span class="w">  </span>tailscale<span class="w"> </span><span class="nv">target</span><span class="w"> </span><span class="o">==</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>added:
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>-<span class="w"> </span>third<span class="w"> </span>ping<span class="w"> </span>target<span class="w"> </span>reachable<span class="w"> </span>over<span class="w"> </span>the<span class="w"> </span>tailscale<span class="w"> </span>interface.<span class="w"> </span>tailscale<span class="w"> </span>interface
+<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="w">  </span>auto-detected<span class="w"> </span>as<span class="w"> </span>the<span class="w"> </span>one<span class="w"> </span>with<span class="w"> </span>an<span class="w"> </span>address<span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="m">100</span>.64.0.0/10<span class="p">;</span><span class="w"> </span>label<span class="w"> </span>tailscale<span class="w"> </span><span class="o">(</span>survives<span class="w"> </span>utun
+<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="w">  </span>renumbering<span class="w"> </span>across<span class="w"> </span>reboots<span class="o">)</span>.
+<a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a>
+<a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a>fixed:
+<a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a>
+<a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a>-<span class="w"> </span>netstat<span class="w"> </span>-ibn<span class="w"> </span>rows<span class="w"> </span><span class="k">for</span><span class="w"> </span>mac-less<span class="w"> </span>interfaces<span class="w"> </span><span class="o">(</span>utun<span class="o">)</span><span class="w"> </span>have<span class="w"> </span><span class="m">10</span><span class="w"> </span>fields,<span class="w"> </span>not<span class="w"> </span><span class="m">11</span>.<span class="w"> </span>the<span class="w"> </span>old<span class="w"> </span>code
+<a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a><span class="w">  </span>indexed<span class="w"> </span>columns<span class="w"> </span>wrong<span class="w"> </span>and<span class="w"> </span>silently<span class="w"> </span>skipped<span class="w"> </span>them<span class="p">;</span><span class="w"> </span>now<span class="w"> </span>we<span class="w"> </span><span class="nb">read</span><span class="w"> </span>the<span class="w"> </span>last<span class="w"> </span><span class="m">7</span><span class="w"> </span>columns.<span class="w"> </span>utun<span class="w"> </span>was
+<a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a><span class="w">  </span>never<span class="w"> </span>captured<span class="w"> </span>before<span class="w"> </span>this.
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="o">==</span><span class="w"> </span><span class="m">0</span>.2.0<span class="w">  </span>tui<span class="w"> </span>+<span class="w"> </span><span class="nv">scheduling</span><span class="w"> </span><span class="o">==</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>added:
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>-<span class="w"> </span>tui:<span class="w"> </span>plotext<span class="w"> </span>braille<span class="w"> </span>plot<span class="w"> </span><span class="o">(</span>replaced<span class="w"> </span>a<span class="w"> </span>chafa<span class="w"> </span>inline-image<span class="w"> </span>poc<span class="o">)</span>.
+<a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a>
+<a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a>-<span class="w"> </span>live<span class="w"> </span>+<span class="w"> </span>scheduled:<span class="w"> </span>live.sh,<span class="w"> </span>daily_graph.sh<span class="w"> </span>+<span class="w"> </span>launchd<span class="w"> </span>StartCalendarInterval<span class="w"> </span>at<span class="w"> </span><span class="m">23</span>:55<span class="w"> </span>-&gt;
+<a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a><span class="w">  </span>graphs/daily/.<span class="w"> </span>zsh<span class="w"> </span>helpers<span class="w"> </span>smoke/smokelive/smokepng.
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="o">==</span><span class="w"> </span><span class="m">0</span>.1.0<span class="w">  </span>core<span class="w"> </span><span class="nv">collector</span><span class="w"> </span><span class="o">==</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>added:
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>
+<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>-<span class="w"> </span>core<span class="w"> </span>collector<span class="w"> </span>@10s:<span class="w"> </span>fping<span class="w"> </span>-C20<span class="w"> </span>-p50<span class="w"> </span><span class="o">(</span>latency/loss<span class="w"> </span>+<span class="w"> </span>every<span class="w"> </span>individual<span class="w"> </span>rtt<span class="o">)</span><span class="w"> </span>+<span class="w"> </span>netstat<span class="w"> </span>-ibn
+<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="w">  </span><span class="o">(</span>cumulative<span class="w"> </span>bytes<span class="w"> </span>-&gt;<span class="w"> </span>mbit/s<span class="w"> </span>via<span class="w"> </span>delta/dt<span class="o">)</span>.<span class="w"> </span>default<span class="w"> </span>targets<span class="w"> </span><span class="m">1</span>.1.1.1,<span class="w"> </span><span class="m">192</span>.168.0.1.
+<a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a>
+<a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a>-<span class="w"> </span>sqlite<span class="w"> </span>wal:<span class="w"> </span>ping_runs,<span class="w"> </span>ping_rtts,<span class="w"> </span>net_samples.<span class="w"> </span>no<span class="w"> </span>pruning<span class="w"> </span><span class="o">(</span>~5-6<span class="w"> </span>gb/year<span class="p">;</span><span class="w"> </span>long-term<span class="w"> </span>plan<span class="w"> </span>is
+<a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a><span class="w">  </span>rollup/compression,<span class="w"> </span>never<span class="w"> </span>deletion<span class="w"> </span>of<span class="w"> </span>raw<span class="w"> </span>data<span class="o">)</span>.
+<a id="__codelineno-11-10" name="__codelineno-11-10" href="#__codelineno-11-10"></a>
+<a id="__codelineno-11-11" name="__codelineno-11-11" href="#__codelineno-11-11"></a>-<span class="w"> </span>png<span class="w"> </span>renderer:<span class="w"> </span>matplotlib<span class="w"> </span>smoke-style<span class="w"> </span>plot<span class="w"> </span><span class="o">(</span>fill_between<span class="w"> </span>p0-p100<span class="w"> </span>+<span class="w"> </span>p25-p75<span class="w"> </span>+<span class="w"> </span>median<span class="w"> </span>+<span class="w"> </span>loss
+<a id="__codelineno-11-12" name="__codelineno-11-12" href="#__codelineno-11-12"></a><span class="w">  </span>scatter<span class="o">)</span>.
+</code></pre></div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.top", "navigation.sections", "content.code.copy", "toc.integrate"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.js"></script>
+      
+        <script src="https://stevoo.net/map.js"></script>
+      
+    
+  </body>
+</html>
