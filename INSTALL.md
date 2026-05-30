@@ -117,9 +117,9 @@ services: `collect-fast` (RunAtLoad+KeepAlive), `collect-slow` (KeepAlive), `ipe
 optional), `hub` (KeepAlive, optional).
 
 `install.sh` does it all: apt deps, `setcap cap_net_raw+ep` on fping/mtr-packet (so mtr
-needs no sudo), `pip --user plotext`, writes `/etc/smokemon.env`, drops `smoke`/`smokelive`/
-`smokekiosk`/`smokepng` into `/etc/profile.d/smokemon.sh` (new login shells), and
-template-substitutes + enables the systemd units.
+needs no sudo), `pip --user plotext`, writes `/etc/smokemon.env`, installs `smoke` (plus
+`smokelive`/`smokekiosk`/`smokepng`) as executables in `/usr/local/bin` — on PATH in every
+shell immediately, no relogin — and template-substitutes + enables the systemd units.
 
 ```
 sudo ./install.sh --node NAME [--hub-url http://HUB-HOST:8765/ingest --secret S] [--targets a,b]
