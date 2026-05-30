@@ -15,7 +15,6 @@ from dataclasses import dataclass
 
 from . import schema
 
-
 SECONDS_PER_DAY = 86400.0
 
 

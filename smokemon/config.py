@@ -127,6 +127,33 @@ REDIS_INTERVAL = _f("SMOKEMON_REDIS_INTERVAL", "60")
 REDIS_STREAMS = _list("SMOKEMON_REDIS_STREAMS", "")
 REDIS_GROUPS = _semi_list("SMOKEMON_REDIS_GROUPS", "")
 
+# Docker container health. Off by default; when enabled, one bounded HTTP GET over the
+# docker unix socket per slow cycle (stdlib socket + manual HTTP/1.0, no docker CLI, no
+# `docker logs`, no log/journal tails). Optional per-container cpu/mem from cgroup v2
+# (/sys reads only). DOCKER_INSPECT adds restart_count/exit_code/oom_killed via a small
+# per-container inspect call, capped at DOCKER_MAX containers.
+DOCKER_ENABLED = os.environ.get("SMOKEMON_DOCKER", "0") != "0"
+DOCKER_SOCK = os.environ.get("SMOKEMON_DOCKER_SOCK", "/var/run/docker.sock")
+DOCKER_API = os.environ.get("SMOKEMON_DOCKER_API", "v1.41")
+DOCKER_INTERVAL = _f("SMOKEMON_DOCKER_INTERVAL", "60")
+DOCKER_TIMEOUT = _f("SMOKEMON_DOCKER_TIMEOUT", "2")
+DOCKER_MAX_BYTES = _i("SMOKEMON_DOCKER_MAX_BYTES", str(512 * 1024))
+DOCKER_MAX = _i("SMOKEMON_DOCKER_MAX", "60")
+DOCKER_INSPECT = os.environ.get("SMOKEMON_DOCKER_INSPECT", "1") != "0"
+DOCKER_CGROUP = os.environ.get("SMOKEMON_DOCKER_CGROUP", "1") != "0"
+
+# Pipeline / process liveness. Auto-enabled (slow tier) when either list is set.
+# PROC_WATCH matches substrings against /proc cmdlines and reports count/cpu/rss, the
+# youngest process's uptime, and a cumulative restart count (flips when the youngest
+# starttime changes). RTSP_URLS sends a single bounded OPTIONS request per endpoint to
+# confirm a stream is actually being served. Pure stdlib, no log tails, no ffprobe.
+#   SMOKEMON_PROC_WATCH='gst=gst-launch-1.0;app=python app.py'   (label=substring; semis)
+#   SMOKEMON_RTSP_URLS='cam=rtsp://127.0.0.1:8554/imx519'        (label=url, or bare url)
+PROC_WATCH = _semi_list("SMOKEMON_PROC_WATCH", "")
+RTSP_URLS = _semi_list("SMOKEMON_RTSP_URLS", "")
+PIPELINE_INTERVAL = _f("SMOKEMON_PIPELINE_INTERVAL", "60")
+RTSP_TIMEOUT = _f("SMOKEMON_RTSP_TIMEOUT", "2")
+
 # iperf3 (one-shot); set SMOKEMON_IPERF_SERVER to a reachable `iperf3 -s` host
 IPERF_SERVER = os.environ.get("SMOKEMON_IPERF_SERVER", "")
 IPERF_DURATION = os.environ.get("SMOKEMON_IPERF_DURATION", "5")

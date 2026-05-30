@@ -11,6 +11,10 @@ class _FakeRedis:
             return "PONG"
         if parts == ("INFO", "memory"):
             return "used_memory:1234567\r\n"
+        if parts == ("INFO", "clients"):
+            return "connected_clients:11\r\nblocked_clients:2\r\n"
+        if parts == ("INFO", "stats"):
+            return "instantaneous_ops_per_sec:31\r\nevicted_keys:0\r\nrejected_connections:0\r\n"
         if parts == ("XLEN", "scanner:stats"):
             return 42
         if parts == ("XPENDING", "scanner:stats", "writers"):
@@ -39,6 +43,11 @@ def test_redis_probe_collects_memory_stream_and_pending(tmp_db, monkeypatch):
     assert data["used_memory_mb"] == 1.2
     assert data["streams"]["scanner:stats"]["xlen"] == 42
     assert data["streams"]["scanner:stats"]["pending"] == 3
+    assert data["connected_clients"] == 11
+    assert data["blocked_clients"] == 2
+    assert data["ops_per_sec"] == 31
+    assert data["evicted_keys"] == 0
+    assert data["rejected_connections"] == 0
 
 
 def test_redis_probe_records_down_row_on_connect_failure(tmp_db, monkeypatch):

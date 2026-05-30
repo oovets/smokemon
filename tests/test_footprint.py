@@ -97,8 +97,8 @@ def test_hub_db_ship_payload_uses_src_id_as_node_id(hub_db, ts0):
 def test_cli_footprint_subcommand(tmp_db, ts0, monkeypatch, capsys):
     conn = _sample_db(tmp_db, ts0)
     conn.close()
-    import smokemon.config
     import smokemon.cli
+    import smokemon.config
 
     importlib.reload(smokemon.config)
     importlib.reload(smokemon.cli)

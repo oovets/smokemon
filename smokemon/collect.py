@@ -5,7 +5,7 @@ Production runs `fast` and `slow` as two services so a slow probe never delays p
 import sys
 
 from . import adapters, config, core, schema
-from .probes import ext, host, http, mtr, net, ping, redisq, synthetic, wifi
+from .probes import dockerps, ext, host, http, mtr, net, ping, pipeline, redisq, synthetic, wifi
 
 
 def _probes(group: str) -> list[tuple[float, object]]:
@@ -18,6 +18,10 @@ def _probes(group: str) -> list[tuple[float, object]]:
         slow.append((config.EXT_INTERVAL, ext.collect))
     if config.REDIS_ENABLED:
         slow.append((config.REDIS_INTERVAL, redisq.collect))
+    if config.DOCKER_ENABLED:
+        slow.append((config.DOCKER_INTERVAL, dockerps.collect))
+    if config.PROC_WATCH or config.RTSP_URLS:
+        slow.append((config.PIPELINE_INTERVAL, pipeline.collect))
     return {"fast": fast, "slow": slow, "all": fast + slow}[group]
 
 

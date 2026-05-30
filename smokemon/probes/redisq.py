@@ -81,13 +81,29 @@ def _groups() -> dict[str, str]:
 
 
 def _used_memory_mb(info: str) -> float | None:
+    val = _info_int(info, "used_memory")
+    return round(val / 1e6, 1) if val is not None else None
+
+
+def _info_int(info: str, key: str) -> int | None:
+    """Pull one `key:value` integer out of an INFO section, tolerating absent keys."""
+    prefix = key + ":"
     for line in info.splitlines():
-        if line.startswith("used_memory:"):
+        if line.startswith(prefix):
             try:
-                return round(int(line.split(":", 1)[1]) / 1e6, 1)
+                return int(line.split(":", 1)[1])
             except (IndexError, ValueError):
                 return None
     return None
+
+
+def _info(c: Client, section: str) -> str:
+    """One INFO section, swallowing protocol/socket errors so enrichment never breaks
+    the core connectivity sample (older/locked servers may reject a section)."""
+    try:
+        return c.cmd("INFO", section) or ""
+    except (OSError, RedisProtoError):
+        return ""
 
 
 def _pending(c: Client, stream: str, group: str) -> int | None:
@@ -113,9 +129,16 @@ def collect(conn) -> None:
         c = Client(config.REDIS_HOST, config.REDIS_PORT, config.REDIS_TIMEOUT)
         try:
             c.cmd("PING")
-            mem = _used_memory_mb(c.cmd("INFO", "memory") or "")
+            mem = _used_memory_mb(_info(c, "memory"))
+            clients = _info(c, "clients")
+            stats = _info(c, "stats")
             rows.append({"ts": ts, "instance": instance, "stream": "__server__",
-                         "connected": 1, "used_memory_mb": mem, "xlen": None, "pending": None})
+                         "connected": 1, "used_memory_mb": mem, "xlen": None, "pending": None,
+                         "connected_clients": _info_int(clients, "connected_clients"),
+                         "blocked_clients": _info_int(clients, "blocked_clients"),
+                         "ops_per_sec": _info_int(stats, "instantaneous_ops_per_sec"),
+                         "evicted_keys": _info_int(stats, "evicted_keys"),
+                         "rejected_connections": _info_int(stats, "rejected_connections")})
             groups = _groups()
             for stream in config.REDIS_STREAMS:
                 try:

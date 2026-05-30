@@ -126,6 +126,14 @@ def status_line(conn, since, until, node=None, *, color: bool = False) -> str:
     if redis:
         parts.append(redis)
 
+    docker = _docker_summary(conn, since, until, node)
+    if docker:
+        parts.append(docker)
+
+    pipeline = _pipeline_summary(conn, since, until, node)
+    if pipeline:
+        parts.append(pipeline)
+
     ext = _ext_summary(conn, since, until, node)
     if ext:
         parts.append(ext)
@@ -163,6 +171,52 @@ def _redis_summary(conn, since, until, node=None) -> str:
             max_pending = max(max_pending, stream.get("pending") or 0)
     tail = f" pending{max_pending}" if max_pending else f" xlen{max_xlen}" if max_xlen else " ok"
     return "redis" + tail
+
+
+def _docker_is_bad(v: dict) -> bool:
+    """A container worth flagging: unhealthy, in a broken state, or exited non-zero."""
+    return (v.get("health") == "unhealthy"
+            or v.get("state") in ("restarting", "dead")
+            or bool(v.get("oom_killed"))
+            or (not v.get("running") and (v.get("exit_code") or 0) != 0))
+
+
+def _docker_real(conn, since, until, node=None) -> tuple[dict, bool]:
+    """(containers-without-sentinel, daemon_down)."""
+    data = query.load_docker_latest(conn, since, until, node)
+    daemon_down = "__daemon__" in data and not data["__daemon__"].get("running")
+    real = {k: v for k, v in data.items() if k != "__daemon__"}
+    return real, daemon_down
+
+
+def _docker_summary(conn, since, until, node=None) -> str:
+    real, daemon_down = _docker_real(conn, since, until, node)
+    if daemon_down and not real:
+        return "docker down"
+    if not real:
+        return ""
+    bad = sorted(name for name, v in real.items() if _docker_is_bad(v))
+    if bad:
+        shown = ",".join(bad[:2])
+        more = f"+{len(bad) - 2}" if len(bad) > 2 else ""
+        return f"docker {shown}{more} bad"
+    running = sum(1 for v in real.values() if v.get("running"))
+    return f"docker {running}/{len(real)} up"
+
+
+def _pipeline_summary(conn, since, until, node=None) -> str:
+    """Compact pipeline health: down watches and/or down streams, else 'pipeline ok'."""
+    watch = query.load_proc_watch(conn, since, until, node)
+    streams = query.load_stream_probes(conn, since, until, node)
+    if not watch and not streams:
+        return ""
+    down = [label for label, v in sorted(watch.items()) if not v.get("count")]
+    down += [url for url, v in sorted(streams.items()) if not v.get("ok")]
+    if down:
+        shown = ",".join(down[:2])
+        more = f"+{len(down) - 2}" if len(down) > 2 else ""
+        return f"pipeline {shown}{more} down"
+    return "pipeline ok"
 
 
 def _ext_summary(conn, since, until, node=None) -> str:
@@ -339,6 +393,33 @@ def digest(conn, since, until, node=None) -> str:
                 lines.append("Redis streams: " + "; ".join(bits) + ".")
             else:
                 lines.append("Redis: connected.")
+
+    docker_real, docker_down = _docker_real(conn, since, until, node)
+    if docker_down and not docker_real:
+        lines.append("Docker: daemon unreachable.")
+    elif docker_real:
+        bad = [f"{n} {v.get('health') or v.get('state')}"
+               for n, v in sorted(docker_real.items()) if _docker_is_bad(v)]
+        if bad:
+            lines.append("Docker: " + "; ".join(bad) + ".")
+        else:
+            running = sum(1 for v in docker_real.values() if v.get("running"))
+            lines.append(f"Docker: {running}/{len(docker_real)} containers up.")
+
+    proc_watch = query.load_proc_watch(conn, since, until, node)
+    stream_probes = query.load_stream_probes(conn, since, until, node)
+    if proc_watch or stream_probes:
+        bits = []
+        for label, v in sorted(proc_watch.items()):
+            if not v.get("count"):
+                bits.append(f"{label} down")
+            else:
+                tail = f", {v['restarts']} restart(s)" if v.get("restarts") else ""
+                bits.append(f"{label} x{v['count']}{tail}")
+        for url, v in sorted(stream_probes.items()):
+            bits.append(f"{url} {'serving' if v.get('ok') else 'down'}")
+        if bits:
+            lines.append("Pipeline: " + "; ".join(bits) + ".")
 
     ext = query.load_ext_latest(conn, since, until, node)
     if ext:

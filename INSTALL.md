@@ -208,6 +208,29 @@ redis stream health (probes.redisq, opt-in, stdlib socket/RESP; no redis-cli)
   SMOKEMON_REDIS_INTERVAL  seconds/cycle           (default 60)
   SMOKEMON_REDIS_STREAMS   comma-separated streams for XLEN
   SMOKEMON_REDIS_GROUPS    ; separated stream=group pairs for XPENDING
+                           server row also records connected/blocked clients, ops/sec,
+                           evicted_keys and rejected_connections from one INFO call.
+
+docker container health (probes.dockerps, opt-in, stdlib unix-socket HTTP; no docker CLI)
+  SMOKEMON_DOCKER          1 = enable docker sampling (default 0/off)
+  SMOKEMON_DOCKER_SOCK     engine socket           (default /var/run/docker.sock)
+  SMOKEMON_DOCKER_API      engine API version      (default v1.41)
+  SMOKEMON_DOCKER_INTERVAL seconds/cycle           (default 60)
+  SMOKEMON_DOCKER_TIMEOUT  seconds/request         (default 2)
+  SMOKEMON_DOCKER_MAX_BYTES max response bytes     (default 512 KiB)
+  SMOKEMON_DOCKER_MAX      max containers/cycle    (default 60)
+  SMOKEMON_DOCKER_INSPECT  1 = add restart_count/exit_code/oom via inspect (default 1)
+  SMOKEMON_DOCKER_CGROUP   1 = add per-container cpu/mem from cgroup v2 sysfs (default 1)
+                           one bounded GET per cycle; no `docker logs`, no log/journal tails.
+
+pipeline / process liveness (probes.pipeline, opt-in, stdlib /proc + RTSP socket)
+  SMOKEMON_PROC_WATCH      ; separated label=substring pairs matched against /proc cmdlines
+                           example: gst=gst-launch-1.0;app=python app.py
+                           reports count, cpu/rss, youngest-process uptime, restart count.
+  SMOKEMON_RTSP_URLS       ; separated label=rtsp://... (or bare urls); one OPTIONS each
+                           example: cam=rtsp://127.0.0.1:8554/imx519
+  SMOKEMON_PIPELINE_INTERVAL seconds/cycle         (default 60)
+  SMOKEMON_RTSP_TIMEOUT    seconds/request         (default 2)
 
 alerting (notify, S4)
   SMOKEMON_NOTIFY_URL      ntfy / slack / discord / webhook URL (unset -> no alerts)

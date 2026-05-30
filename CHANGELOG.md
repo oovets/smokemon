@@ -8,6 +8,28 @@ roadmap / ideas -> [PLAN.md](PLAN.md)
 tagged; dated entries begin at the first release, 0.11.0.)
 
 ```
+== 0.13.0 - 2026-05-31  docker + pipeline collectors, redis enrichment ==
+
+added:
+
+- probes.dockerps (opt-in, SMOKEMON_DOCKER): container health via one bounded HTTP GET
+  over the docker unix socket per slow cycle (stdlib socket + manual HTTP/1.0, no docker
+  CLI, no `docker logs`, no log/journal tails). records state/running, health, exit_code,
+  restart_count, oom_killed; optional per-container cpu/mem/pids from cgroup-v2 sysfs and
+  an optional small per-container inspect. new docker_samples table; status/digest surface
+  unhealthy / non-zero-exit / restarting containers, or a daemon-down sentinel row.
+
+- probes.pipeline (opt-in, SMOKEMON_PROC_WATCH / SMOKEMON_RTSP_URLS): process + stream
+  liveness. one /proc scan matches configured cmdline substrings (e.g. gst-launch-1.0) and
+  reports count, summed cpu/rss, the youngest process's uptime and a cumulative restart
+  count (flips when the youngest starttime changes); a bounded RTSP OPTIONS confirms a
+  stream is actually being served. new proc_watch + stream_probes tables; status/digest
+  surface down watches and down streams. pure stdlib, no ps/ffprobe, no log tails.
+
+- probes.redisq: the server row now also records connected_clients, blocked_clients,
+  instantaneous ops/sec, evicted_keys and rejected_connections, parsed from INFO
+  clients/stats on the existing connection (no extra socket, no redis-cli).
+
 == 0.12.0 - 2026-05-30  analysis engine + text surfaces + alerting + hub api ==
 
 added:

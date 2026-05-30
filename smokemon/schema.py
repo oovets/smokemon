@@ -44,13 +44,22 @@ _BODY = {
     "ext_metrics": "ts REAL NOT NULL, source TEXT NOT NULL, metric TEXT NOT NULL, value REAL, unit TEXT, labels TEXT",
     "ext_events": "ts REAL NOT NULL, source TEXT NOT NULL, severity TEXT, event TEXT NOT NULL, detail TEXT",
     "redis_samples": "ts REAL NOT NULL, instance TEXT NOT NULL, stream TEXT, connected INTEGER, "
-                     "used_memory_mb REAL, xlen INTEGER, pending INTEGER",
+                     "used_memory_mb REAL, xlen INTEGER, pending INTEGER, "
+                     "connected_clients INTEGER, blocked_clients INTEGER, ops_per_sec REAL, "
+                     "evicted_keys INTEGER, rejected_connections INTEGER",
     "gpu_samples": "ts REAL NOT NULL, gpu TEXT NOT NULL, util_pct REAL, freq_mhz REAL",
+    "docker_samples": "ts REAL NOT NULL, name TEXT NOT NULL, image TEXT, state TEXT, running INTEGER, "
+                      "health TEXT, exit_code INTEGER, restart_count INTEGER, oom_killed INTEGER, "
+                      "cpu_pct REAL, mem_mb REAL, pids INTEGER",
+    "proc_watch": "ts REAL NOT NULL, label TEXT NOT NULL, count INTEGER, cpu_pct REAL, rss_mb REAL, "
+                  "uptime_s REAL, restarts INTEGER",
+    "stream_probes": "ts REAL NOT NULL, url TEXT NOT NULL, ok INTEGER, latency_ms REAL, status TEXT",
 }
 _IX = {"ping_runs": "target", "net_samples": "iface", "http_samples": "url", "mtr_hops": "target",
        "thermal_zones": "zone", "power_samples": "rail", "disk_health": "device",
        "synthetic_samples": "probe", "ext_metrics": "source", "ext_events": "source",
-       "redis_samples": "instance", "gpu_samples": "gpu"}
+       "redis_samples": "instance", "gpu_samples": "gpu", "docker_samples": "name",
+       "proc_watch": "label", "stream_probes": "url"}
 
 STD_TABLES = tuple(_BODY)  # generic append-only tables (id + body + node [+ src_id])
 

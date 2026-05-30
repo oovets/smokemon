@@ -205,15 +205,58 @@ def load_ext_events(conn, since, until, node=None, limit: int = 20):
 
 def load_redis_latest(conn, since, until, node=None):
     nf, np_ = _filt(node)
-    rows = _q(conn, "SELECT ts,instance,stream,connected,used_memory_mb,xlen,pending FROM redis_samples "
-              "WHERE ts BETWEEN ? AND ?" + nf + " ORDER BY ts", [since, until, *np_])
+    rows = _q(conn, "SELECT ts,instance,stream,connected,used_memory_mb,xlen,pending,"
+              "connected_clients,blocked_clients,ops_per_sec,evicted_keys,rejected_connections "
+              "FROM redis_samples WHERE ts BETWEEN ? AND ?" + nf + " ORDER BY ts", [since, until, *np_])
     data: dict[str, dict] = {}
-    for ts, instance, stream, connected, mem, xlen, pending in rows:
+    for (ts, instance, stream, connected, mem, xlen, pending,
+         clients, blocked, ops, evicted, rejected) in rows:
         inst = data.setdefault(instance, {"streams": {}})
         if stream == "__server__":
-            inst.update({"ts": ts, "connected": connected, "used_memory_mb": mem})
+            inst.update({"ts": ts, "connected": connected, "used_memory_mb": mem,
+                         "connected_clients": clients, "blocked_clients": blocked,
+                         "ops_per_sec": ops, "evicted_keys": evicted,
+                         "rejected_connections": rejected})
         elif stream:
             inst["streams"][stream] = {"ts": ts, "xlen": xlen, "pending": pending}
+    return data
+
+
+def load_docker_latest(conn, since, until, node=None):
+    """Latest row per container name from the opt-in docker probe. The sentinel name
+    '__daemon__' (running=0) appears only when the socket was unreachable that cycle."""
+    nf, np_ = _filt(node)
+    rows = _q(conn, "SELECT ts,name,image,state,running,health,exit_code,restart_count,"
+              "oom_killed,cpu_pct,mem_mb,pids FROM docker_samples "
+              "WHERE ts BETWEEN ? AND ?" + nf + " ORDER BY ts", [since, until, *np_])
+    data: dict[str, dict] = {}
+    for ts, name, image, state, running, health, exit_code, restarts, oom, cpu, mem, pids in rows:
+        data[name] = {"ts": ts, "image": image, "state": state, "running": running,
+                      "health": health, "exit_code": exit_code, "restart_count": restarts,
+                      "oom_killed": oom, "cpu_pct": cpu, "mem_mb": mem, "pids": pids}
+    return data
+
+
+def load_proc_watch(conn, since, until, node=None):
+    """Latest proc-watch row per label (count/cpu/rss/uptime/restarts)."""
+    nf, np_ = _filt(node)
+    rows = _q(conn, "SELECT ts,label,count,cpu_pct,rss_mb,uptime_s,restarts FROM proc_watch "
+              "WHERE ts BETWEEN ? AND ?" + nf + " ORDER BY ts", [since, until, *np_])
+    data: dict[str, dict] = {}
+    for ts, label, count, cpu, rss, uptime, restarts in rows:
+        data[label] = {"ts": ts, "count": count, "cpu_pct": cpu, "rss_mb": rss,
+                       "uptime_s": uptime, "restarts": restarts}
+    return data
+
+
+def load_stream_probes(conn, since, until, node=None):
+    """Latest RTSP/stream liveness row per labelled endpoint."""
+    nf, np_ = _filt(node)
+    rows = _q(conn, "SELECT ts,url,ok,latency_ms,status FROM stream_probes "
+              "WHERE ts BETWEEN ? AND ?" + nf + " ORDER BY ts", [since, until, *np_])
+    data: dict[str, dict] = {}
+    for ts, url, ok, latency, status in rows:
+        data[url] = {"ts": ts, "ok": ok, "latency_ms": latency, "status": status}
     return data
 
 
