@@ -346,10 +346,13 @@ _DASHBOARD_HTML = """<!doctype html>
  input{background:var(--card);border:1px solid var(--line);color:var(--fg);
        padding:5px 8px;border-radius:6px;font:inherit;min-width:160px}
  .meta{color:var(--mut);font-size:12px;margin-left:auto}
- #grid{padding:8px 12px;column-width:230px;column-gap:14px}
- .node{display:flex;align-items:center;gap:8px;padding:3px 6px;border-radius:5px;
+ #grid{padding:10px 12px;column-width:244px;column-gap:12px}
+ .node{display:flex;align-items:center;gap:8px;padding:5px 9px;margin:0 0 6px;border-radius:6px;
+       background:var(--card);border:1px solid var(--line);border-left:3px solid var(--stale);
        break-inside:avoid}
- .node:hover{background:var(--card)}
+ .node.healthy{border-left-color:var(--ok)}.node.warn{border-left-color:var(--warn)}
+ .node.down{border-left-color:var(--down)}.node.stale{border-left-color:var(--stale)}
+ .node:hover{background:#161b24;border-color:#2a323d}
  .node.stale{color:var(--mut)}
  .name{flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
  .m{color:var(--mut);font-size:12px;flex:0 0 auto;min-width:44px;text-align:right}
@@ -375,7 +378,6 @@ _DASHBOARD_HTML = """<!doctype html>
  #dwrap img{display:block;width:100%;height:auto}
  #dover{position:absolute;inset:0}
  #dover .p{position:absolute;cursor:help}
- #dover .p:hover{background:rgba(94,215,94,.07);outline:1px solid rgba(94,215,94,.25)}
  #dmsg{padding:28px;color:var(--mut)}
  #dplot{margin:0;padding:8px 10px;background:var(--card);color:#c9d1d9;overflow-y:auto;overflow-x:hidden;
         height:80vh;font:12px/1.05 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre}
@@ -397,6 +399,16 @@ _DASHBOARD_HTML = """<!doctype html>
  #rank th:first-child,#rank td:first-child{text-align:left}
  #rank th{color:var(--mut);font-weight:500}
  #rank tbody tr{cursor:pointer}#rank tbody tr:hover{background:var(--card)}
+ #table{padding:8px 12px;overflow-x:auto}
+ #table table{border-collapse:collapse;width:100%;font-size:12px}
+ #table th,#table td{padding:5px 11px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+ #table th:first-child,#table td:first-child,#table th:nth-child(2),#table td:nth-child(2){text-align:left}
+ #table thead th{color:var(--mut);font-weight:500;text-transform:uppercase;font-size:11px;letter-spacing:.4px}
+ #table tbody tr{cursor:pointer}#table tbody tr:hover{background:#161b24}
+ #table .st{width:9px;height:9px;border-radius:50%;display:inline-block;vertical-align:middle}
+ #table td.bad{color:#ff7b72}#table td.warnv{color:#e9c46a}
+ #table td .spark{vertical-align:middle}
+ #table tr.stale td:not(:first-child):not(:nth-child(2)){color:var(--stale)}
  .hbar{display:flex;gap:14px;margin-bottom:10px}
  .hrow{display:flex;align-items:center;gap:8px;margin-bottom:2px}
  .hname{width:120px;flex:0 0 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;font-size:12px}
@@ -432,6 +444,7 @@ _DASHBOARD_HTML = """<!doctype html>
 </header>
 <div id="err"></div>
 <div id="grid" class="view"></div>
+<div id="table" class="view" hidden></div>
 <div id="rank" class="view" hidden></div>
 <div id="heat" class="view" hidden></div>
 <div id="risk" class="view" hidden></div>
@@ -478,6 +491,7 @@ function sparkSvg(node){
 function render(){
  const term=q.value.trim().toLowerCase();
  const nodes=last.nodes.filter(n=>!term||n.node.toLowerCase().includes(term));
+ if(view==="table")renderTable(nodes);
  grid.innerHTML=nodes.map(n=>{
   const lossBad=n.loss_pct!=null&&n.loss_pct>0?" bad":"";
   const right=n.state==="stale"
@@ -489,6 +503,35 @@ function render(){
  const c=last.counts||{};
  pills.innerHTML=[["healthy"],["warn"],["down"],["stale"]]
   .map(([k])=>`<span class="pill ${k}"><span class="dot s-${k}"></span>${c[k]||0}</span>`).join("");
+}
+// table view: one row per host with ALL details on a single line (worst-first, same order as the
+// grid). live off the fleet-status poll + the spark/cost caches; click a row to open the graphs.
+function renderTable(nodes){
+ const T=viewEl("table");
+ if(!nodes.length){T.innerHTML=`<div class="empty">no data</div>`;return;}
+ const cls=(v,warn,bad)=>v==null?"":v>=bad?"bad":v>=warn?"warnv":"";
+ const pct=v=>v==null?"--":Math.round(v)+"%";
+ const body=nodes.map(n=>{
+  const f=foot[n.node]||{},sd=f.wire_bytes_per_day!=null?f.wire_bytes_per_day:f.wire_bytes;
+  const lossBad=n.loss_pct!=null&&n.loss_pct>0;
+  const rttCls=n.rtt_ms==null?"":n.rtt_ms>250?"bad":n.rtt_ms>120?"warnv":"";
+  return `<tr class="${n.state}" data-node="${esc(n.node)}">`
+   +`<td><span class="st s-${n.state}"></span></td>`
+   +`<td>${esc(n.node)}</td>`
+   +`<td class="${rttCls}">${fmtRtt(n.rtt_ms)}</td>`
+   +`<td class="${lossBad?"bad":""}">${n.loss_pct==null?"--":Math.round(n.loss_pct)+"%"}</td>`
+   +`<td class="${cls(n.cpu,70,90)}">${pct(n.cpu)}</td>`
+   +`<td class="${cls(n.mem,75,90)}">${pct(n.mem)}</td>`
+   +`<td class="${cls(n.temp,70,80)}">${n.temp==null?"--":Math.round(n.temp)+"°"}</td>`
+   +`<td>${sparkSvg(n.node)||"<span style='color:var(--mut)'>--</span>"}</td>`
+   +`<td>${fmtAge(n.age_s)}</td>`
+   +`<td>${fmtK(f.rows_per_day!=null?f.rows_per_day:f.rows)}</td>`
+   +`<td>${sd==null?"--":fmtKB(sd)+(f.wire_bytes_per_day!=null?"/d":"")}</td>`
+   +`</tr>`;
+ }).join("");
+ T.innerHTML=`<table><thead><tr><th></th><th>node</th><th>rtt</th><th>loss</th><th>cpu</th>`
+  +`<th>mem</th><th>temp</th><th>trend</th><th>seen</th><th>rows/d</th><th>ship/d</th></tr></thead>`
+  +`<tbody>${body}</tbody></table>`;
 }
 async function tick(){
  try{
@@ -503,7 +546,7 @@ q.addEventListener("input",render);
 
 // ---- view tabs: grid (live) · ranking · heatmap · risks. Only the active non-grid view
 // polls (slow, 15s); grid status + sparklines + header pills always refresh. -------------
-const VIEWS=[["grid","grid"],["rank","ranking"],["heat","heatmap"],["risk","risks"],["cost","cost"]];
+const VIEWS=[["grid","grid"],["table","table"],["rank","ranking"],["heat","heatmap"],["risk","risks"],["cost","cost"]];
 let view="grid",heatMetric="loss",heatHours=24;
 // measured ship-cost cache (/api/cost): actual compressed bytes each node pushed over the wire,
 // per node. shared by cost view, ranking columns and the modal stat line. cached ~25s.
@@ -520,9 +563,10 @@ tabs.innerHTML=VIEWS.map(([id,l])=>`<div class="tab" data-v="${id}">${l}</div>`)
 function setView(v){view=v;
  VIEWS.forEach(([id])=>viewEl(id).hidden=(id!==v));
  tabs.querySelectorAll(".tab").forEach(t=>t.classList.toggle("on",t.dataset.v===v));
- q.style.display=(v==="grid")?"":"none";
+ q.style.display=(v==="grid"||v==="table")?"":"none";
  refreshView();}
-function refreshView(){if(view==="rank")loadRank();else if(view==="heat")loadHeat();else if(view==="risk")loadRisk();else if(view==="cost")loadCost();}
+function refreshView(){if(view==="rank")loadRank();else if(view==="heat")loadHeat();else if(view==="risk")loadRisk();else if(view==="cost")loadCost();
+ else if(view==="table"){render();loadFoot().then(render);}}
 tabs.addEventListener("click",e=>{if(e.target.dataset.v)setView(e.target.dataset.v);});
 
 // open a node's graph modal from any view's [data-node] row
@@ -571,7 +615,7 @@ async function loadRisk(){try{const r=await fetch("/api/risks?hours=24",{cache:"
  const ih=inc.length?inc.map(i=>`<div class="risk sev${i.severity}" data-node="${esc(i.node)}"><span class="rk">${esc(i.klass)}</span><span class="rn">${esc(i.node)}</span><span class="rd">${esc(i.scope)} · ${esc(i.detail)} · ${tago(i.start)}</span></div>`).join(""):`<div class="empty">no incidents in window</div>`;
  viewEl("risk").innerHTML=`<h2>death clocks</h2>${clh}<h2>recent incidents</h2>${ih}`;
 }catch(e){}}
-[viewEl("rank"),viewEl("heat"),viewEl("risk"),viewEl("cost")].forEach(nodeClick);
+[viewEl("table"),viewEl("rank"),viewEl("heat"),viewEl("risk"),viewEl("cost")].forEach(nodeClick);
 
 // per-node detail: embed the live PNG (same renderer as `smoke png`), refreshed every 15s
 // (matches the shipper cadence; data granularity is PING_INTERVAL=10s so no point going lower).
@@ -707,7 +751,7 @@ document.getElementById("dclose").onclick=closeDetail;
 detail.addEventListener("click",e=>{if(e.target===detail)closeDetail();});
 addEventListener("keydown",e=>{if(e.key==="Escape")closeDetail();});
 
-async function sparkTick(){try{const r=await fetch("/api/spark?hours=2",{cache:"no-store"});if(r.ok){sparks=(await r.json()).spark||{};if(view==="grid")render();}}catch(e){}}
+async function sparkTick(){try{const r=await fetch("/api/spark?hours=2",{cache:"no-store"});if(r.ok){sparks=(await r.json()).spark||{};if(view==="grid"||view==="table")render();}}catch(e){}}
 tick();setInterval(tick,REFRESH);
 sparkTick();setInterval(sparkTick,30000);                 // sparklines: slow 2h trend
 setInterval(()=>{if(view!=="grid")refreshView();},15000); // active non-grid view auto-refresh

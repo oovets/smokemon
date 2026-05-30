@@ -32,7 +32,8 @@ _DARK_RC = {
     "figure.facecolor": "#11151c", "axes.facecolor": "#11151c", "savefig.facecolor": "#11151c",
     "text.color": "#c9d1d9", "axes.labelcolor": "#c9d1d9", "axes.titlecolor": "#c9d1d9",
     "xtick.color": "#9aa4b2", "ytick.color": "#9aa4b2",
-    "axes.edgecolor": "#2a2f3a", "grid.color": "#3a4150",
+    # no visible frame: spines blend into the facecolor so each panel is borderless
+    "axes.edgecolor": "#11151c", "grid.color": "#3a4150",
     "legend.facecolor": "#11151c", "legend.edgecolor": "#2a2f3a",
 }
 
