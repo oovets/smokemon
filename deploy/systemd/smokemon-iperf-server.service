@@ -1,0 +1,13 @@
+[Unit]
+Description=smokemon iperf3 server (bandwidth target for nodes)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/iperf3 -s
+User=__USER__
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

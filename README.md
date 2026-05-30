@@ -123,5 +123,6 @@ deploy: macOS deploy/launchd/*.plist (collect-fast/slow, iperf, daily, shipper, 
         Linux sudo ./install.sh --node NAME --hub-url URL --secret S
         (hub: --hub --secret S). secret must match node<->hub.
 
-deps:   node: fping,mtr,iperf3,iw + python3 stdlib + plotext(TUI); hub: +matplotlib/numpy(PNG).
+deps:   node: fping,mtr,iperf3,iw + python3 stdlib + plotext(TUI);
+        hub: +matplotlib/numpy(PNG) + iperf3 (runs iperf3 -s as the nodes' bandwidth target).
 ```

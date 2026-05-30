@@ -48,7 +48,8 @@ node:  python3 >=3.10 (stdlib only for collection); plotext for the local TUI.
        macOS:  brew install fping mtr iperf3   (curl/netstat/ifconfig/system_profiler built in)
        Linux:  apt install fping mtr-tiny iperf3 iw
 
-hub:   python3 >=3.10 + matplotlib + numpy (PNG); iperf3 -s if nodes test bandwidth to it.
+hub:   python3 >=3.10 + matplotlib + numpy (PNG) + iperf3 (runs iperf3 -s as a bandwidth
+       target so nodes can test throughput to the hub).
 
 net:   prefer Tailscale/VPN between node and hub. The hub is plain HTTP (no TLS) on
        8765/tcp — bind it to a private address only.
@@ -126,7 +127,7 @@ sudo ./install.sh --node NAME [--hub-url http://HUB-HOST:8765/ingest --secret S]
 # or piped, see Quickstart. Units enabled:
 #   smokemon-collect-fast.service   ping/net, always on
 #   smokemon-collect-slow.service   http/mtr/wifi/host, always on
-#   smokemon-iperf.timer            iperf every 15 min
+#   smokemon-iperf.timer            iperf every 15 min (targets the hub when --hub-url is set)
 #   smokemon-shipper.timer          ship every 60s
 ```
 
@@ -134,7 +135,8 @@ sudo ./install.sh --node NAME [--hub-url http://HUB-HOST:8765/ingest --secret S]
 # Linux:
 sudo ./install.sh --hub --secret SHARED_SECRET
 #   apt: iperf3 + python3-matplotlib + python3-numpy; writes /etc/smokemon.env
-#   (SMOKEMON_HUB_DB, HUB_BIND=0.0.0.0, HUB_PORT=8765, HUB_SECRET); enables smokemon-hub.
+#   (SMOKEMON_HUB_DB, HUB_BIND=0.0.0.0, HUB_PORT=8765, HUB_SECRET); enables smokemon-hub
+#   + smokemon-iperf-server (iperf3 -s on :5201, the bandwidth target nodes test against).
 
 # macOS: use deploy/launchd/com.smokemon.hub.plist (set SMOKEMON_HUB_SECRET, bind a
 # private address), then launchctl bootstrap it.
@@ -175,7 +177,8 @@ host (collect slow)
   SMOKEMON_THROTTLE_TEMP   degC throttle ceiling for the temp death-clock (default 80)
 
 iperf (probes.iperf)
-  SMOKEMON_IPERF_SERVER    iperf3 -s host         (unset -> probe no-ops)
+  SMOKEMON_IPERF_SERVER    iperf3 -s host         (install.sh defaults it to the --hub-url
+                                                  host; unset -> probe no-ops)
   SMOKEMON_IPERF_DURATION  seconds/direction      (default 5)
   SMOKEMON_IPERF           iperf3 path            (fallback: PATH lookup)
 
@@ -310,7 +313,8 @@ macOS
 
 Linux
   sudo systemctl disable --now smokemon-collect-fast smokemon-collect-slow \
-      smokemon-shipper.timer smokemon-iperf.timer smokemon-hub 2>/dev/null
+      smokemon-shipper.timer smokemon-iperf.timer smokemon-hub \
+      smokemon-iperf-server 2>/dev/null
   sudo rm -f /etc/systemd/system/smokemon-*.{service,timer} /etc/smokemon.env
   sudo systemctl daemon-reload          # data/ remains in the repo dir
 ```

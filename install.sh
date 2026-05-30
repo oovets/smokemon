@@ -10,7 +10,7 @@
 # When piped (no local checkout) it clones the repo to $SMOKEMON_DIR (default /opt/smokemon).
 set -euo pipefail
 
-MODE="node"; NODE_NAME="$(hostname)"; HUB_URL="http://HUB-HOST:8765/ingest"
+MODE="node"; NODE_NAME="$(hostname)"; HUB_URL=""   # empty -> local-only node (ship no-ops)
 SECRET=""; TARGETS="1.1.1.1,192.168.0.1"
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -45,6 +45,7 @@ echo "==> smokemon install: mode=$MODE dir=$DIR user=$USER_NAME python=$PYTHON"
 echo "==> apt deps"
 apt-get update -qq
 if [ "$MODE" = "hub" ]; then
+    # hub runs iperf3 -s by default (see units below) so nodes have a bandwidth target.
     apt-get install -y --no-install-recommends iperf3 python3-pip python3-matplotlib python3-numpy
 else
     apt-get install -y --no-install-recommends fping iperf3 iw mtr-tiny python3-pip
@@ -57,6 +58,13 @@ echo "==> plotext (local TUI)"
 sudo -u "$USER_NAME" "$PYTHON" -m pip install --user plotext 2>/dev/null \
     || sudo -u "$USER_NAME" "$PYTHON" -m pip install --user --break-system-packages plotext 2>/dev/null \
     || echo "    (plotext skipped — install manually for local TUI)"
+
+# nodes bandwidth-test to the hub by default: derive the iperf target (host only, no
+# scheme/port/path) from --hub-url unless SMOKEMON_IPERF_SERVER is already set.
+IPERF_SERVER="${SMOKEMON_IPERF_SERVER:-}"
+if [ -z "$IPERF_SERVER" ] && [ -n "$HUB_URL" ]; then
+    h="${HUB_URL#*://}"; h="${h%%/*}"; IPERF_SERVER="${h%%:*}"
+fi
 
 echo "==> writing $ENV_FILE"
 {
@@ -71,7 +79,8 @@ echo "==> writing $ENV_FILE"
     else
         echo "SMOKEMON_TARGETS=$TARGETS"
         echo "SMOKEMON_MTR_SUDO=0"
-        echo "SMOKEMON_HUB_URL=$HUB_URL"
+        [ -n "$HUB_URL" ] && echo "SMOKEMON_HUB_URL=$HUB_URL"
+        [ -n "$IPERF_SERVER" ] && echo "SMOKEMON_IPERF_SERVER=$IPERF_SERVER"
     fi
     echo "SMOKEMON_HUB_SECRET=$SECRET"
 } > "$ENV_FILE"
@@ -113,9 +122,10 @@ install_unit() {
 echo "==> systemd units"
 if [ "$MODE" = "hub" ]; then
     install_unit smokemon-hub.service
+    install_unit smokemon-iperf-server.service
     systemctl daemon-reload
-    systemctl enable --now smokemon-hub.service
-    echo "==> done. Hub listening on :8765 — systemctl status smokemon-hub"
+    systemctl enable --now smokemon-hub.service smokemon-iperf-server.service
+    echo "==> done. Hub on :8765 + iperf3 -s on :5201 — systemctl status smokemon-hub"
     echo "    try now:  smoke fleet --hub-url http://localhost:8765   (or open http://localhost:8765/)"
 else
     for u in smokemon-collect-fast.service smokemon-collect-slow.service \
