@@ -155,7 +155,7 @@ def _build(selected, data):  # noqa: C901 -- straight-line dispatch, intentional
         def draw_disk(ax, disk=data["disk"], health=data.get("disk_health", {})):
             # no per-mount legend: a busy box (many loop/snap mounts) drowns the panel; the
             # mounts + death-clock live in the title/tooltip instead.
-            for mount, d in sorted(disk.items()):
+            for _mount, d in sorted(disk.items()):
                 ax.plot(_dt(d["t"]), d["used"], lw=0.9)
                 if any(v is not None and v > 0 for v in d.get("inode", [])):
                     ax.plot(_dt(d["t"]), d["inode"], lw=0.6, ls=":")
