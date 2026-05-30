@@ -1,0 +1,56 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build + publish GitHub release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install build
+        run: python -m pip install --upgrade pip build
+      - name: Build sdist + wheel
+        run: python -m build
+      - name: Extract changelog section for this tag
+        id: changelog
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          # CHANGELOG sections are fenced blocks headed `== <version> - <date>  <codename> ==`.
+          # Pull the matching version's body, lead with its codename in bold, and drop the
+          # ``` fence lines that wrap each section so the notes render clean on the release.
+          awk -v tag="$tag" '
+            BEGIN { gsub(/\./, "\\.", tag); re = "^== " tag "[ -]" }
+            $0 ~ re {
+              found = 1; title = $0
+              sub(/^== [^ ]+ - [0-9-]+ +/, "", title)   # strip "== <version> - <date>  "
+              sub(/ *==$/, "", title)                    # strip trailing " =="
+              if (title != "") { print "**" title "**"; print "" }
+              next
+            }
+            found && /^== / { exit }          # next version section -> done
+            found && $0 == "```" { next }     # drop the fence lines wrapping the section
+            found { print }
+          ' CHANGELOG.md > release_notes.md
+          if [ ! -s release_notes.md ]; then
+            echo "No changelog section found for $tag" > release_notes.md
+          fi
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "smokemon ${{ github.ref_name }}"
+          body_path: release_notes.md
+          files: dist/*
+          draft: false
+          prerelease: false

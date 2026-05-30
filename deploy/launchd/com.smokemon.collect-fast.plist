@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- ping + net every 10s. bootstrap: launchctl bootstrap gui/$(id -u) <this> -->
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>com.smokemon.collect-fast</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>-m</string><string>smokemon.collect</string><string>fast</string>
+    </array>
+    <key>WorkingDirectory</key><string>/Users/YOUR_USERNAME/smokemon</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHONPATH</key><string>/Users/YOUR_USERNAME/smokemon</string>
+        <key>PATH</key><string>/opt/homebrew/bin:/opt/homebrew/sbin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>SMOKEMON_TARGETS</key><string>1.1.1.1,192.168.0.1</string>
+    </dict>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key><true/>
+    <key>ProcessType</key><string>Background</string>
+    <key>StandardOutPath</key><string>/Users/YOUR_USERNAME/smokemon/logs/collect-fast.out.log</string>
+    <key>StandardErrorPath</key><string>/Users/YOUR_USERNAME/smokemon/logs/collect-fast.err.log</string>
+</dict>
+</plist>

@@ -1,0 +1,83 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "smokemon"
+version = "0.11.0"
+description = "Passive + active network and host monitor for macOS and Linux (Pi/Jetson) with optional central hub aggregation"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Stefan Larsson", email = "stefan@weapply.se" }]
+keywords = ["monitoring", "network", "smokeping", "ping", "fping", "mtr", "iperf3", "raspberry-pi", "jetson", "sqlite", "tailscale"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS :: MacOS X",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: System :: Monitoring",
+    "Topic :: System :: Networking :: Monitoring",
+    "Typing :: Typed",
+]
+dependencies = []  # collectors / ship / hub are stdlib-only; renderers are extras.
+
+[project.optional-dependencies]
+tui = ["plotext>=5.2"]
+png = ["matplotlib>=3.5", "numpy>=1.21"]
+dev = ["pytest>=7", "ruff>=0.5"]
+docs = ["mkdocs-material>=9.5"]
+
+[project.scripts]
+smoke = "smokemon.cli:main"
+smokemon-collect = "smokemon.collect:main"
+smokemon-iperf = "smokemon.probes.iperf:main"
+smokemon-synthetic = "smokemon.probes.synthetic:main"
+smokemon-ship = "smokemon.ship:main"
+smokemon-hub = "smokemon.hub:main"
+smokemon-notify = "smokemon.notify:main"
+
+[project.urls]
+Homepage = "https://github.com/oovets/smokemon"
+Documentation = "https://github.com/oovets/smokemon/blob/main/INSTALL.md"
+Source = "https://github.com/oovets/smokemon"
+Issues = "https://github.com/oovets/smokemon/issues"
+Changelog = "https://github.com/oovets/smokemon/blob/main/CHANGELOG.md"
+
+[tool.setuptools.packages.find]
+include = ["smokemon*"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "C4", "SIM", "RET"]
+ignore = [
+    "E501",   # line length handled by formatter / readability beats hard wraps
+    "E701",   # multiple statements on one line (colon) - project uses these for brevity
+    "E702",   # multiple statements on one line (semicolon) - project uses these for brevity
+    "E741",   # ambiguous variable name `l` - used as iteration variable for "lines"
+    "B008",   # function call in default argument (used intentionally in schema.py)
+    "B905",   # zip() without strict= - we want the implicit shortest behavior
+    "SIM105", # contextlib.suppress vs try/except/pass - prefer the plain form
+    "SIM108", # ternary vs if/else - readability wins case by case
+    "UP031",  # %-formatting vs f-string - SQL placeholder lists read better as %s
+    "C408",   # dict() vs {} - sometimes dict(zip(...)) is clearer
+    "C420",   # dict.fromkeys variants - micro-style preference
+    "RET503", # implicit None return - sometimes clearer to be implicit
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E402"]  # imports after sys.path mutation are intentional in tests
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

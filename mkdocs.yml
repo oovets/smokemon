@@ -1,0 +1,58 @@
+site_name: smokemon
+site_description: passive + active network and host monitor for macOS and Linux
+site_url: https://oovets.github.io/smokemon/
+# repo button intentionally omitted so the header shows only the site title.
+
+# The markdown source of truth stays in the repo root. scripts/docs.sh stages those
+# files into docs/ before a build (README.md -> index.md), so nothing is duplicated in git.
+docs_dir: docs
+
+theme:
+  name: material
+  palette:
+    scheme: slate          # dark by default; the terminal look the project wants
+    primary: black
+    accent: green
+  font:
+    # JetBrains Mono is both the prose and code face (the docs read like terminal
+    # output). Setting `text` as well as `code` makes Material load it in the full text
+    # weight set (300/400/400i/700) so headings/<strong> get real bold instead of faux
+    # bold, and stops it requesting Roboto fonts that extra.css would never render.
+    text: JetBrains Mono
+    code: JetBrains Mono
+  features:
+    - navigation.top
+    - navigation.sections
+    - content.code.copy
+    - toc.integrate
+
+extra_css:
+  - extra.css
+  - https://stevoo.net/theme.css
+  - https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.css
+
+extra_javascript:
+  - https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.js
+  - https://stevoo.net/map.js
+
+# the header logo/title links back to the oovets landing page (root) instead of this
+# project's own home, so every docs page has a way back to all projects.
+extra:
+  homepage: /
+
+nav:
+  - readme: index.md
+  - quickstart: QUICKSTART.md
+  - install: INSTALL.md
+  - roadmap: PLAN.md
+  - changelog: CHANGELOG.md
+  - contributing: CONTRIBUTING.md
+  - security: SECURITY.md
+
+markdown_extensions:
+  - admonition
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
