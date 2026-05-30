@@ -24,6 +24,21 @@ def _i(name: str, default: str) -> int:
     return int(os.environ.get(name, default))
 
 
+def _enabled(name: str, default: bool) -> bool:
+    """Tri-state on/off: unset -> default (auto). '0/false/no/off' -> disabled, else on."""
+    v = os.environ.get(name)
+    if v is None:
+        return default
+    return v.strip().lower() not in ("0", "false", "no", "off")
+
+
+def _forced_on(name: str) -> bool:
+    """True only when the var is explicitly set to a truthy value (caller wants the probe
+    to run and report even if the dependency is not auto-detected on this node)."""
+    v = os.environ.get(name)
+    return v is not None and v.strip().lower() in ("1", "true", "yes", "on")
+
+
 def cli_path(env_var: str, name: str) -> str:
     """Resolve a CLI: explicit env var -> PATH lookup -> bare name (resolved at exec)."""
     return os.environ.get(env_var) or shutil.which(name) or name
@@ -116,10 +131,13 @@ EXT_TIMEOUT = _f("SMOKEMON_EXT_TIMEOUT", "2")
 EXT_MAX_BYTES = _i("SMOKEMON_EXT_MAX_BYTES", str(256 * 1024))
 EXT_MAX_METRICS = _i("SMOKEMON_EXT_MAX_METRICS", "20")
 
-# Redis stream/queue health. Off by default; implemented as tiny RESP socket reads
-# instead of redis-cli or Docker/log inspection. Streams are comma-separated; groups use
-# stream=group pairs separated by semicolons.
-REDIS_ENABLED = os.environ.get("SMOKEMON_REDIS", "0") != "0"
+# Redis stream/queue health. Auto by default: the probe runs every slow cycle and samples
+# only if a Redis is reachable at REDIS_HOST:PORT (tiny RESP socket reads, no redis-cli).
+# On a node with no Redis it is a silent no-op; set SMOKEMON_REDIS=1 to force a down row to
+# be recorded when it is unreachable, or SMOKEMON_REDIS=0 to disable entirely. Streams are
+# comma-separated; groups use stream=group pairs separated by semicolons.
+REDIS_ENABLED = _enabled("SMOKEMON_REDIS", True)
+REDIS_FORCED = _forced_on("SMOKEMON_REDIS")
 REDIS_HOST = os.environ.get("SMOKEMON_REDIS_HOST", "127.0.0.1")
 REDIS_PORT = _i("SMOKEMON_REDIS_PORT", "6379")
 REDIS_TIMEOUT = _f("SMOKEMON_REDIS_TIMEOUT", "1")
@@ -127,12 +145,15 @@ REDIS_INTERVAL = _f("SMOKEMON_REDIS_INTERVAL", "60")
 REDIS_STREAMS = _list("SMOKEMON_REDIS_STREAMS", "")
 REDIS_GROUPS = _semi_list("SMOKEMON_REDIS_GROUPS", "")
 
-# Docker container health. Off by default; when enabled, one bounded HTTP GET over the
-# docker unix socket per slow cycle (stdlib socket + manual HTTP/1.0, no docker CLI, no
-# `docker logs`, no log/journal tails). Optional per-container cpu/mem from cgroup v2
-# (/sys reads only). DOCKER_INSPECT adds restart_count/exit_code/oom_killed via a small
-# per-container inspect call, capped at DOCKER_MAX containers.
-DOCKER_ENABLED = os.environ.get("SMOKEMON_DOCKER", "0") != "0"
+# Docker container health. Auto by default: the probe runs every slow cycle but only
+# samples when the docker socket exists, so nodes without docker are a silent no-op. When
+# present it issues one bounded HTTP GET over the socket (stdlib socket + manual HTTP/1.0,
+# no docker CLI, no `docker logs`, no log/journal tails). Optional per-container cpu/mem
+# from cgroup v2 (/sys reads). DOCKER_INSPECT adds restart_count/exit_code/oom_killed via a
+# small per-container inspect, capped at DOCKER_MAX. SMOKEMON_DOCKER=1 forces a daemon-down
+# row even when the socket is absent; SMOKEMON_DOCKER=0 disables entirely.
+DOCKER_ENABLED = _enabled("SMOKEMON_DOCKER", True)
+DOCKER_FORCED = _forced_on("SMOKEMON_DOCKER")
 DOCKER_SOCK = os.environ.get("SMOKEMON_DOCKER_SOCK", "/var/run/docker.sock")
 DOCKER_API = os.environ.get("SMOKEMON_DOCKER_API", "v1.41")
 DOCKER_INTERVAL = _f("SMOKEMON_DOCKER_INTERVAL", "60")
@@ -142,13 +163,19 @@ DOCKER_MAX = _i("SMOKEMON_DOCKER_MAX", "60")
 DOCKER_INSPECT = os.environ.get("SMOKEMON_DOCKER_INSPECT", "1") != "0"
 DOCKER_CGROUP = os.environ.get("SMOKEMON_DOCKER_CGROUP", "1") != "0"
 
-# Pipeline / process liveness. Auto-enabled (slow tier) when either list is set.
-# PROC_WATCH matches substrings against /proc cmdlines and reports count/cpu/rss, the
-# youngest process's uptime, and a cumulative restart count (flips when the youngest
-# starttime changes). RTSP_URLS sends a single bounded OPTIONS request per endpoint to
-# confirm a stream is actually being served. Pure stdlib, no log tails, no ffprobe.
+# Pipeline / process liveness. On by default with zero config. PROC_WATCH matches
+# substrings against /proc cmdlines and reports count/cpu/rss, the youngest process's
+# uptime, and a cumulative restart count (flips when the youngest starttime changes).
+# RTSP_URLS sends a bounded OPTIONS per endpoint to confirm a stream is actually served.
+# When PIPELINE_AUTO is on (default) and a list is empty, the probe auto-detects: it watches
+# any running gst-launch process and probes every rtsp:// URL found inside those cmdlines
+# (e.g. rtspclientsink location=...). Pure stdlib, no ps/ffprobe, no log tails.
+#   SMOKEMON_PIPELINE=0      disable entirely
+#   SMOKEMON_PIPELINE_AUTO=0 only use the explicit lists below (no gst/rtsp auto-detection)
 #   SMOKEMON_PROC_WATCH='gst=gst-launch-1.0;app=python app.py'   (label=substring; semis)
 #   SMOKEMON_RTSP_URLS='cam=rtsp://127.0.0.1:8554/imx519'        (label=url, or bare url)
+PIPELINE_ENABLED = _enabled("SMOKEMON_PIPELINE", True)
+PIPELINE_AUTO = _enabled("SMOKEMON_PIPELINE_AUTO", True)
 PROC_WATCH = _semi_list("SMOKEMON_PROC_WATCH", "")
 RTSP_URLS = _semi_list("SMOKEMON_RTSP_URLS", "")
 PIPELINE_INTERVAL = _f("SMOKEMON_PIPELINE_INTERVAL", "60")
@@ -192,4 +219,5 @@ if _gw:
     TARGET_LABELS.setdefault(_gw, "gw")
 HTTP_COLORS = ["cyan", "green+", "magenta+", "blue+", "orange+"]
 PANELS = ["ping", "net", "http", "mtr", "wifi", "iperf",
-          "host", "gpu", "redis", "disk", "thermal", "power", "tcp", "psi", "freq", "self"]
+          "host", "gpu", "redis", "docker", "pipeline", "disk",
+          "thermal", "power", "tcp", "psi", "freq", "self"]

@@ -144,8 +144,9 @@ sudo ./install.sh --hub --secret SHARED_SECRET
 
 the hub listens on 8765/tcp. writes go to `POST /ingest` (header `X-Smokemon-Key`); reads
 are open and unauthenticated: `GET /` (live fleet dashboard), `GET /health`, `GET /metrics`
-(prometheus/openmetrics), and `GET /api/{nodes,latest,fleet,heatmap,fleet-status}` (read-only
-json). if the secret is the default `changeme` it logs a warning at startup. expose the port
+(prometheus/openmetrics), and `GET /api/{nodes,latest,fleet,fleet-status,heatmap,risks,cost,
+services}` (read-only json; `services` is the docker/redis/pipeline fleet rollup behind the
+dashboard's services tab). if the secret is the default `changeme` it logs a warning at startup. expose the port
 only over a private network — there is no TLS and the read endpoints have no auth.
 
 set in the launchd plist `EnvironmentVariables` (macOS) or `/etc/smokemon.env` (Linux).
@@ -200,8 +201,9 @@ external lightweight scrapes (probes.ext, opt-in)
   SMOKEMON_EXT_MAX_METRICS max parsed metrics/source/cycle (default 20)
                            no log streaming, Docker scans, or journal tails on edge.
 
-redis stream health (probes.redisq, opt-in, stdlib socket/RESP; no redis-cli)
-  SMOKEMON_REDIS           1 = enable Redis health sampling (default 0/off)
+redis stream health (probes.redisq, auto, stdlib socket/RESP; no redis-cli)
+  auto by default: samples only if a Redis is reachable, silent no-op otherwise.
+  SMOKEMON_REDIS           0 = disable; 1 = force (record a down row even if unreachable)
   SMOKEMON_REDIS_HOST      host                    (default 127.0.0.1)
   SMOKEMON_REDIS_PORT      port                    (default 6379)
   SMOKEMON_REDIS_TIMEOUT   seconds/request         (default 1)
@@ -211,8 +213,9 @@ redis stream health (probes.redisq, opt-in, stdlib socket/RESP; no redis-cli)
                            server row also records connected/blocked clients, ops/sec,
                            evicted_keys and rejected_connections from one INFO call.
 
-docker container health (probes.dockerps, opt-in, stdlib unix-socket HTTP; no docker CLI)
-  SMOKEMON_DOCKER          1 = enable docker sampling (default 0/off)
+docker container health (probes.dockerps, auto, stdlib unix-socket HTTP; no docker CLI)
+  auto by default: samples only when the docker socket exists, silent no-op otherwise.
+  SMOKEMON_DOCKER          0 = disable; 1 = force (record daemon-down even if socket absent)
   SMOKEMON_DOCKER_SOCK     engine socket           (default /var/run/docker.sock)
   SMOKEMON_DOCKER_API      engine API version      (default v1.41)
   SMOKEMON_DOCKER_INTERVAL seconds/cycle           (default 60)
@@ -223,7 +226,11 @@ docker container health (probes.dockerps, opt-in, stdlib unix-socket HTTP; no do
   SMOKEMON_DOCKER_CGROUP   1 = add per-container cpu/mem from cgroup v2 sysfs (default 1)
                            one bounded GET per cycle; no `docker logs`, no log/journal tails.
 
-pipeline / process liveness (probes.pipeline, opt-in, stdlib /proc + RTSP socket)
+pipeline / process liveness (probes.pipeline, auto, stdlib /proc + RTSP socket)
+  auto by default: watches any running gst-launch process and probes every rtsp:// URL
+  found inside those cmdlines (e.g. rtspclientsink location=...) with no config at all.
+  SMOKEMON_PIPELINE        0 = disable entirely (default on)
+  SMOKEMON_PIPELINE_AUTO   0 = only use the explicit lists below, no gst/rtsp auto-detection
   SMOKEMON_PROC_WATCH      ; separated label=substring pairs matched against /proc cmdlines
                            example: gst=gst-launch-1.0;app=python app.py
                            reports count, cpu/rss, youngest-process uptime, restart count.
@@ -267,7 +274,8 @@ shared time/scope flags (panel + text views):
   --db PATH                local DB by default; point at the hub DB to read shipped data
   --hours N | --minutes N | --since ISO --until ISO     window (default last 6h)
   --targets a,b,c          limit ping/mtr targets
-  --panels ping,net,http,mtr,wifi,iperf,host,disk,thermal,power,tcp,psi,freq,self | all
+  --panels ping,net,http,mtr,wifi,iperf,host,gpu,redis,docker,pipeline,disk,
+           thermal,power,tcp,psi,freq,self | all  (a panel only draws if the node has its data)
   --node NAME              pick one node — REQUIRED on a hub DB (every node's rows are mixed)
   --cols N                 grid columns (0 = auto: 2 if wide enough and >=3 panels)
 

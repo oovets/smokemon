@@ -10,25 +10,39 @@ tagged; dated entries begin at the first release, 0.11.0.)
 ```
 == 0.13.0 - 2026-05-31  docker + pipeline collectors, redis enrichment ==
 
-added:
+added (all three run by default and self-detect their dependency, staying a cheap no-op on
+nodes that don't run the corresponding service; each can be disabled with SMOKEMON_*=0):
 
-- probes.dockerps (opt-in, SMOKEMON_DOCKER): container health via one bounded HTTP GET
-  over the docker unix socket per slow cycle (stdlib socket + manual HTTP/1.0, no docker
-  CLI, no `docker logs`, no log/journal tails). records state/running, health, exit_code,
-  restart_count, oom_killed; optional per-container cpu/mem/pids from cgroup-v2 sysfs and
-  an optional small per-container inspect. new docker_samples table; status/digest surface
-  unhealthy / non-zero-exit / restarting containers, or a daemon-down sentinel row.
+- probes.dockerps: container health via one bounded HTTP GET over the docker unix socket
+  per slow cycle (stdlib socket + manual HTTP/1.0, no docker CLI, no `docker logs`, no
+  log/journal tails). auto-samples only when the socket exists. records state/running,
+  health, exit_code, restart_count, oom_killed; optional per-container cpu/mem/pids from
+  cgroup-v2 sysfs and an optional small per-container inspect. new docker_samples table;
+  status/digest surface unhealthy / non-zero-exit / restarting containers, or a
+  daemon-down row (SMOKEMON_DOCKER=1 forces this even with the socket absent).
 
-- probes.pipeline (opt-in, SMOKEMON_PROC_WATCH / SMOKEMON_RTSP_URLS): process + stream
-  liveness. one /proc scan matches configured cmdline substrings (e.g. gst-launch-1.0) and
-  reports count, summed cpu/rss, the youngest process's uptime and a cumulative restart
-  count (flips when the youngest starttime changes); a bounded RTSP OPTIONS confirms a
-  stream is actually being served. new proc_watch + stream_probes tables; status/digest
-  surface down watches and down streams. pure stdlib, no ps/ffprobe, no log tails.
+- probes.pipeline: process + stream liveness. with zero config it auto-watches any running
+  gst-launch process and probes every rtsp:// URL found inside those cmdlines (e.g.
+  rtspclientsink location=...). one /proc scan reports count, summed cpu/rss, youngest
+  process uptime and a cumulative restart count (flips when the youngest starttime
+  changes); a bounded RTSP OPTIONS confirms a stream is actually being served. explicit
+  SMOKEMON_PROC_WATCH / SMOKEMON_RTSP_URLS add to this; SMOKEMON_PIPELINE_AUTO=0 disables
+  detection. new proc_watch + stream_probes tables. pure stdlib, no ps/ffprobe, no tails.
 
-- probes.redisq: the server row now also records connected_clients, blocked_clients,
-  instantaneous ops/sec, evicted_keys and rejected_connections, parsed from INFO
-  clients/stats on the existing connection (no extra socket, no redis-cli).
+- probes.redisq: auto-samples only when a Redis is reachable (silent no-op otherwise;
+  SMOKEMON_REDIS=1 forces a down row when unreachable). the server row now also records
+  connected_clients, blocked_clients, instantaneous ops/sec, evicted_keys and
+  rejected_connections, parsed from INFO clients/stats on the existing connection.
+
+- dashboard + renderers: two new time-series panels (docker = per-container cpu/mem, or a
+  running-count fallback when cgroup stats are off; pipeline = watched-process cpu + RTSP
+  latency) render in both the PNG and TUI paths and surface automatically in the hub's
+  per-node modal. the redis panel now overlays ops/sec. new hub /api/services endpoint +
+  a "services" dashboard tab: a fleet-wide table of docker containers (bad/daemon-down
+  flagged), redis instances (mem/clients/ops + hottest streams), watched processes and
+  stream probes, each row click-through to the node graphs. query.load_docker/load_pipeline
+  feed the panels; load_redis carries the enriched server series. all read-only, stdlib +
+  the existing optional matplotlib/plotext render deps.
 
 == 0.12.0 - 2026-05-30  analysis engine + text surfaces + alerting + hub api ==
 

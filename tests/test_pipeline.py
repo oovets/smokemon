@@ -2,14 +2,17 @@ from smokemon import core, query, report, schema
 from smokemon.probes import pipeline
 
 
-def _isolate(monkeypatch):
-    """Reset the module-level cross-cycle state so tests don't leak into each other."""
+def _isolate(monkeypatch, auto=False):
+    """Reset the module-level cross-cycle state so tests don't leak into each other.
+    Defaults to auto-detection OFF so the explicit-list tests stay deterministic."""
     monkeypatch.setattr(pipeline, "_prev_ticks", {})
     monkeypatch.setattr(pipeline, "_prev_ts", 0.0)
     monkeypatch.setattr(pipeline, "_prev_start", {})
     monkeypatch.setattr(pipeline, "_restarts", {})
     monkeypatch.setattr(pipeline, "_CLK", 100)
     monkeypatch.setattr(pipeline, "_btime", lambda: 0.0)
+    monkeypatch.setattr(pipeline.config, "PIPELINE_ENABLED", True)
+    monkeypatch.setattr(pipeline.config, "PIPELINE_AUTO", auto)
 
 
 def test_watch_spec_parsing():
@@ -97,12 +100,50 @@ def test_rtsp_collect_records_stream_probe(tmp_db, monkeypatch):
     _isolate(monkeypatch)
     monkeypatch.setattr(pipeline.config, "PROC_WATCH", [])
     monkeypatch.setattr(pipeline.config, "RTSP_URLS", ["cam=rtsp://127.0.0.1:8554/imx519"])
+    monkeypatch.setattr(pipeline, "_read_procs", lambda: [])
     monkeypatch.setattr(pipeline, "_rtsp_probe", lambda url: (1, 4.2, "200 OK"))
     pipeline.collect(conn, ts=10_000.0)
     streams = query.load_stream_probes(conn, 0, 10**12)
     conn.close()
     assert streams["cam"]["ok"] == 1
     assert streams["cam"]["latency_ms"] == 4.2
+
+
+def test_auto_detects_gst_and_extracts_rtsp_from_cmdline(tmp_db, monkeypatch):
+    conn = core.connect(str(tmp_db))
+    schema.init_node(conn)
+    _isolate(monkeypatch, auto=True)
+    monkeypatch.setattr(pipeline.config, "PROC_WATCH", [])   # zero config
+    monkeypatch.setattr(pipeline.config, "RTSP_URLS", [])    # zero config
+    monkeypatch.setattr(pipeline, "_read_procs", lambda: [
+        {"pid": 666, "start_ticks": 1000, "ticks": 5, "rss_mb": 60.0,
+         "cmdline": "gst-launch-1.0 nvarguscamerasrc ! x264enc ! "
+                    "rtspclientsink location=rtsp://127.0.0.1:8554/imx519 protocols=tcp"},
+    ])
+    seen = {}
+    monkeypatch.setattr(pipeline, "_rtsp_probe", lambda url: seen.setdefault(url, (1, 2.0, "200 OK")))
+    pipeline.collect(conn, ts=10_000.0)
+    watch = query.load_proc_watch(conn, 0, 10**12)
+    streams = query.load_stream_probes(conn, 0, 10**12)
+    conn.close()
+    assert watch["gst"]["count"] == 1                         # auto-watched without config
+    assert "rtsp://127.0.0.1:8554/imx519" in seen            # url pulled from the cmdline
+    assert streams["imx519"]["ok"] == 1                       # labelled by last path segment
+
+
+def test_auto_watch_silent_when_no_gst(tmp_db, monkeypatch):
+    conn = core.connect(str(tmp_db))
+    schema.init_node(conn)
+    _isolate(monkeypatch, auto=True)
+    monkeypatch.setattr(pipeline.config, "PROC_WATCH", [])
+    monkeypatch.setattr(pipeline.config, "RTSP_URLS", [])
+    monkeypatch.setattr(pipeline, "_read_procs", lambda: [
+        {"pid": 1, "start_ticks": 1, "ticks": 1, "rss_mb": 1.0, "cmdline": "python app.py"},
+    ])
+    pipeline.collect(conn, ts=10_000.0)
+    rows = conn.execute("SELECT count(*) FROM proc_watch").fetchone()[0]
+    conn.close()
+    assert rows == 0  # no gst, no explicit watch -> no noise
 
 
 def test_report_surfaces_pipeline(tmp_db, ts0):

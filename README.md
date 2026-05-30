@@ -112,13 +112,16 @@ common: --minutes N|--hours N|--since|--until --targets --panels --node (req. on
 
 analysis: smokemon/analyze.py (incident detection + multi-signal blame + anomaly/change-
           point/path/attribution stats, hub-side read-only). hub also serves a live fleet
-          dashboard at GET / , plus GET /metrics (prometheus) and
-          GET /api/{nodes,latest,fleet,heatmap,fleet-status}.
+          dashboard at GET / (grid/table/ranking/heatmap/risks/services/cost tabs),
+          plus GET /metrics (prometheus) and
+          GET /api/{nodes,latest,fleet,fleet-status,heatmap,risks,cost,services}.
 
 alerting: set SMOKEMON_NOTIFY_URL (ntfy/slack/discord/webhook) + `smoke digest --notify`
           or the smokemon-notify timer. synthetic checks: SMOKEMON_SYNTHETIC=1.
           external checks: SMOKEMON_EXT_HTTP='app=http://127.0.0.1:8080/health'.
-          redis streams: SMOKEMON_REDIS=1 + SMOKEMON_REDIS_STREAMS=a,b,c.
+          redis/docker/pipeline: auto-detected (default on, silent no-op when absent);
+          name redis streams with SMOKEMON_REDIS_STREAMS=a,b,c; SMOKEMON_{REDIS,DOCKER,
+          PIPELINE}=0 disables, =1 forces a down-row even when the service is unreachable.
 
 daemons: python -m smokemon.collect {fast|slow} | .probes.iperf | .probes.synthetic
          | .ship | .hub | .notify  (PYTHONPATH=repo)

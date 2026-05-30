@@ -177,17 +177,77 @@ def _build(selected, data):  # noqa: C901 -- straight-line dispatch, intentional
     if "redis" in selected and data.get("redis"):
         def draw_redis(ax, r=data["redis"]):
             streams = r.get("streams", {})
+            server = r.get("server", {})
             for name, d in sorted(streams.items()):
                 label = d.get("stream", name).rsplit(":", 1)[-1]
                 ax.plot(_dt(d["t"]), d["xlen"], lw=0.9, label=label)
                 if any(v is not None and v > 0 for v in d.get("pending", [])):
                     ax.plot(_dt(d["t"]), d["pending"], lw=0.8, ls=":", label=f"{label} pending")
             max_x = max((query.last_value(d["xlen"]) or 0 for d in streams.values()), default=0)
-            mem = max((query.last_value(d["mem"]) or 0 for d in r.get("server", {}).values()), default=0)
-            tag = f"max xlen {max_x}" + (f" . redis {mem:.0f} MB" if mem else "")
+            mem = max((query.last_value(d["mem"]) or 0 for d in server.values()), default=0)
+            clients = max((query.last_value(d.get("clients", [])) or 0 for d in server.values()), default=0)
+            tag = (f"max xlen {max_x}" + (f" . redis {mem:.0f} MB" if mem else "")
+                   + (f" . {clients:.0f} clients" if clients else ""))
             ax.set_title(f"Redis streams   {tag}", loc="left", fontsize=10, fontweight="bold")
             ax.set_ylabel("entries"); ax.set_ylim(bottom=0)
+            # Overlay server throughput (ops/sec) when the enriched columns are present, so a
+            # redis with no streams configured still shows live load on the panel.
+            ax2 = None
+            for d in server.values():
+                if any(v is not None and v > 0 for v in d.get("ops", [])):
+                    if ax2 is None:
+                        ax2 = ax.twinx()
+                    ax2.plot(_dt(d["t"]), d["ops"], color="#17becf", lw=0.7, alpha=0.7, label="ops/s")
+            if ax2 is not None:
+                ax2.set_ylabel("ops/s", color="#17becf"); ax2.set_ylim(bottom=0)
+                ax2.tick_params(axis="y", labelcolor="#17becf")
         panels.append(("redis", draw_redis))
+    if "docker" in selected and data.get("docker"):
+        def draw_docker(ax, dk=data["docker"]):
+            have_cpu = any(any(v is not None for v in d.get("cpu", [])) for d in dk.values())
+            running_now = sum(1 for d in dk.values() if query.last_value(d.get("running", [])))
+            stopped = len(dk) - running_now
+            if have_cpu:
+                for name, d in sorted(dk.items()):
+                    if any(v is not None for v in d.get("cpu", [])):
+                        ax.plot(_dt(d["t"]), d["cpu"], lw=0.9, label=name)
+                ax.set_ylabel("cpu %"); ax.set_ylim(bottom=0)
+                # total memory across containers on a twinx when cgroup mem is present.
+                if any(any(v is not None for v in d.get("mem", [])) for d in dk.values()):
+                    ax2 = ax.twinx()
+                    ts, totals = query.docker_mem_timeline(dk)
+                    ax2.plot(_dt(ts), totals, color="#9467bd", lw=0.7, ls="--", label="mem MB")
+                    ax2.set_ylabel("mem MB", color="#9467bd"); ax2.set_ylim(bottom=0)
+                    ax2.tick_params(axis="y", labelcolor="#9467bd")
+            else:
+                ts, counts = query.docker_running_timeline(dk)
+                ax.plot(_dt(ts), counts, color="#2ca02c", lw=1.0, marker="o", ms=2, label="running")
+                ax.set_ylabel("containers"); ax.set_ylim(bottom=0)
+            ax.set_title(f"Docker containers   {running_now}/{len(dk)} up"
+                         + (f" . {stopped} stopped" if stopped else ""),
+                         loc="left", fontsize=10, fontweight="bold")
+        panels.append(("docker", draw_docker))
+    if "pipeline" in selected and data.get("pipeline"):
+        def draw_pipeline(ax, p=data["pipeline"]):
+            procs = p.get("procs", {})
+            streams = p.get("streams", {})
+            for label, d in sorted(procs.items()):
+                ax.plot(_dt(d["t"]), d["cpu"], lw=0.9, label=f"{label} cpu%")
+            ax.set_ylabel("cpu %"); ax.set_ylim(bottom=0)
+            down = [label for label, d in procs.items() if not (query.last_value(d.get("count", [])) or 0)]
+            restarts = sum(query.last_value(d.get("restarts", [])) or 0 for d in procs.values())
+            tag = f"{len(procs)} watch" + (f" . {len(down)} down" if down else "")
+            tag += f" . {restarts} restarts" if restarts else ""
+            ax.set_title(f"Pipeline processes   {tag}", loc="left", fontsize=10, fontweight="bold")
+            # RTSP/stream latency on a twinx so endpoint liveness sits alongside process CPU.
+            if any(any(v is not None for v in d.get("latency", [])) for d in streams.values()):
+                ax2 = ax.twinx()
+                for url, d in sorted(streams.items()):
+                    ax2.plot(_dt(d["t"]), d["latency"], color="#17becf", lw=0.7, ls=":",
+                             label=f"{query.host_label(url)} ms")
+                ax2.set_ylabel("stream ms", color="#17becf"); ax2.set_ylim(bottom=0)
+                ax2.tick_params(axis="y", labelcolor="#17becf")
+        panels.append(("pipeline", draw_pipeline))
     if "disk" in selected and data["disk"]:
         def draw_disk(ax, disk=data["disk"], health=data.get("disk_health", {})):
             # no per-mount legend: a busy box (many loop/snap mounts) drowns the panel; the

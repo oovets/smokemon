@@ -174,11 +174,10 @@ def _redis_summary(conn, since, until, node=None) -> str:
 
 
 def _docker_is_bad(v: dict) -> bool:
-    """A container worth flagging: unhealthy, in a broken state, or exited non-zero."""
-    return (v.get("health") == "unhealthy"
-            or v.get("state") in ("restarting", "dead")
-            or bool(v.get("oom_killed"))
-            or (not v.get("running") and (v.get("exit_code") or 0) != 0))
+    """A container worth flagging: unhealthy, in a broken state, or exited non-zero.
+    Thin alias for query.docker_bad so the report and the hub services view share one
+    definition."""
+    return query.docker_bad(v)
 
 
 def _docker_real(conn, since, until, node=None) -> tuple[dict, bool]:

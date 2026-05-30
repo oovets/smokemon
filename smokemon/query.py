@@ -261,21 +261,97 @@ def load_stream_probes(conn, since, until, node=None):
 
 
 def load_redis(conn, since, until, node=None):
-    """Redis server memory/connectivity plus per-stream XLEN/PENDING series."""
+    """Redis server memory/connectivity plus per-stream XLEN/PENDING series. The server
+    series also carries throughput (ops_per_sec) and connected_clients so the renderers
+    can overlay load on the stream-depth panel. Those columns are NULL on rows older than
+    the enrichment migration; the renderers guard for that."""
     nf, np_ = _filt(node)
-    rows = _q(conn, "SELECT ts,instance,stream,connected,used_memory_mb,xlen,pending FROM redis_samples "
+    rows = _q(conn, "SELECT ts,instance,stream,connected,used_memory_mb,xlen,pending,"
+              "ops_per_sec,connected_clients FROM redis_samples "
               "WHERE ts BETWEEN ? AND ?" + nf + " ORDER BY instance, stream, ts", [since, until, *np_])
     out: dict[str, dict] = {"server": {}, "streams": {}}
-    for ts, instance, stream, connected, mem, xlen, pending in rows:
+    for ts, instance, stream, connected, mem, xlen, pending, ops, clients in rows:
         if stream == "__server__":
-            d = out["server"].setdefault(instance, {"t": [], "connected": [], "mem": []})
+            d = out["server"].setdefault(instance, {"t": [], "connected": [], "mem": [],
+                                                    "ops": [], "clients": []})
             d["t"].append(ts); d["connected"].append(connected); d["mem"].append(mem)
+            d["ops"].append(ops); d["clients"].append(clients)
             continue
         if stream:
             key = f"{instance} {stream}" if instance else stream
             d = out["streams"].setdefault(key, {"t": [], "xlen": [], "pending": [], "stream": stream})
             d["t"].append(ts); d["xlen"].append(xlen); d["pending"].append(pending)
     return out if out["server"] or out["streams"] else {}
+
+
+def docker_bad(v: dict) -> bool:
+    """A container worth flagging: unhealthy, in a broken state, OOM-killed, or exited
+    non-zero. Shared by the renderers, the report digest and the hub services view so the
+    'bad' definition never drifts between surfaces."""
+    return (v.get("health") == "unhealthy"
+            or v.get("state") in ("restarting", "dead")
+            or bool(v.get("oom_killed"))
+            or (not v.get("running") and (v.get("exit_code") or 0) != 0))
+
+
+def load_docker(conn, since, until, node=None):
+    """Per-container CPU%/mem/running time-series for the docker panel. Skips the
+    '__daemon__' sentinel (it only marks a socket-unreachable cycle, not a container).
+    cpu_pct/mem_mb are NULL when cgroup stats are disabled; the renderers fall back to the
+    running-count line so the panel still shows something useful."""
+    nf, np_ = _filt(node)
+    data: dict[str, dict] = {}
+    for ts, name, running, cpu, mem in _q(conn,
+            "SELECT ts,name,running,cpu_pct,mem_mb FROM docker_samples "
+            "WHERE ts BETWEEN ? AND ?" + nf + " AND name != '__daemon__' "
+            "ORDER BY name, ts", [since, until, *np_]):
+        d = data.setdefault(name, {"t": [], "running": [], "cpu": [], "mem": []})
+        d["t"].append(ts); d["running"].append(running); d["cpu"].append(cpu); d["mem"].append(mem)
+    return data
+
+
+def docker_running_timeline(dk: dict) -> tuple[list, list]:
+    """(sorted_ts, running_count) across all containers, grouped by exact sample ts.
+    The docker probe writes every container in one cycle sharing a ts, so grouping by ts
+    yields the live running count per cycle. Used as the renderers' no-cgroup fallback."""
+    per: dict[float, int] = {}
+    for d in dk.values():
+        for t, r in zip(d.get("t", []), d.get("running", [])):
+            per[t] = per.get(t, 0) + (1 if r else 0)
+    ts = sorted(per)
+    return ts, [per[t] for t in ts]
+
+
+def docker_mem_timeline(dk: dict) -> tuple[list, list]:
+    """(sorted_ts, total_mem_mb) summed across containers per exact sample ts. None
+    members are skipped; a ts with no numeric mem yields 0.0."""
+    per: dict[float, float] = {}
+    for d in dk.values():
+        for t, m in zip(d.get("t", []), d.get("mem", [])):
+            per[t] = per.get(t, 0.0) + (m if m is not None else 0.0)
+    ts = sorted(per)
+    return ts, [per[t] for t in ts]
+
+
+def load_pipeline(conn, since, until, node=None):
+    """Pipeline liveness time-series: watched-process CPU%/RSS/count per label plus RTSP/
+    stream-probe latency/up per endpoint. Returns {procs:{label:{t,cpu,rss,count,restarts}},
+    streams:{url:{t,latency,ok}}} or {} when neither source has rows."""
+    nf, np_ = _filt(node)
+    procs: dict[str, dict] = {}
+    for ts, label, count, cpu, rss, restarts in _q(conn,
+            "SELECT ts,label,count,cpu_pct,rss_mb,restarts FROM proc_watch "
+            "WHERE ts BETWEEN ? AND ?" + nf + " ORDER BY label, ts", [since, until, *np_]):
+        d = procs.setdefault(label, {"t": [], "count": [], "cpu": [], "rss": [], "restarts": []})
+        d["t"].append(ts); d["count"].append(count); d["cpu"].append(cpu)
+        d["rss"].append(rss); d["restarts"].append(restarts)
+    streams: dict[str, dict] = {}
+    for ts, url, ok, latency in _q(conn,
+            "SELECT ts,url,ok,latency_ms FROM stream_probes "
+            "WHERE ts BETWEEN ? AND ?" + nf + " ORDER BY url, ts", [since, until, *np_]):
+        d = streams.setdefault(url, {"t": [], "ok": [], "latency": []})
+        d["t"].append(ts); d["ok"].append(ok); d["latency"].append(latency)
+    return {"procs": procs, "streams": streams} if procs or streams else {}
 
 
 def load_gpu(conn, since, until, node=None):
@@ -669,6 +745,8 @@ def load_all(conn, since, until, targets, node, sel, ping_loader):
         "host":    load_host(conn, since, until, node) if "host" in sel else {},
         "gpu":     load_gpu(conn, since, until, node) if "gpu" in sel else {},
         "redis":   load_redis(conn, since, until, node) if "redis" in sel else {},
+        "docker":  load_docker(conn, since, until, node) if "docker" in sel else {},
+        "pipeline": load_pipeline(conn, since, until, node) if "pipeline" in sel else {},
         "disk":    load_disk(conn, since, until, node) if "disk" in sel else {},
         # Not a panel of its own; loaded with disk so the disk death-clock can show SD wear.
         "disk_health": load_disk_health(conn, since, until, node) if "disk" in sel else {},

@@ -50,10 +50,12 @@ def test_redis_probe_collects_memory_stream_and_pending(tmp_db, monkeypatch):
     assert data["rejected_connections"] == 0
 
 
-def test_redis_probe_records_down_row_on_connect_failure(tmp_db, monkeypatch):
+def test_redis_probe_records_down_row_when_forced(tmp_db, monkeypatch):
     conn = core.connect(str(tmp_db))
     schema.init_node(conn)
     monkeypatch.setattr(redisq.config, "REDIS_ENABLED", True)
+    monkeypatch.setattr(redisq.config, "REDIS_FORCED", True)  # forced -> report down even if absent
+    monkeypatch.setattr(redisq, "_ever_up", False)
     monkeypatch.setattr(redisq.config, "REDIS_HOST", "redis")
     monkeypatch.setattr(redisq.config, "REDIS_PORT", 6379)
 
@@ -63,6 +65,24 @@ def test_redis_probe_records_down_row_on_connect_failure(tmp_db, monkeypatch):
     monkeypatch.setattr(redisq, "Client", fail)
     redisq.collect(conn)
     assert query.load_redis_latest(conn, 0, 10**12)["redis:6379"]["connected"] == 0
+    conn.close()
+
+
+def test_redis_probe_auto_is_silent_when_never_reachable(tmp_db, monkeypatch):
+    conn = core.connect(str(tmp_db))
+    schema.init_node(conn)
+    monkeypatch.setattr(redisq.config, "REDIS_ENABLED", True)
+    monkeypatch.setattr(redisq.config, "REDIS_FORCED", False)  # auto default
+    monkeypatch.setattr(redisq, "_ever_up", False)
+    monkeypatch.setattr(redisq.config, "REDIS_HOST", "127.0.0.1")
+    monkeypatch.setattr(redisq.config, "REDIS_PORT", 6379)
+
+    def fail(_host, _port, _timeout):
+        raise OSError("no redis")
+
+    monkeypatch.setattr(redisq, "Client", fail)
+    redisq.collect(conn)
+    assert query.load_redis_latest(conn, 0, 10**12) == {}
     conn.close()
 
 

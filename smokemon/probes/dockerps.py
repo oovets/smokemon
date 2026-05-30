@@ -11,6 +11,7 @@ DOCKER_TIMEOUT, DOCKER_MAX_BYTES and DOCKER_MAX.
 from __future__ import annotations
 
 import json
+import os
 import re
 import socket
 import time
@@ -123,6 +124,10 @@ def _inspect(cid: str) -> dict:
 def collect(conn) -> None:
     if not config.DOCKER_ENABLED:
         return
+    # Auto-detect: no socket means no docker on this node -> silent no-op. Only when the
+    # probe is explicitly forced on do we record a daemon-down row despite a missing socket.
+    if not os.path.exists(config.DOCKER_SOCK) and not config.DOCKER_FORCED:
+        return
     ts = time.time()
     try:
         containers = _get_json("/containers/json?all=1")
@@ -133,8 +138,11 @@ def collect(conn) -> None:
         return
 
     rows = []
+    live_cids: set[str] = set()
     for c in containers[:config.DOCKER_MAX]:
         cid = c.get("Id") or ""
+        if cid:
+            live_cids.add(cid)
         names = c.get("Names") or ["/?"]
         state = c.get("State")
         status = c.get("Status") or ""
@@ -159,6 +167,10 @@ def collect(conn) -> None:
         if config.DOCKER_CGROUP and running and cid:
             row.update(_cgroup_sample(cid, ts))
         rows.append(row)
+    # Drop cpu-delta state for containers that no longer exist so _prev_cpu can't grow
+    # without bound on a node that churns through many short-lived containers.
+    for stale in [c for c in _prev_cpu if c not in live_cids]:
+        del _prev_cpu[stale]
     if rows:
         schema.insert(conn, "docker_samples", rows)
         conn.commit()

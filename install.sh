@@ -24,6 +24,13 @@ while [ $# -gt 0 ]; do
 done
 [ "$(id -u)" -eq 0 ] || { echo "run as root (sudo)." >&2; exit 1; }
 
+# A hub with no secret accepts unauthenticated ingest from anyone (and it binds 0.0.0.0 by
+# default), so when configuring a hub without an explicit --secret, generate a strong random one.
+if [ "$MODE" = "hub" ] && [ -z "$SECRET" ]; then
+    SECRET="$(head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9')"
+    echo "==> generated SMOKEMON_HUB_SECRET (nodes must install with the same --secret)"
+fi
+
 # Use the local checkout if run from one, otherwise clone (curl-piped).
 SELF="${BASH_SOURCE[0]:-}"
 if [ -n "$SELF" ] && [ -f "$(dirname "$SELF")/deploy/systemd/smokemon-hub.service" ]; then

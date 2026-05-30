@@ -127,6 +127,67 @@ def test_loaders_return_data(tmp_db, ts0):
     conn.close()
 
 
+def test_docker_and_pipeline_loaders(tmp_db, ts0):
+    """load_docker time-series (skipping the __daemon__ sentinel), the running/mem
+    timeline fallbacks, load_pipeline (procs + streams) and the enriched redis server
+    series (ops/clients)."""
+    conn = core.connect(str(tmp_db))
+    schema.init_node(conn)
+    for i in range(3):
+        ts = ts0 + i * 60
+        schema.insert(conn, "docker_samples", [
+            {"ts": ts, "name": "edge", "image": "x", "state": "running", "running": 1,
+             "health": "healthy", "exit_code": 0, "restart_count": 0, "oom_killed": 0,
+             "cpu_pct": 10.0 + i, "mem_mb": 100.0 + i, "pids": 5},
+            {"ts": ts, "name": "cam", "image": "x", "state": "running", "running": 1,
+             "health": "", "exit_code": None, "restart_count": 1, "oom_killed": 0,
+             "cpu_pct": None, "mem_mb": None, "pids": None},
+            {"ts": ts, "name": "__daemon__", "running": 1},  # sentinel -> excluded by load_docker
+        ])
+        schema.insert(conn, "proc_watch", [
+            {"ts": ts, "label": "gst", "count": 2, "cpu_pct": 40.0 + i, "rss_mb": 120.0,
+             "uptime_s": 300.0, "restarts": i}])
+        schema.insert(conn, "stream_probes", [
+            {"ts": ts, "url": "rtsp://127.0.0.1:8554/cam", "ok": 1, "latency_ms": 12.0 + i,
+             "status": "200"}])
+        schema.insert(conn, "redis_samples", [
+            {"ts": ts, "instance": "127.0.0.1:6379", "stream": "__server__", "connected": 1,
+             "used_memory_mb": 12.0, "xlen": None, "pending": None, "connected_clients": 7,
+             "blocked_clients": 0, "ops_per_sec": 120.0 + i, "evicted_keys": 0,
+             "rejected_connections": 0}])
+    conn.commit()
+    since, until = ts0 - 60, ts0 + 600
+
+    dk = query.load_docker(conn, since, until)
+    assert set(dk) == {"edge", "cam"}  # __daemon__ filtered out
+    assert dk["edge"]["cpu"][-1] == 12.0
+    _ts, counts = query.docker_running_timeline(dk)
+    assert counts[-1] == 2
+    _ts2, mem = query.docker_mem_timeline(dk)
+    assert mem[-1] == 102.0  # edge 100+2; cam None contributes 0
+
+    pipe = query.load_pipeline(conn, since, until)
+    assert pipe["procs"]["gst"]["cpu"][-1] == 42.0
+    assert pipe["procs"]["gst"]["restarts"][-1] == 2
+    assert pipe["streams"]["rtsp://127.0.0.1:8554/cam"]["latency"][-1] == 14.0
+
+    srv = query.load_redis(conn, since, until)["server"]["127.0.0.1:6379"]
+    assert srv["ops"][-1] == 122.0 and srv["clients"][-1] == 7
+
+    all_data = query.load_all(conn, since, until, None, None, ["docker", "pipeline"], query.load_ping_agg)
+    assert all_data["docker"] and all_data["pipeline"]
+    conn.close()
+
+
+def test_docker_bad_classification():
+    assert query.docker_bad({"health": "unhealthy", "running": 1}) is True
+    assert query.docker_bad({"state": "dead", "running": 0}) is True
+    assert query.docker_bad({"running": 0, "exit_code": 1}) is True
+    assert query.docker_bad({"oom_killed": 1, "running": 1}) is True
+    assert query.docker_bad({"running": 1, "health": "healthy"}) is False
+    assert query.docker_bad({"running": 0, "exit_code": 0}) is False  # clean stop
+
+
 def test_rate_handles_none_and_resets():
     """_rate must return None for missing samples, counter resets (negative diff),
     and zero/negative dt. Critical so renderers never see bogus spikes."""

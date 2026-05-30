@@ -69,6 +69,9 @@ class Client:
         raise RedisProtoError(f"unknown RESP type {kind!r}")
 
 
+_ever_up = False  # has this instance ever answered? gates auto down-row recording
+
+
 def _groups() -> dict[str, str]:
     out = {}
     for spec in config.REDIS_GROUPS:
@@ -120,6 +123,7 @@ def _pending(c: Client, stream: str, group: str) -> int | None:
 
 
 def collect(conn) -> None:
+    global _ever_up
     if not config.REDIS_ENABLED:
         return
     ts = time.time()
@@ -129,6 +133,7 @@ def collect(conn) -> None:
         c = Client(config.REDIS_HOST, config.REDIS_PORT, config.REDIS_TIMEOUT)
         try:
             c.cmd("PING")
+            _ever_up = True
             mem = _used_memory_mb(_info(c, "memory"))
             clients = _info(c, "clients")
             stats = _info(c, "stats")
@@ -151,9 +156,14 @@ def collect(conn) -> None:
         finally:
             c.close()
     except (OSError, RedisProtoError) as e:
-        core.log(f"redis probe failed: {e.__class__.__name__}")
-        rows.append({"ts": ts, "instance": instance, "stream": "__server__",
-                     "connected": 0, "used_memory_mb": None, "xlen": None, "pending": None})
+        # Auto mode: a Redis that has never answered on this node is simply not present, so
+        # stay silent instead of spamming "redis down". Record the down row only when the
+        # probe is explicitly forced on, or when this instance has answered before (a real
+        # outage worth surfacing).
+        if config.REDIS_FORCED or _ever_up:
+            core.log(f"redis probe failed: {e.__class__.__name__}")
+            rows.append({"ts": ts, "instance": instance, "stream": "__server__",
+                         "connected": 0, "used_memory_mb": None, "xlen": None, "pending": None})
     if rows:
         schema.insert(conn, "redis_samples", rows)
         conn.commit()

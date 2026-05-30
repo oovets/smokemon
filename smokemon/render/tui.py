@@ -1,6 +1,7 @@
 """Text TUI renderer (plotext, braille). Panels arranged on a configurable grid
 (default 2 cols when terminal is wide enough, 1 col otherwise). Same panel set as
-the PNG renderer: ping/net/http/mtr/wifi/iperf/host/gpu/redis/disk/thermal/power/tcp/psi/freq."""
+the PNG renderer: ping/net/http/mtr/wifi/iperf/host/gpu/redis/docker/pipeline/disk/
+thermal/power/tcp/psi/freq."""
 
 import math
 import os
@@ -13,6 +14,19 @@ import plotext as plt
 from .. import config, query
 
 ALL_PANELS = config.PANELS
+
+# Distinct, legible xterm-256 palette for panels that overlay an arbitrary number of series
+# (mtr hops, docker containers, redis streams, disk mounts, thermal zones, power rails,
+# pipeline procs, GPUs). Cycled per series so neighbouring lines stay separable instead of
+# falling back to plotext's low-contrast default cycle. plotext emits these as 38;5;N, which
+# the hub dashboard's ANSI->rgb parser renders directly, and they read well on the dark theme.
+SERIES_COLORS = [51, 208, 46, 201, 226, 39, 214, 141, 49, 213, 123, 220, 165, 84]
+
+
+def _scolor(i: int) -> int:
+    return SERIES_COLORS[i % len(SERIES_COLORS)]
+
+
 KIOSK = False
 # Suppress series labels (-> plotext draws no legend). The web /api/plot retries with this on
 # if a normal render crashes: some panels' degenerate series (e.g. a 100%-loss target with an
@@ -58,16 +72,27 @@ def _ticks(since, until):
 
 
 def _int_yticks(*lists):
+    """Pad the y-axis and lay down readable integer ticks. plotext autoscales the y-axis to the
+    exact data min/max, which glues curves to the top/bottom frame and turns an all-equal series
+    into a degenerate (zero-height) axis. We pad ~8% (or expand a flat series), never dip a
+    non-negative metric below zero, then place a handful of integer ticks across the real range."""
     if KIOSK:
         return
     vals = [v for lst in lists for v in lst if v is not None and v == v]
     if not vals:
         return
-    lo, hi = min(vals), max(vals)
-    if lo == hi:
-        lo, hi = lo - 1, hi + 1
+    mn, mx = min(vals), max(vals)
+    if mn == mx:                       # flat/all-equal: give the line room instead of a 0-height axis
+        pad = abs(mn) * 0.05 or 1.0
+        lo, hi = mn - pad, mx + pad
+    else:                              # padded so spiky/normal curves don't touch the frame
+        pad = (mx - mn) * 0.08
+        lo, hi = mn - pad, mx + pad
+    if mn >= 0 and lo < 0:             # rtt/%, counts, bytes: keep the baseline at zero, not negative
+        lo = 0.0
+    plt.ylim(lo, hi)
     step = max(1, round((hi - lo) / 5))
-    ticks = list(range(math.floor(lo), math.ceil(hi) + 1, step))
+    ticks = list(range(math.floor(mn), math.ceil(mx) + 1, step))
     if len(ticks) >= 2:
         plt.yticks(ticks, [str(t) for t in ticks])
 
@@ -209,10 +234,10 @@ def _build(selected, data):  # noqa: C901
         for target, hops in sorted(data["mtr"].items()):
             def draw_mtr(hops=hops, target=target):
                 worst = 0.0
-                for hop_no in sorted(hops):
+                for i, hop_no in enumerate(sorted(hops)):
                     h = hops[hop_no]
                     plt.plot(h["t"], h["avg"], label=_L(f"h{hop_no} {h['host']}" if h.get("host") else f"h{hop_no}"),
-                             marker="braille")
+                             color=_scolor(i), marker="braille")
                     if h["loss"]:
                         worst = max(worst, max(h["loss"]))
                 _title(f"mtr -> {target}   worst hop-loss {worst:.0f}%")
@@ -258,8 +283,9 @@ def _build(selected, data):  # noqa: C901
         panels.append(draw_host)
     if "gpu" in selected and data.get("gpu"):
         def draw_gpu(gpus=data["gpu"]):
-            for gpu, d in sorted(gpus.items()):
-                plt.plot(d["t"], d["util"], label=_L(f"{gpu} util%"), color="green+", marker="braille")
+            for i, (gpu, d) in enumerate(sorted(gpus.items())):
+                plt.plot(d["t"], d["util"], label=_L(f"{gpu} util%"),
+                         color="green+" if len(gpus) == 1 else _scolor(i), marker="braille")
             cur = max((query.last_value(d["util"]) or 0.0) for d in gpus.values())
             _title(f"Jetson GPU   util {cur:.0f}%")
             _ylabel("%")
@@ -268,30 +294,84 @@ def _build(selected, data):  # noqa: C901
     if "redis" in selected and data.get("redis"):
         def draw_redis(r=data["redis"]):
             streams = r.get("streams", {})
-            for name, d in sorted(streams.items()):
-                label = d.get("stream", name).rsplit(":", 1)[-1]
-                plt.plot(d["t"], d["xlen"], label=_L(label), marker="braille")
-                if any(v is not None and v > 0 for v in d.get("pending", [])):
-                    plt.plot(d["t"], d["pending"], label=_L(f"{label} pending"), color="red", marker="braille")
-            max_x = max((query.last_value(d["xlen"]) or 0 for d in streams.values()), default=0)
-            mem = max((query.last_value(d["mem"]) or 0 for d in r.get("server", {}).values()), default=0)
-            tag = f"   max xlen {max_x}" + (f" . mem {mem:.0f} MB" if mem else "")
-            _title(f"Redis streams{tag}")
-            _ylabel("entries")
-            _int_yticks(*[d["xlen"] for d in streams.values()], *[d.get("pending", []) for d in streams.values()])
+            server = r.get("server", {})
+            mem = max((query.last_value(d["mem"]) or 0 for d in server.values()), default=0)
+            clients = max((query.last_value(d.get("clients", [])) or 0 for d in server.values()), default=0)
+            memtag = (f" . mem {mem:.0f} MB" if mem else "") + (f" . {clients:.0f} cli" if clients else "")
+            if streams:
+                for i, (name, d) in enumerate(sorted(streams.items())):
+                    label = d.get("stream", name).rsplit(":", 1)[-1]
+                    plt.plot(d["t"], d["xlen"], label=_L(label), color=_scolor(i), marker="braille")
+                    if any(v is not None and v > 0 for v in d.get("pending", [])):
+                        plt.plot(d["t"], d["pending"], label=_L(f"{label} pending"), color="red", marker="braille")
+                max_x = max((query.last_value(d["xlen"]) or 0 for d in streams.values()), default=0)
+                _title(f"Redis streams   max xlen {max_x}{memtag}")
+                _ylabel("entries")
+                _int_yticks(*[d["xlen"] for d in streams.values()], *[d.get("pending", []) for d in streams.values()])
+            else:
+                # no streams configured: plot server throughput so the panel still shows load.
+                for d in server.values():
+                    if any(v is not None for v in d.get("ops", [])):
+                        plt.plot(d["t"], d["ops"], label=_L("ops/s"), color="cyan", marker="braille")
+                _title(f"Redis   ops/s{memtag}")
+                _ylabel("ops/s")
+                _int_yticks(*[d.get("ops", []) for d in server.values()])
         panels.append(draw_redis)
+    if "docker" in selected and data.get("docker"):
+        def draw_docker(dk=data["docker"]):
+            have_cpu = any(any(v is not None for v in d.get("cpu", [])) for d in dk.values())
+            running_now = sum(1 for d in dk.values() if query.last_value(d.get("running", [])))
+            stopped = len(dk) - running_now
+            if have_cpu:
+                for i, (name, d) in enumerate(sorted(dk.items())):
+                    if any(v is not None for v in d.get("cpu", [])):
+                        plt.plot(d["t"], d["cpu"], label=_L(name), color=_scolor(i), marker="braille")
+                _ylabel("cpu %")
+                _int_yticks(*[d["cpu"] for d in dk.values()])
+            else:
+                ts, counts = query.docker_running_timeline(dk)
+                plt.plot(ts, counts, label=_L("running"), color="green+", marker="braille")
+                _ylabel("containers")
+                _int_yticks(counts)
+            tag = f"   {running_now}/{len(dk)} up" + (f" . {stopped} stopped" if stopped else "")
+            _title(f"Docker{tag}")
+        panels.append(draw_docker)
+    if "pipeline" in selected and data.get("pipeline"):
+        def draw_pipeline(p=data["pipeline"]):
+            procs = p.get("procs", {})
+            streams = p.get("streams", {})
+            drew_cpu = False
+            for i, (label, d) in enumerate(sorted(procs.items())):
+                if any(v is not None for v in d.get("cpu", [])):
+                    plt.plot(d["t"], d["cpu"], label=_L(f"{label} cpu%"), color=_scolor(i), marker="braille")
+                    drew_cpu = True
+            if not drew_cpu:
+                # no process CPU yet: show stream latency so the panel isn't blank.
+                for i, (url, d) in enumerate(sorted(streams.items())):
+                    if any(v is not None for v in d.get("latency", [])):
+                        plt.plot(d["t"], d["latency"], label=_L(f"{query.host_label(url)} ms"),
+                                 color=_scolor(i), marker="braille")
+                _ylabel("stream ms")
+            else:
+                _ylabel("cpu %")
+            down = [label for label, d in procs.items() if not (query.last_value(d.get("count", [])) or 0)]
+            tag = f"   {len(procs)} watch" + (f" . {len(down)} down" if down else "")
+            _title(f"Pipeline{tag}")
+            _int_yticks(*[d.get("cpu", []) for d in procs.values()],
+                        *[d.get("latency", []) for d in streams.values()])
+        panels.append(draw_pipeline)
     if "disk" in selected and data["disk"]:
         def draw_disk(disk=data["disk"], health=data.get("disk_health", {})):
-            for mount, d in sorted(disk.items()):
-                plt.plot(d["t"], d["used"], label=_L(mount), marker="braille")
+            for i, (mount, d) in enumerate(sorted(disk.items())):
+                plt.plot(d["t"], d["used"], label=_L(mount), color=_scolor(i), marker="braille")
             _title(f"disk used (%){_disk_tag(disk, health)}")
             _ylabel("%")
             _int_yticks(*[d["used"] for d in disk.values()])
         panels.append(draw_disk)
     if "thermal" in selected and data["thermal"]:
         def draw_thermal(zones=data["thermal"]):
-            for zone, d in sorted(zones.items()):
-                plt.plot(d["t"], d["temp"], label=_L(zone), marker="braille")
+            for i, (zone, d) in enumerate(sorted(zones.items())):
+                plt.plot(d["t"], d["temp"], label=_L(zone), color=_scolor(i), marker="braille")
             _title("thermal zones (degC)")
             _ylabel("degC")
             _int_yticks(*[d["temp"] for d in zones.values()])
@@ -299,8 +379,8 @@ def _build(selected, data):  # noqa: C901
     if "power" in selected and data["power"]:
         def draw_power(rails=data["power"]):
             total = 0.0; n = 0
-            for rail, d in sorted(rails.items()):
-                plt.plot(d["t"], d["watts"], label=_L(rail), marker="braille")
+            for i, (rail, d) in enumerate(sorted(rails.items())):
+                plt.plot(d["t"], d["watts"], label=_L(rail), color=_scolor(i), marker="braille")
                 last = query.last_value(d["watts"])
                 if last is not None:
                     total += last; n += 1

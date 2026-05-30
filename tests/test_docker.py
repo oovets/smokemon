@@ -33,6 +33,8 @@ def _fake_get_json(path):
 
 def _enable(monkeypatch, **over):
     monkeypatch.setattr(dockerps.config, "DOCKER_ENABLED", True)
+    # Force on so the socket-presence auto-gate doesn't skip in the test environment.
+    monkeypatch.setattr(dockerps.config, "DOCKER_FORCED", True)
     monkeypatch.setattr(dockerps.config, "DOCKER_INSPECT", over.get("inspect", True))
     monkeypatch.setattr(dockerps.config, "DOCKER_CGROUP", over.get("cgroup", False))
     monkeypatch.setattr(dockerps.config, "DOCKER_MAX", over.get("max", 60))
@@ -79,10 +81,11 @@ def test_docker_cgroup_cpu_mem_sampled_for_running(tmp_db, monkeypatch):
     assert latest["watchtower"]["mem_mb"] is None
 
 
-def test_docker_probe_records_daemon_down_on_socket_failure(tmp_db, monkeypatch):
+def test_docker_probe_records_daemon_down_when_forced(tmp_db, monkeypatch):
     conn = core.connect(str(tmp_db))
     schema.init_node(conn)
     monkeypatch.setattr(dockerps.config, "DOCKER_ENABLED", True)
+    monkeypatch.setattr(dockerps.config, "DOCKER_FORCED", True)
 
     def boom(_path):
         raise OSError("no socket")
@@ -92,6 +95,19 @@ def test_docker_probe_records_daemon_down_on_socket_failure(tmp_db, monkeypatch)
     latest = query.load_docker_latest(conn, 0, 10**12)
     conn.close()
     assert latest["__daemon__"]["running"] == 0
+
+
+def test_docker_auto_is_noop_when_socket_absent(tmp_db, monkeypatch):
+    conn = core.connect(str(tmp_db))
+    schema.init_node(conn)
+    monkeypatch.setattr(dockerps.config, "DOCKER_ENABLED", True)
+    monkeypatch.setattr(dockerps.config, "DOCKER_FORCED", False)  # auto
+    monkeypatch.setattr(dockerps.config, "DOCKER_SOCK", "/no/such/docker.sock")
+    monkeypatch.setattr(dockerps, "_get_json", _fake_get_json)  # would succeed if reached
+    dockerps.collect(conn)
+    rows = conn.execute("SELECT count(*) FROM docker_samples").fetchone()[0]
+    conn.close()
+    assert rows == 0
 
 
 def test_docker_probe_disabled_is_noop(tmp_db, monkeypatch):

@@ -316,6 +316,133 @@ def ship_volume(conn, hours: float = 24.0, now: float | None = None) -> dict:
     return {"now": now, "hours": hours, "nodes": out}
 
 
+def ingest_rate(events, now: float | None = None, window_s: float = 900.0,
+                rate_window_s: float = 60.0, buckets: int = 60) -> dict:
+    """Live hub ingest throughput, derived from the POST /ingest handler's in-memory ring buffer
+    (a list of (ts, wire_bytes, raw_bytes, rows) tuples - never persisted, so this stays cheap and
+    socket-free for unit tests). Returns the recent wire bytes/sec and rows/sec over the last
+    `rate_window_s` (the gauge value), a per-bucket wire-bytes series over the last `window_s` for a
+    sparkline, the window totals and the most-recent ingest timestamp.
+
+    `window_s` should match the buffer's retention so the series can't reference dropped events."""
+    now = time.time() if now is None else now
+    since = now - window_s
+    width = window_s / buckets
+    rate_since = now - rate_window_s
+    series = [0] * buckets
+    total_wire = total_raw = total_rows = posts = 0
+    recent_wire = recent_rows = 0
+    last_ts: float | None = None
+    for ts, wire, raw, rows in events:
+        if ts < since:
+            continue
+        posts += 1
+        total_wire += wire or 0
+        total_raw += raw or 0
+        total_rows += rows or 0
+        b = int((ts - since) / width)
+        if 0 <= b < buckets:
+            series[b] += wire or 0
+        if last_ts is None or ts > last_ts:
+            last_ts = ts
+        if ts >= rate_since:
+            recent_wire += wire or 0
+            recent_rows += rows or 0
+    return {
+        "now": now, "window_s": window_s, "rate_window_s": rate_window_s,
+        "bucket_s": width, "buckets": buckets,
+        "bytes_per_s": round(recent_wire / rate_window_s, 1) if rate_window_s else 0.0,
+        "rows_per_s": round(recent_rows / rate_window_s, 3) if rate_window_s else 0.0,
+        "series_bytes": series, "total_wire_bytes": total_wire,
+        "total_raw_bytes": total_raw, "total_rows": total_rows,
+        "posts": posts, "last_ts": last_ts,
+    }
+
+
+def services(conn, hours: float = 168.0, now: float | None = None) -> dict:
+    """Fleet-wide latest service telemetry for the dashboard 'services' table: Docker
+    containers, Redis instances (+ their hottest streams), watched processes and stream
+    probes, each as the most-recent row per (node, entity) via the MAX(ts) bare-column
+    trick (a few GROUP BY queries, no per-node loops). Bounded to rows newer than `hours`
+    so the scan stays cheap and long-removed containers/streams age out instead of lingering
+    forever. Returns {now, docker, docker_down, redis, procs, streams}; empty lists when a
+    probe is unused fleet-wide."""
+    now = time.time() if now is None else now
+    since = now - hours * 3600
+
+    def age(ts):
+        return round(now - ts) if ts is not None else None
+
+    docker, docker_down = [], []
+    for (node, name, state, running, health, exit_code, restart_count,
+         oom, cpu, mem, pids, ts) in _rows(
+            conn, "SELECT node, name, state, running, health, exit_code, restart_count, "
+            "oom_killed, cpu_pct, mem_mb, pids, MAX(ts) FROM docker_samples "
+            "WHERE ts >= ? GROUP BY node, name", (since,)):
+        if node is None:
+            continue
+        if name == "__daemon__":
+            if not running:
+                docker_down.append(node)
+            continue
+        v = {"node": node, "name": name, "state": state, "running": running,
+             "health": health, "exit_code": exit_code, "restart_count": restart_count,
+             "oom_killed": oom, "cpu_pct": cpu, "mem_mb": mem, "pids": pids, "age_s": age(ts)}
+        v["bad"] = query.docker_bad(v)
+        docker.append(v)
+    docker.sort(key=lambda r: (not r["bad"], bool(r["running"]), r["node"], r["name"]))
+
+    redis_map: dict[tuple, dict] = {}
+    for (node, instance, connected, mem, clients, blocked, ops, evicted, rejected, ts) in _rows(
+            conn, "SELECT node, instance, connected, used_memory_mb, connected_clients, "
+            "blocked_clients, ops_per_sec, evicted_keys, rejected_connections, MAX(ts) "
+            "FROM redis_samples WHERE stream = '__server__' AND ts >= ? GROUP BY node, instance", (since,)):
+        if node is None:
+            continue
+        redis_map[(node, instance)] = {
+            "node": node, "instance": instance, "connected": connected, "used_memory_mb": mem,
+            "connected_clients": clients, "blocked_clients": blocked, "ops_per_sec": ops,
+            "evicted_keys": evicted, "rejected_connections": rejected, "age_s": age(ts), "streams": []}
+    for node, instance, stream, xlen, pending, _ts in _rows(
+            conn, "SELECT node, instance, stream, xlen, pending, MAX(ts) FROM redis_samples "
+            "WHERE stream IS NOT NULL AND stream != '__server__' AND ts >= ? "
+            "GROUP BY node, instance, stream", (since,)):
+        if node is None:
+            continue
+        entry = redis_map.setdefault((node, instance), {
+            "node": node, "instance": instance, "connected": None, "used_memory_mb": None,
+            "connected_clients": None, "blocked_clients": None, "ops_per_sec": None,
+            "evicted_keys": None, "rejected_connections": None, "age_s": None, "streams": []})
+        entry["streams"].append({"stream": stream, "xlen": xlen, "pending": pending})
+    for entry in redis_map.values():
+        entry["streams"].sort(key=lambda s: ((s["pending"] or 0), (s["xlen"] or 0)), reverse=True)
+        del entry["streams"][3:]  # keep the three hottest streams per instance
+    redis = sorted(redis_map.values(), key=lambda r: ((r["connected"] or 0) >= 1, r["node"]))
+
+    procs = []
+    for node, label, count, cpu, rss, uptime, restarts, ts in _rows(
+            conn, "SELECT node, label, count, cpu_pct, rss_mb, uptime_s, restarts, MAX(ts) "
+            "FROM proc_watch WHERE ts >= ? GROUP BY node, label", (since,)):
+        if node is None:
+            continue
+        procs.append({"node": node, "label": label, "count": count, "cpu_pct": cpu,
+                      "rss_mb": rss, "uptime_s": uptime, "restarts": restarts, "age_s": age(ts)})
+    procs.sort(key=lambda r: (bool(r["count"]), r["node"], r["label"]))
+
+    streams = []
+    for node, url, ok, latency, status, ts in _rows(
+            conn, "SELECT node, url, ok, latency_ms, status, MAX(ts) FROM stream_probes "
+            "WHERE ts >= ? GROUP BY node, url", (since,)):
+        if node is None:
+            continue
+        streams.append({"node": node, "url": url, "ok": ok, "latency_ms": latency,
+                        "status": status, "age_s": age(ts)})
+    streams.sort(key=lambda r: (bool(r["ok"]), r["node"], r["url"]))
+
+    return {"now": now, "docker": docker, "docker_down": sorted(set(docker_down)),
+            "redis": redis, "procs": procs, "streams": streams}
+
+
 def dashboard_html() -> str:
     """Self-contained fleet dashboard (no external assets). Polls /api/fleet-status and
     renders an ultra-dense, worst-first, colour-coded one-line-per-node grid. Refresh
@@ -328,119 +455,301 @@ _DASHBOARD_HTML = """<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>smokemon fleet</title>
 <style>
- :root{--bg:#0b0e14;--fg:#c9d1d9;--mut:#6b7280;--card:#11151c;--line:#1c222c;
-       --ok:#2ea043;--warn:#d29922;--down:#f85149;--stale:#484f58}
+ :root{
+  --bg:#0a0d13;--bg2:#0d1119;--card:#10151e;--card2:#161c27;--line:#1e2533;--line2:#2b3442;
+  --fg:#e6edf3;--mut:#97a1b0;--dim:#646f7e;
+  --ok:#3fb950;--okf:#56d364;--warn:#d99a1c;--warnf:#e3b341;--down:#f85149;--downf:#ff7b72;
+  --stale:#566071;--stalef:#9aa4b2;--accent:#58a6ff;
+  --ok-bg:rgba(63,185,80,.14);--warn-bg:rgba(227,179,65,.14);--down-bg:rgba(248,81,73,.14);
+  --stale-bg:rgba(120,131,148,.13);--accent-bg:rgba(88,166,255,.13);
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,Roboto,"Helvetica Neue",Arial,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  --r:12px;--sh:0 1px 2px rgba(0,0,0,.4),0 6px 20px rgba(0,0,0,.22)}
  *{box-sizing:border-box}
- body{margin:0;background:var(--bg);color:var(--fg);
-      font:13px/1.3 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
- header{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--line);
-        padding:10px 14px;display:flex;gap:14px;align-items:center;flex-wrap:wrap}
- h1{font-size:14px;margin:0;letter-spacing:.5px;font-weight:500}
- .pills{display:flex;gap:8px}
- .pill{padding:2px 9px;border-radius:10px;font-size:12px;display:flex;gap:6px;align-items:center}
- .dot{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
- .s-healthy{background:var(--ok)}.s-warn{background:var(--warn)}
- .s-down{background:var(--down)}.s-stale{background:var(--stale)}
- .pill.healthy{background:#0f2417;color:#7ee2a8}.pill.warn{background:#241d0f;color:#e9c46a}
- .pill.down{background:#2a1314;color:#ff7b72}.pill.stale{background:#1a1d22;color:#8b949e}
- input{background:var(--card);border:1px solid var(--line);color:var(--fg);
-       padding:5px 8px;border-radius:6px;font:inherit;min-width:160px}
- .meta{color:var(--mut);font-size:12px;margin-left:auto}
- #grid{padding:10px 12px;column-width:244px;column-gap:12px}
- .node{display:flex;align-items:center;gap:8px;padding:5px 9px;margin:0 0 6px;border-radius:6px;
-       background:var(--card);border:1px solid var(--line);border-left:3px solid var(--stale);
-       break-inside:avoid}
- .node.healthy{border-left-color:var(--ok)}.node.warn{border-left-color:var(--warn)}
- .node.down{border-left-color:var(--down)}.node.stale{border-left-color:var(--stale)}
- .node:hover{background:#161b24;border-color:#2a323d}
- .node.stale{color:var(--mut)}
- .name{flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
- .m{color:var(--mut);font-size:12px;flex:0 0 auto;min-width:44px;text-align:right}
- .m.bad{color:#ff7b72}
- #err{color:#ff7b72;padding:0 14px}
- .node{cursor:pointer}
- #detail{position:fixed;inset:0;background:rgba(0,0,0,.72);display:flex;
-         align-items:center;justify-content:center;padding:16px;z-index:20}
+ ::selection{background:rgba(88,166,255,.3)}
+ ::-webkit-scrollbar{width:11px;height:11px}
+ ::-webkit-scrollbar-track{background:transparent}
+ ::-webkit-scrollbar-thumb{background:var(--line2);border-radius:7px;border:3px solid var(--bg)}
+ ::-webkit-scrollbar-thumb:hover{background:#3a4453}
+ body{margin:0;color:var(--fg);font:13px/1.45 var(--sans);background:var(--bg);
+   background-image:radial-gradient(1100px 560px at 82% -12%,rgba(88,166,255,.06),transparent 60%),
+     radial-gradient(900px 500px at -5% -5%,rgba(124,131,255,.05),transparent 55%);
+   background-attachment:fixed;-webkit-font-smoothing:antialiased}
+ .num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+ /* ---- header ---- */
+ header{position:sticky;top:0;z-index:30;background:rgba(10,13,19,.82);
+   backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
+ .hrow{display:flex;gap:16px;align-items:center;padding:9px 16px 0;flex-wrap:wrap}
+ .hrow2{display:flex;gap:14px;align-items:center;padding:9px 16px;flex-wrap:wrap}
+ .brand{display:flex;align-items:center;gap:9px;flex:0 0 auto}
+ .brand svg{display:block;filter:drop-shadow(0 0 6px rgba(88,166,255,.5))}
+ h1{font-size:14px;margin:0;font-weight:600;letter-spacing:.3px;color:var(--fg)}
+ h1 b{color:var(--accent);font-weight:700;letter-spacing:1.5px;font-size:11px;padding:2px 7px;
+   border:1px solid var(--accent);border-radius:6px;margin-left:4px;background:var(--accent-bg)}
+ .tabs{display:flex;gap:3px;flex-wrap:wrap}
+ .tab{padding:5px 12px;border-radius:8px;cursor:pointer;color:var(--mut);font-size:12.5px;
+   font-weight:500;border:1px solid transparent;transition:.14s}
+ .tab:hover{color:var(--fg);background:var(--card)}
+ .tab.on{color:var(--fg);background:var(--card2);border-color:var(--line2);box-shadow:inset 0 -2px 0 var(--accent)}
+ .meta{color:var(--dim);font-size:11.5px;margin-left:auto;font-family:var(--mono);white-space:nowrap}
+ input#q{background:var(--card);border:1px solid var(--line2);color:var(--fg);padding:6px 10px;
+   border-radius:8px;font:13px var(--sans);min-width:170px;outline:none;transition:.14s}
+ input#q:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+ input#q::placeholder{color:var(--dim)}
+ .healthband{flex:1 1 260px;display:flex;align-items:center;gap:11px;min-width:180px}
+ .hb-label{font-size:10px;text-transform:uppercase;letter-spacing:.8px;color:var(--dim);flex:0 0 auto}
+ .hb-track{flex:1 1 auto;height:10px;border-radius:6px;overflow:hidden;display:flex;gap:2px;
+   background:var(--card);border:1px solid var(--line);min-width:120px;padding:1px}
+ .hb-seg{height:100%;border-radius:3px;transition:width .5s ease;min-width:0}
+ .hb-seg.healthy{background:linear-gradient(90deg,var(--ok),var(--okf))}
+ .hb-seg.warn{background:linear-gradient(90deg,var(--warn),var(--warnf))}
+ .hb-seg.down{background:linear-gradient(90deg,var(--down),var(--downf))}
+ .hb-seg.stale{background:var(--stale)}
+ .pills{display:flex;gap:7px;flex:0 0 auto;flex-wrap:wrap}
+ .pill{padding:3px 11px 3px 9px;border-radius:20px;font-size:11.5px;display:flex;gap:7px;
+   align-items:center;border:1px solid var(--line);background:var(--card)}
+ .pill .pc{font-family:var(--mono);font-variant-numeric:tabular-nums;font-weight:700}
+ .pill .pl{color:var(--mut)}
+ .pill.down .pc{color:var(--downf)}.pill.warn .pc{color:var(--warnf)}.pill.healthy .pc{color:var(--okf)}
+ .dot,.st{width:8px;height:8px;border-radius:50%;flex:0 0 auto;display:inline-block;vertical-align:middle}
+ .st{width:9px;height:9px}
+ .s-healthy{background:var(--okf);box-shadow:0 0 7px rgba(63,185,80,.7)}
+ .s-warn{background:var(--warnf);box-shadow:0 0 7px rgba(227,179,65,.6)}
+ .s-down{background:var(--downf);box-shadow:0 0 7px rgba(248,81,73,.7)}
+ .s-stale{background:var(--stale)}
+ #err{color:var(--downf);padding:7px 16px;font-family:var(--mono);font-size:12px;
+   background:var(--down-bg);border-bottom:1px solid rgba(248,81,73,.25)}
+ #err:empty{display:none}
+ /* ---- generic primitives ---- */
+ .card{background:linear-gradient(180deg,var(--card),var(--bg2));border:1px solid var(--line);
+   border-radius:var(--r);box-shadow:var(--sh)}
+ .card-h{display:flex;align-items:center;gap:8px;font-size:11px;text-transform:uppercase;
+   letter-spacing:.9px;color:var(--mut);font-weight:600;padding:13px 16px 0}
+ .card-h .card-sub{margin-left:auto;text-transform:none;letter-spacing:0;color:var(--dim);
+   font-weight:400;font-family:var(--mono);font-size:11px}
+ .view{padding:16px;animation:fade .25s ease}
+ .view[hidden]{display:none}
+ @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+ .empty{color:var(--dim);padding:30px 16px;text-align:center;font-style:italic}
+ .view h2{font-size:11px;color:var(--mut);font-weight:600;letter-spacing:.9px;text-transform:uppercase;
+   margin:24px 2px 11px;display:flex;align-items:center;gap:9px}
+ .view h2:first-child{margin-top:2px}
+ .view h2 .cnt{font-family:var(--mono);color:var(--dim);font-weight:400;font-size:11px}
+ .btn-grp{display:flex;gap:2px;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:2px}
+ .btn-grp button{background:none;border:none;color:var(--mut);font:500 12px var(--sans);
+   padding:4px 11px;border-radius:6px;cursor:pointer;transition:.12s}
+ .btn-grp button:hover{color:var(--fg)}
+ .btn-grp button.on{background:var(--card2);color:var(--fg);box-shadow:inset 0 0 0 1px var(--line2)}
+ td.bad,.bad{color:var(--downf)}td.warnv,.warnv{color:var(--warnf)}td.okv,.okv{color:var(--okf)}
+ /* ---- overview (grid tab) ---- */
+ .ov{display:flex;flex-direction:column;gap:16px;max-width:1320px;margin:0 auto}
+ .ov-hero{display:grid;grid-template-columns:minmax(280px,1fr) minmax(360px,1.5fr);gap:16px}
+ @media(max-width:780px){.ov-hero{grid-template-columns:1fr}}
+ .donut-wrap{display:flex;align-items:center;gap:18px;padding:10px 16px 16px}
+ .donut{width:144px;height:144px;flex:0 0 auto}
+ .donut .track{fill:none;stroke:var(--card2);stroke-width:13}
+ .donut .seg{fill:none;stroke-width:13;transform:rotate(-90deg);transform-origin:60px 60px;
+   transition:stroke-dasharray .6s ease,stroke-dashoffset .6s ease}
+ .donut .seg.healthy{stroke:var(--okf)}.donut .seg.warn{stroke:var(--warnf)}
+ .donut .seg.down{stroke:var(--downf)}.donut .seg.stale{stroke:var(--stale)}
+ .donut-total{font:700 32px/1 var(--mono);fill:var(--fg)}
+ .donut-cap{font:600 9px var(--sans);fill:var(--dim);letter-spacing:1.5px;text-transform:uppercase}
+ .donut-legend{display:flex;flex-direction:column;gap:9px;flex:1 1 auto}
+ .lg{display:flex;align-items:center;gap:9px;font-size:12.5px}
+ .lg .lg-label{color:var(--mut);flex:1 1 auto;text-transform:capitalize}
+ .lg .lg-count{font-family:var(--mono);font-variant-numeric:tabular-nums;font-weight:700;font-size:15px}
+ .lg.healthy .lg-count{color:var(--okf)}.lg.warn .lg-count{color:var(--warnf)}
+ .lg.down .lg-count{color:var(--downf)}.lg.stale .lg-count{color:var(--stalef)}
+ .ingest-card{display:flex;flex-direction:column}
+ .gauge-row{display:flex;align-items:baseline;gap:8px;padding:8px 16px 0}
+ .gval{font:700 40px/1 var(--mono);font-variant-numeric:tabular-nums;color:#9ea4ff;
+   text-shadow:0 0 26px rgba(124,131,255,.4)}
+ .gunit{font-size:14px;color:var(--mut);font-weight:500}
+ .igspark{width:100%;height:96px;display:block;margin-top:2px}
+ .gsub{color:var(--dim);font-size:11.5px;font-family:var(--mono);padding:0 16px 14px}
+ .kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px}
+ .kpi{background:linear-gradient(180deg,var(--card),var(--bg2));border:1px solid var(--line);
+   border-radius:var(--r);padding:14px 15px;position:relative;overflow:hidden;box-shadow:var(--sh)}
+ .kpi::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--line2)}
+ .kpi.ok::before{background:var(--ok)}.kpi.warn::before{background:var(--warn)}.kpi.bad::before{background:var(--down)}
+ .kpi .tv{font:700 27px/1.05 var(--mono);font-variant-numeric:tabular-nums;color:var(--fg)}
+ .kpi.ok .tv{color:var(--okf)}.kpi.warn .tv{color:var(--warnf)}.kpi.bad .tv{color:var(--downf)}
+ .kpi .tl{color:var(--mut);font-size:10.5px;text-transform:uppercase;letter-spacing:.7px;margin-top:7px}
+ .kpi .meter{height:5px;border-radius:4px;background:var(--card2);margin-top:10px;overflow:hidden}
+ .kpi .meter-fill{height:100%;border-radius:4px;width:0;transition:width .5s ease;background:var(--ok)}
+ .kpi.warn .meter-fill{background:var(--warn)}.kpi.bad .meter-fill{background:var(--down)}
+ /* ---- per-node view (table tab) ---- */
+ .nodebar{display:flex;align-items:center;gap:10px;margin-bottom:13px}
+ .seg-ctl{display:flex;gap:2px;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:2px}
+ .seg-ctl button{background:none;border:none;color:var(--mut);font:500 12px var(--sans);
+   padding:4px 12px;border-radius:6px;cursor:pointer;transition:.12s}
+ .seg-ctl button.on{background:var(--card2);color:var(--fg);box-shadow:inset 0 0 0 1px var(--line2)}
+ .nodebar .cnt{color:var(--dim);font-size:11.5px;font-family:var(--mono);margin-left:auto}
+ table.grid-t{border-collapse:separate;border-spacing:0;width:100%;font-size:12.5px}
+ .grid-t th{background:var(--bg2);color:var(--mut);font-weight:600;text-transform:uppercase;
+   font-size:10.5px;letter-spacing:.5px;text-align:right;padding:9px 12px;border-bottom:1px solid var(--line2);
+   white-space:nowrap;user-select:none}
+ .grid-t th[data-sort]{cursor:pointer}.grid-t th[data-sort]:hover{color:var(--fg)}
+ .grid-t th:first-child,.grid-t th:nth-child(2){text-align:left}
+ .grid-t th .ar{color:var(--accent);font-size:9px}
+ .grid-t td{padding:8px 12px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap;
+   font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--fg)}
+ .grid-t td.tname{text-align:left;font-family:var(--sans);font-weight:500}
+ .grid-t td.stcell{text-align:center;width:34px}
+ .grid-t tbody tr{cursor:pointer;transition:background .12s}
+ .grid-t tbody tr:hover{background:var(--card)}
+ .grid-t tr.stale td:not(.stcell):not(.tname){color:var(--stalef)}
+ .spark{width:66px;height:18px;display:inline-block;vertical-align:middle}
+ .mini{display:inline-flex;align-items:center;gap:7px;justify-content:flex-end}
+ .mini .mbar{width:42px;height:5px;border-radius:3px;background:var(--card2);overflow:hidden;display:inline-block}
+ .mini .mbar i{display:block;height:100%;background:var(--ok);border-radius:3px}
+ .mini b{font-weight:600;color:var(--fg)}
+ .mini.warn .mbar i{background:var(--warn)}.mini.bad .mbar i{background:var(--down)}
+ .mini.warn b{color:var(--warnf)}.mini.bad b{color:var(--downf)}
+ .tilegrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(214px,1fr));gap:12px}
+ .ntile{background:linear-gradient(180deg,var(--card),var(--bg2));border:1px solid var(--line);
+   border-left:3px solid var(--stale);border-radius:var(--r);padding:12px 13px;cursor:pointer;
+   box-shadow:var(--sh);transition:.14s}
+ .ntile:hover{border-color:var(--line2);transform:translateY(-2px)}
+ .ntile.healthy{border-left-color:var(--ok)}.ntile.warn{border-left-color:var(--warn)}
+ .ntile.down{border-left-color:var(--down)}.ntile.stale{border-left-color:var(--stale);opacity:.74}
+ .ntile-h{display:flex;align-items:center;gap:8px}
+ .ntile-h .nm{font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto}
+ .ntile-spark{width:100%;height:30px;display:block;margin:8px 0}
+ .ntile-m{display:flex;gap:11px;flex-wrap:wrap;font-family:var(--mono);font-size:11px;color:var(--mut)}
+ .ntile-m b{color:var(--fg);font-weight:600}
+ .chip{display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:20px;
+   font:600 10px var(--sans);text-transform:uppercase;letter-spacing:.4px}
+ .chip.healthy{background:var(--ok-bg);color:var(--okf)}.chip.warn{background:var(--warn-bg);color:var(--warnf)}
+ .chip.down{background:var(--down-bg);color:var(--downf)}.chip.stale{background:var(--stale-bg);color:var(--stalef)}
+ /* ---- heatmap ---- */
+ #heat{overflow-x:auto}
+ .heat-tools{display:flex;gap:14px;align-items:center;margin-bottom:16px;flex-wrap:wrap}
+ .heat-legend{display:flex;align-items:center;gap:8px;margin-left:auto;font-size:11px;
+   color:var(--dim);font-family:var(--mono)}
+ .heat-legend .bar{width:130px;height:10px;border-radius:6px;border:1px solid var(--line)}
+ .heatgrid{display:inline-block;min-width:100%}
+ .hrow{display:flex;align-items:center;gap:10px;margin-bottom:3px}
+ .hname{width:140px;flex:0 0 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;
+   font-size:12px;font-weight:500;text-align:right;color:var(--mut)}
+ .hname:hover{color:var(--fg)}
+ .hcells{display:flex;gap:2px}
+ .hcell{width:15px;height:15px;border-radius:3px;flex:0 0 auto;transition:transform .1s}
+ .hcell:hover{transform:scale(1.5);outline:1px solid var(--fg);position:relative;z-index:2}
+ .haxis{display:flex;gap:2px;margin:7px 0 0 150px;color:var(--dim);font-size:10px;font-family:var(--mono)}
+ .haxis span{flex:0 0 auto;width:15px;text-align:center;overflow:visible}
+ /* ---- risks ---- */
+ #risk{max-width:1120px}
+ .risk{display:flex;gap:12px;align-items:center;padding:10px 14px;border-radius:10px;cursor:pointer;
+   background:var(--card);border:1px solid var(--line);border-left:3px solid var(--line2);
+   margin-bottom:7px;transition:.12s}
+ .risk:hover{border-color:var(--line2);background:var(--card2)}
+ .risk .ic{width:18px;height:18px;flex:0 0 auto;color:var(--mut);display:flex}
+ .risk .rk{flex:0 0 auto;width:92px;font-size:10px;text-transform:uppercase;letter-spacing:.6px;
+   color:var(--mut);font-weight:700}
+ .risk .rn{flex:0 0 auto;width:150px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ .risk .rd{color:var(--mut);font-size:12.5px;font-family:var(--mono);flex:1 1 auto}
+ .risk .reta{flex:0 0 auto;font-family:var(--mono);font-weight:700;font-size:13px;margin-left:auto;color:var(--fg)}
+ .risk.disk,.risk.throttle,.risk.sev3{border-left-color:var(--down)}
+ .risk.disk .rk,.risk.throttle .rk,.risk.sev3 .rk,.risk.disk .ic,.risk.throttle .ic,.risk.sev3 .ic{color:var(--downf)}
+ .risk.sd-wear,.risk.sev2{border-left-color:var(--warn)}
+ .risk.sd-wear .rk,.risk.sev2 .rk,.risk.sd-wear .ic,.risk.sev2 .ic{color:var(--warnf)}
+ .risk.sev1{border-left-color:var(--accent)}.risk.sev1 .rk{color:var(--accent)}
+ /* ---- services ---- */
+ .svc-tbl{border-collapse:separate;border-spacing:0;width:100%;font-size:12.5px;
+   background:var(--card);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;margin-bottom:6px}
+ .svc-tbl th{background:var(--bg2);color:var(--mut);font-weight:600;text-transform:uppercase;font-size:10.5px;
+   letter-spacing:.5px;text-align:right;padding:9px 12px;border-bottom:1px solid var(--line2);white-space:nowrap}
+ .svc-tbl th:first-child,.svc-tbl th:nth-child(2){text-align:left}
+ .svc-tbl td{padding:8px 12px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap;
+   font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--fg)}
+ .svc-tbl td.tname{text-align:left;font-family:var(--sans);font-weight:500}
+ .svc-tbl tbody tr:last-child td{border-bottom:none}
+ .svc-tbl tbody tr{cursor:pointer}.svc-tbl tbody tr:hover{background:var(--card2)}
+ .badge{display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:20px;
+   font:600 10px var(--sans);text-transform:uppercase;letter-spacing:.3px}
+ .badge::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+ .badge.ok{background:var(--ok-bg);color:var(--okf)}.badge.bad{background:var(--down-bg);color:var(--downf)}
+ .badge.warn{background:var(--warn-bg);color:var(--warnf)}
+ /* ---- cost ---- */
+ #cost{max-width:1040px}
+ .fnote{color:var(--dim);font-size:12px;margin-bottom:16px;line-height:1.5}
+ .frow{display:flex;align-items:center;gap:12px;padding:7px 0}
+ .fname{width:140px;flex:0 0 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;
+   font-weight:500;font-size:12.5px}
+ .fbar{flex:1 1 auto;height:18px;background:var(--card);border:1px solid var(--line);border-radius:6px;
+   overflow:hidden;max-width:520px;min-width:70px}
+ .ffill{height:100%;border-radius:5px;background:linear-gradient(90deg,var(--accent),#7c83ff);
+   box-shadow:0 0 14px rgba(88,166,255,.3);transition:width .5s ease}
+ .fval{flex:0 0 auto;width:96px;text-align:right;font:600 12.5px var(--mono);font-variant-numeric:tabular-nums}
+ .frpd{flex:0 0 auto;width:128px;text-align:right;color:var(--mut);font-size:11.5px;font-family:var(--mono)}
+ .ftop{flex:0 0 auto;width:160px;color:var(--dim);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ @media(max-width:680px){.frpd,.ftop{display:none}}
+ /* ---- detail modal ---- */
+ #detail{position:fixed;inset:0;background:rgba(4,6,10,.74);backdrop-filter:blur(4px);
+   -webkit-backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:18px;
+   z-index:50;animation:fade .18s ease}
  #detail[hidden]{display:none}
- .dwin{background:var(--card);border:1px solid var(--line);border-radius:8px;
-       width:min(98vw,1700px);max-height:94vh;display:flex;flex-direction:column;overflow:hidden}
- .dbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 12px;border-bottom:1px solid var(--line)}
- .dbar .nm{font-weight:600}
- .dh{display:flex;gap:6px;flex-wrap:wrap}
- .dh.sep{padding-left:10px;margin-left:2px;border-left:1px solid var(--line)}
- .dh button,#dclose{background:var(--bg);border:1px solid var(--line);color:var(--fg);
-       border-radius:6px;padding:3px 9px;font:inherit;cursor:pointer}
- #dpanels button{padding:2px 7px;font-size:11px;color:var(--mut)}
- .dh button.on{border-color:var(--ok);color:#7ee2a8}
- #dclose{margin-left:auto;font-weight:700}
+ .dwin{background:linear-gradient(180deg,var(--card),var(--bg2));border:1px solid var(--line2);
+   border-radius:14px;width:min(98vw,1700px);max-height:94vh;display:flex;flex-direction:column;
+   overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.6)}
+ .dbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:11px 14px;border-bottom:1px solid var(--line)}
+ .dbar .nm{font-weight:700;font-size:15px;display:flex;align-items:center;gap:8px}
+ .dh{display:flex;gap:4px;flex-wrap:wrap;align-items:center}
+ .dh.sep{padding-left:11px;margin-left:3px;border-left:1px solid var(--line2)}
+ .dh button,#dclose{background:var(--card);border:1px solid var(--line2);color:var(--mut);
+   border-radius:7px;padding:4px 10px;font:500 12px var(--sans);cursor:pointer;transition:.12s}
+ .dh button:hover{color:var(--fg);border-color:var(--accent)}
+ #dpanels button{padding:3px 8px;font-size:11px}
+ .dh button.on{border-color:var(--accent);color:var(--accent);background:var(--accent-bg)}
+ #dclose{margin-left:auto;font-weight:700;width:30px;height:30px;padding:0;display:flex;
+   align-items:center;justify-content:center;border-radius:8px}
+ #dclose:hover{color:var(--downf);border-color:var(--down)}
  .dimg{overflow:auto;background:var(--bg);min-height:120px}
  #dwrap{position:relative;width:100%}
  #dwrap img{display:block;width:100%;height:auto}
  #dover{position:absolute;inset:0}
  #dover .p{position:absolute;cursor:help}
- #dmsg{padding:28px;color:var(--mut)}
- #dplot{margin:0;padding:8px 10px;background:var(--card);color:#c9d1d9;overflow-y:auto;overflow-x:hidden;
-        height:80vh;font:12px/1.05 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre}
+ #dmsg{padding:40px;color:var(--dim);text-align:center;font-style:italic}
+ #dplot{margin:0;padding:10px 12px;background:var(--bg);color:var(--fg);overflow-y:auto;overflow-x:hidden;
+        height:80vh;font:12px/1.05 var(--mono);white-space:pre}
  #dplot[hidden]{display:none}
  /* braille glyphs (plotext markers) come from a fallback font that is wider than the mono
     cell, which drifts every data row out of line with the ascii axes. --brls is measured at
     render time (mono cell minus braille cell, so negative) to pull each braille char back to
     exactly one cell -> the curve lines up again. */
  #dplot .br{letter-spacing:var(--brls,0px)}
- .tabs{display:flex;gap:4px}
- .tab{padding:3px 10px;border:1px solid var(--line);border-radius:6px;cursor:pointer;color:var(--mut);font-size:12px}
- .tab.on{border-color:var(--ok);color:#7ee2a8}
- .view[hidden]{display:none}
- #rank,#heat,#risk{padding:10px 14px}
- #heat{overflow-x:auto}
- .spark{flex:0 0 auto;width:50px;height:15px;opacity:.9}
- #rank table{border-collapse:collapse;width:100%;font-size:12px}
- #rank th,#rank td{padding:4px 12px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
- #rank th:first-child,#rank td:first-child{text-align:left}
- #rank th{color:var(--mut);font-weight:500}
- #rank tbody tr{cursor:pointer}#rank tbody tr:hover{background:var(--card)}
- #table{padding:8px 12px;overflow-x:auto}
- #table table{border-collapse:collapse;width:100%;font-size:12px}
- #table th,#table td{padding:5px 11px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
- #table th:first-child,#table td:first-child,#table th:nth-child(2),#table td:nth-child(2){text-align:left}
- #table thead th{color:var(--mut);font-weight:500;text-transform:uppercase;font-size:11px;letter-spacing:.4px}
- #table tbody tr{cursor:pointer}#table tbody tr:hover{background:#161b24}
- #table .st{width:9px;height:9px;border-radius:50%;display:inline-block;vertical-align:middle}
- #table td.bad{color:#ff7b72}#table td.warnv{color:#e9c46a}
- #table td .spark{vertical-align:middle}
- #table tr.stale td:not(:first-child):not(:nth-child(2)){color:var(--stale)}
- .hbar{display:flex;gap:14px;margin-bottom:10px}
- .hrow{display:flex;align-items:center;gap:8px;margin-bottom:2px}
- .hname{width:120px;flex:0 0 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;font-size:12px}
- .hcells{display:flex;gap:1px}
- .hcell{width:13px;height:13px;border-radius:2px;flex:0 0 auto}
- .risk{display:flex;gap:10px;align-items:baseline;padding:3px 6px;border-radius:5px;cursor:pointer}
- .risk:hover{background:var(--card)}
- .rk{flex:0 0 auto;width:90px;color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.5px}
- .rn{flex:0 0 auto;width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
- .rd{color:var(--mut);font-size:12px}
- .risk.throttle .rk,.risk.disk .rk,.risk.sev3 .rk{color:#ff7b72}
- .risk.sd-wear .rk,.risk.sev2 .rk{color:#e9c46a}
- .view h2{font-size:12px;color:var(--mut);font-weight:500;letter-spacing:.5px;text-transform:uppercase;margin:14px 0 6px}
- .empty{color:var(--mut);padding:10px 4px}
- #cost{padding:10px 14px}
- .fnote{color:var(--mut);font-size:12px;margin-bottom:12px}
- .frow{display:flex;align-items:center;gap:10px;margin-bottom:4px}
- .fname{width:120px;flex:0 0 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
- .fbar{flex:1 1 auto;height:14px;background:var(--line);border-radius:3px;overflow:hidden;max-width:460px}
- .ffill{height:100%;background:linear-gradient(90deg,#2ea043,#3fb950)}
- .fval{flex:0 0 auto;width:96px;text-align:right;font-size:12px}
- .frpd{flex:0 0 auto;width:120px;text-align:right;color:var(--mut);font-size:12px}
- .ftop{flex:0 0 auto;width:150px;color:var(--mut);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
- .dfoot{padding:6px 12px;border-top:1px solid var(--line);color:var(--mut);font-size:12px}
+ .dfoot{padding:9px 14px;border-top:1px solid var(--line);color:var(--dim);font-size:11.5px;font-family:var(--mono)}
 </style></head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+ <linearGradient id="gOk" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3fb950" stop-opacity=".5"/><stop offset="1" stop-color="#3fb950" stop-opacity="0"/></linearGradient>
+ <linearGradient id="gWarn" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e3b341" stop-opacity=".5"/><stop offset="1" stop-color="#e3b341" stop-opacity="0"/></linearGradient>
+ <linearGradient id="gDown" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f85149" stop-opacity=".5"/><stop offset="1" stop-color="#f85149" stop-opacity="0"/></linearGradient>
+ <linearGradient id="gIngest" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7c83ff" stop-opacity=".5"/><stop offset="1" stop-color="#7c83ff" stop-opacity="0"/></linearGradient>
+</defs></svg>
 <header>
- <h1>smokemon <b>FLEET</b></h1>
- <div class="tabs" id="tabs"></div>
- <div class="pills" id="pills"></div>
- <input id="q" placeholder="filter nodes…" autocomplete="off">
- <span class="meta" id="meta">connecting…</span>
+ <div class="hrow">
+  <div class="brand">
+   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#58a6ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h3.5l2-7 4 15 3-10 1.5 3H22"/></svg>
+   <h1>smokemon <b>FLEET</b></h1>
+  </div>
+  <div class="tabs" id="tabs"></div>
+  <span class="meta" id="meta">connecting…</span>
+ </div>
+ <div class="hrow2">
+  <div class="healthband">
+   <span class="hb-label">fleet health</span>
+   <div class="hb-track" id="hbtrack">
+    <span class="hb-seg healthy" id="hb-healthy"></span>
+    <span class="hb-seg warn" id="hb-warn"></span>
+    <span class="hb-seg down" id="hb-down"></span>
+    <span class="hb-seg stale" id="hb-stale"></span>
+   </div>
+  </div>
+  <div class="pills" id="pills"></div>
+  <input id="q" placeholder="filter nodes…" autocomplete="off">
+ </div>
 </header>
 <div id="err"></div>
 <div id="grid" class="view"></div>
@@ -448,6 +757,7 @@ _DASHBOARD_HTML = """<!doctype html>
 <div id="rank" class="view" hidden></div>
 <div id="heat" class="view" hidden></div>
 <div id="risk" class="view" hidden></div>
+<div id="svc" class="view" hidden></div>
 <div id="cost" class="view" hidden></div>
 <div id="detail" hidden>
  <div class="dwin">
@@ -478,60 +788,205 @@ function fmtAge(a){if(a==null)return"?";if(a<90)return a+"s";if(a<5400)return Ma
 function fmtDur(s){if(!s)return"-";if(s<90)return Math.round(s)+"s";if(s<5400)return Math.round(s/60)+"m";if(s<172800)return(s/3600).toFixed(1)+"h";return Math.round(s/86400)+"d";}
 function tago(ts){return fmtAge(Math.round(Date.now()/1000-ts))+" ago";}
 let sparks={};
-// inline RTT sparkline (last ~2h) as a tiny SVG polyline; no matplotlib, scales with the row.
-function sparkSvg(node){
+// inline RTT sparkline (last ~2h) as a gradient-filled area + line (vanilla SVG, no deps). the
+// fill gradient (#gOk/#gWarn/#gDown) and stroke colour key off the latest value. every coordinate
+// is a number we compute, so this never interpolates node-controlled strings into the markup.
+function sparkArea(node,cls){
  const s=sparks[node];if(!s)return"";
  const pv=s.map((v,i)=>[i,v]).filter(p=>p[1]!=null);
  if(pv.length<2)return"";
  const xmax=s.length-1,ys=pv.map(p=>p[1]),lo=Math.min(...ys),hi=Math.max(...ys),rng=(hi-lo)||1;
- const pts=pv.map(p=>(p[0]/xmax*48+1).toFixed(1)+","+(14-(p[1]-lo)/rng*12).toFixed(1)).join(" ");
- const last=ys[ys.length-1],col=last>250?"#f85149":last>120?"#d29922":"#3fb950";
- return `<svg class="spark" viewBox="0 0 50 15" preserveAspectRatio="none" title="rtt ${Math.round(last)}ms"><polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1"/></svg>`;
+ const X=p=>(p[0]/xmax*100).toFixed(1),Y=p=>(28-(p[1]-lo)/rng*26).toFixed(1);
+ const pts=pv.map(p=>X(p)+" "+Y(p));
+ const last=ys[ys.length-1],g=last>250?"gDown":last>120?"gWarn":"gOk",
+  col=last>250?"#ff7b72":last>120?"#e3b341":"#56d364";
+ return `<svg class="${cls||"spark"}" viewBox="0 0 100 30" preserveAspectRatio="none">`
+  +`<title>rtt ${Math.round(last)}ms</title>`
+  +`<path d="M${X(pv[0])},30 L${pts.join(" L")} L${X(pv[pv.length-1])},30 Z" fill="url(#${g})"/>`
+  +`<path d="M${pts.join(" L")}" fill="none" stroke="${col}" stroke-width="1.5" vector-effect="non-scaling-stroke"/></svg>`;
 }
 function render(){
- const term=q.value.trim().toLowerCase();
- const nodes=last.nodes.filter(n=>!term||n.node.toLowerCase().includes(term));
- if(view==="table")renderTable(nodes);
- grid.innerHTML=nodes.map(n=>{
-  const lossBad=n.loss_pct!=null&&n.loss_pct>0?" bad":"";
-  const right=n.state==="stale"
-   ?`<span class="m">${fmtAge(n.age_s)} ago</span>`
-   :`<span class="m">${fmtRtt(n.rtt_ms)}</span><span class="m${lossBad}">${fmtLoss(n.loss_pct)}</span>`;
-  return `<div class="node ${n.state}" data-node="${esc(n.node)}" title="${esc(n.node)} · cpu ${n.cpu??"?"}% · mem ${n.mem??"?"}% · ${n.temp??"?"}°C · ${fmtAge(n.age_s)} ago · click for graphs">`
-   +`<span class="dot s-${n.state}"></span><span class="name">${esc(n.node)}</span>${sparkSvg(n.node)}${right}</div>`;
- }).join("");
- const c=last.counts||{};
- pills.innerHTML=[["healthy"],["warn"],["down"],["stale"]]
-  .map(([k])=>`<span class="pill ${k}"><span class="dot s-${k}"></span>${c[k]||0}</span>`).join("");
+ // header pills + health band always reflect the latest fleet-status counts (any active view)
+ const c=last.counts||{},total=(last.nodes||[]).length;
+ pills.innerHTML=[["healthy"],["warn"],["down"],["stale"]].map(([k])=>
+  `<span class="pill ${k}"><span class="dot s-${k}"></span><span class="pc">${c[k]||0}</span><span class="pl">${k}</span></span>`).join("");
+ ["healthy","warn","down","stale"].forEach(k=>{const el=document.getElementById("hb-"+k);
+  if(el)el.style.width=(total?((c[k]||0)/total*100):0).toFixed(2)+"%";});
+ if(view==="grid")renderGrid();
+ else if(view==="table"){
+  const term=q.value.trim().toLowerCase();
+  renderTable((last.nodes||[]).filter(n=>!term||n.node.toLowerCase().includes(term)));
+ }
 }
-// table view: one row per host with ALL details on a single line (worst-first, same order as the
-// grid). live off the fleet-status poll + the spark/cost caches; click a row to open the graphs.
-function renderTable(nodes){
- const T=viewEl("table");
- if(!nodes.length){T.innerHTML=`<div class="empty">no data</div>`;return;}
- const cls=(v,warn,bad)=>v==null?"":v>=bad?"bad":v>=warn?"warnv":"";
- const pct=v=>v==null?"--":Math.round(v)+"%";
+// ---- fleet overview (grid tab): status donut + ingest area gauge + KPI cards ------------
+// static skeleton (no dynamic data -> safe innerHTML once); all live values are written via
+// textContent / setAttribute below so dynamic strings are never interpolated into markup.
+const GRID_SKELETON=`<div class="ov"><div class="ov-hero">`
+ +`<div class="card"><div class="card-h">fleet status</div><div class="donut-wrap">`
+ +`<svg class="donut" viewBox="0 0 120 120">`
+ +`<circle class="track" cx="60" cy="60" r="52"/>`
+ +`<circle class="seg healthy" cx="60" cy="60" r="52" data-k="healthy"/>`
+ +`<circle class="seg warn" cx="60" cy="60" r="52" data-k="warn"/>`
+ +`<circle class="seg down" cx="60" cy="60" r="52" data-k="down"/>`
+ +`<circle class="seg stale" cx="60" cy="60" r="52" data-k="stale"/>`
+ +`<text class="donut-total" id="donut-total" x="60" y="57" text-anchor="middle">--</text>`
+ +`<text class="donut-cap" x="60" y="74" text-anchor="middle">nodes</text></svg>`
+ +`<div class="donut-legend">`
+ +["healthy","warn","down","stale"].map(k=>`<div class="lg ${k}"><span class="dot s-${k}"></span><span class="lg-label">${k}</span><span class="lg-count" data-k="${k}">0</span></div>`).join("")
+ +`</div></div></div>`
+ +`<div class="card ingest-card"><div class="card-h">hub ingest<span class="card-sub">realtime throughput</span></div>`
+ +`<div class="gauge-row"><span class="gval" id="ig-rate">--</span><span class="gunit">KB/s</span></div>`
+ +`<svg class="igspark" id="ig-spark" viewBox="0 0 100 36" preserveAspectRatio="none">`
+ +`<path id="ig-area" fill="url(#gIngest)"/>`
+ +`<polyline id="ig-poly" fill="none" stroke="#7c83ff" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`
+ +`<circle id="ig-dot" r="0" fill="#9ea4ff"/></svg>`
+ +`<span class="gsub" id="ig-sub">waiting for ingest…</span></div>`
+ +`</div><div class="kpis" id="agg-tiles"></div></div>`;
+const GRID_TILES=[["nodes","nodes"],["rtt","avg rtt"],["loss","avg loss"],["cpu","avg cpu"],
+ ["mem","avg mem"],["temp","max temp"],["ship","ship / day"],["rows","rows / day"]];
+const DONUT_C=2*Math.PI*52;  // donut ring circumference (r=52)
+let gridBuilt=false,igRate,igSub,igArea,igPoly,igDot,tileVals={},meterFills={},donutSegs={},donutTotal,legendCounts={};
+function buildGrid(){
+ grid.innerHTML=GRID_SKELETON;
+ igRate=document.getElementById("ig-rate");igSub=document.getElementById("ig-sub");
+ igArea=document.getElementById("ig-area");igPoly=document.getElementById("ig-poly");igDot=document.getElementById("ig-dot");
+ donutTotal=document.getElementById("donut-total");donutSegs={};legendCounts={};
+ grid.querySelectorAll(".donut .seg").forEach(c=>donutSegs[c.dataset.k]=c);
+ grid.querySelectorAll(".lg-count").forEach(c=>legendCounts[c.dataset.k]=c);
+ const tc=document.getElementById("agg-tiles");tileVals={};meterFills={};
+ GRID_TILES.forEach(([k,label])=>{
+  const card=document.createElement("div");card.className="kpi";
+  const v=document.createElement("div");v.className="tv";v.textContent="--";
+  const l=document.createElement("div");l.className="tl";l.textContent=label;
+  card.appendChild(v);card.appendChild(l);
+  if(k==="cpu"||k==="mem"){const m=document.createElement("div");m.className="meter";
+   const f=document.createElement("div");f.className="meter-fill";m.appendChild(f);card.appendChild(m);meterFills[k]=f;}
+  tc.appendChild(card);tileVals[k]=v;
+ });
+ gridBuilt=true;
+}
+function kpiTone(v,warn,bad){return v==null?"":v>=bad?"bad":v>=warn?"warn":"ok";}
+function setKpi(k,text,tone){const v=tileVals[k];v.textContent=text;
+ const card=v.parentElement;card.classList.remove("ok","warn","bad");if(tone)card.classList.add(tone);}
+function renderGrid(){
+ if(!gridBuilt)buildGrid();
+ const ns=last.nodes||[],c=last.counts||{},total=ns.length;
+ const num=a=>a.filter(v=>v!=null),avg=a=>a.length?a.reduce((s,v)=>s+v,0)/a.length:null;
+ const rtts=num(ns.map(x=>x.rtt_ms)),losses=num(ns.map(x=>x.loss_pct)),
+  cpus=num(ns.map(x=>x.cpu)),mems=num(ns.map(x=>x.mem)),temps=num(ns.map(x=>x.temp));
+ // donut: stacked arcs via dasharray + offset (the css transition animates the change)
+ donutTotal.textContent=total;let off=0;
+ ["healthy","warn","down","stale"].forEach(k=>{const frac=total?((c[k]||0)/total):0,seg=donutSegs[k];
+  if(seg){seg.setAttribute("stroke-dasharray",(frac*DONUT_C).toFixed(2)+" "+DONUT_C.toFixed(2));
+   seg.setAttribute("stroke-dashoffset",(-off*DONUT_C).toFixed(2));}
+  off+=frac;if(legendCounts[k])legendCounts[k].textContent=c[k]||0;});
+ // kpi cards (values + semantic colour; cpu/mem also get a saturation meter)
+ tileVals.nodes.textContent=total;
+ setKpi("rtt",rtts.length?Math.round(avg(rtts))+"ms":"--",rtts.length?kpiTone(avg(rtts),120,250):"");
+ setKpi("loss",losses.length?avg(losses).toFixed(1)+"%":"--",losses.length?kpiTone(avg(losses),1,5):"");
+ setKpi("temp",temps.length?Math.round(Math.max(...temps))+"°":"--",temps.length?kpiTone(Math.max(...temps),70,80):"");
+ const cpuA=cpus.length?avg(cpus):null,memA=mems.length?avg(mems):null;
+ setKpi("cpu",cpuA==null?"--":Math.round(cpuA)+"%",cpuA==null?"":kpiTone(cpuA,70,90));
+ setKpi("mem",memA==null?"--":Math.round(memA)+"%",memA==null?"":kpiTone(memA,75,90));
+ if(meterFills.cpu)meterFills.cpu.style.width=(cpuA==null?0:Math.max(0,Math.min(100,cpuA)))+"%";
+ if(meterFills.mem)meterFills.mem.style.width=(memA==null?0:Math.max(0,Math.min(100,memA)))+"%";
+ const fv=Object.values(foot);
+ if(fv.length){
+  const sd=fv.reduce((s,x)=>s+(x.wire_bytes_per_day!=null?x.wire_bytes_per_day:(x.wire_bytes||0)),0);
+  const rd=fv.reduce((s,x)=>s+(x.rows_per_day!=null?x.rows_per_day:(x.rows||0)),0);
+  tileVals.ship.textContent=fmtKB(sd);tileVals.rows.textContent=fmtK(Math.round(rd));
+ }else{tileVals.ship.textContent="--";tileVals.rows.textContent="--";}
+ renderIngest();
+}
+// live ingest gauge: current KB/s + a 15-min wire-bytes area chart from /api/ingest-rate.
+let ingest=null;
+function renderIngest(){
+ if(view!=="grid")return;
+ if(!gridBuilt)buildGrid();
+ const s=(ingest&&ingest.series_bytes)||[];
+ if(!ingest||s.length<2){igRate.textContent="--";igSub.textContent="waiting for ingest…";
+  igArea.setAttribute("d","");igPoly.setAttribute("points","");igDot.setAttribute("r","0");return;}
+ const kbs=(ingest.bytes_per_s||0)/1024;
+ igRate.textContent=kbs>=100?Math.round(kbs):kbs>=10?kbs.toFixed(1):kbs.toFixed(2);
+ const mins=Math.round((ingest.window_s||900)/60);
+ igSub.textContent=`${(ingest.rows_per_s||0).toFixed(1)} rows/s · ${ingest.posts||0} posts/${mins}m · last `
+  +(ingest.last_ts?tago(ingest.last_ts):"never");
+ const n=s.length-1,hi=Math.max(...s,1),X=i=>(i/n*100).toFixed(2),Y=v=>(34-(v/hi)*32).toFixed(2);
+ const pts=s.map((v,i)=>X(i)+" "+Y(v));
+ igArea.setAttribute("d","M0,36 L"+pts.join(" L")+" L100,36 Z");
+ igPoly.setAttribute("points",s.map((v,i)=>X(i)+","+Y(v)).join(" "));
+ const lv=s[s.length-1],live=Math.max(...s)>0;
+ igDot.setAttribute("cx",X(n));igDot.setAttribute("cy",Y(lv));igDot.setAttribute("r",live?"2.4":"0");
+ igPoly.setAttribute("stroke",live?"#7c83ff":"#566071");
+}
+async function ingestTick(){try{const r=await fetch("/api/ingest-rate",{cache:"no-store"});
+ if(r.ok){ingest=await r.json();if(view==="grid")renderIngest();}}catch(e){}}
+// per-node view (table tab): a sortable table with inline cpu/mem meters + RTT trend sparklines,
+// or a status-tile grid (layout toggle). live off the fleet-status poll + the spark/cost caches;
+// click a row/tile to open the graphs. node-controlled strings go through esc() before innerHTML.
+let nodeLayout="table",tableSort={key:"",dir:-1};
+function sortVal(n,k){
+ if(k==="node")return n.node.toLowerCase();
+ if(k==="state")return ({down:0,stale:1,warn:2,healthy:3})[n.state];
+ if(k==="ship"){const f=foot[n.node]||{};return f.wire_bytes_per_day!=null?f.wire_bytes_per_day:(f.wire_bytes||0);}
+ if(k==="rows"){const f=foot[n.node]||{};return f.rows_per_day!=null?f.rows_per_day:(f.rows||0);}
+ return n[k];
+}
+function meterCell(v,warn,bad){if(v==null)return "--";
+ const t=v>=bad?"bad":v>=warn?"warn":"",w=Math.max(0,Math.min(100,v));
+ return `<span class="mini ${t}"><span class="mbar"><i style="width:${w.toFixed(0)}%"></i></span><b>${Math.round(v)}%</b></span>`;}
+function tableHtml(nodes){
+ const tcls=(v,warn,bad)=>v==null?"":v>=bad?"bad":v>=warn?"warnv":"";
+ const cols=[["state",""],["node","node"],["rtt_ms","rtt"],["loss_pct","loss"],["cpu","cpu"],["mem","mem"],
+  ["temp","temp"],["_trend","trend"],["age_s","seen"],["rows","rows/d"],["ship","ship/d"]];
+ const head=cols.map(([k,l])=>{const sortable=k!=="_trend"&&k!=="state";
+  const ar=tableSort.key===k?`<span class="ar">${tableSort.dir>0?"▲":"▼"}</span>`:"";
+  return `<th${sortable?` data-sort="${k}"`:""}>${esc(l)} ${ar}</th>`;}).join("");
  const body=nodes.map(n=>{
   const f=foot[n.node]||{},sd=f.wire_bytes_per_day!=null?f.wire_bytes_per_day:f.wire_bytes;
-  const lossBad=n.loss_pct!=null&&n.loss_pct>0;
-  const rttCls=n.rtt_ms==null?"":n.rtt_ms>250?"bad":n.rtt_ms>120?"warnv":"";
   return `<tr class="${n.state}" data-node="${esc(n.node)}">`
-   +`<td><span class="st s-${n.state}"></span></td>`
-   +`<td>${esc(n.node)}</td>`
-   +`<td class="${rttCls}">${fmtRtt(n.rtt_ms)}</td>`
-   +`<td class="${lossBad?"bad":""}">${n.loss_pct==null?"--":Math.round(n.loss_pct)+"%"}</td>`
-   +`<td class="${cls(n.cpu,70,90)}">${pct(n.cpu)}</td>`
-   +`<td class="${cls(n.mem,75,90)}">${pct(n.mem)}</td>`
-   +`<td class="${cls(n.temp,70,80)}">${n.temp==null?"--":Math.round(n.temp)+"°"}</td>`
-   +`<td>${sparkSvg(n.node)||"<span style='color:var(--mut)'>--</span>"}</td>`
+   +`<td class="stcell"><span class="st s-${n.state}" title="${esc(n.state)}"></span></td>`
+   +`<td class="tname">${esc(n.node)}</td>`
+   +`<td class="${n.rtt_ms==null?"":n.rtt_ms>250?"bad":n.rtt_ms>120?"warnv":""}">${fmtRtt(n.rtt_ms)}</td>`
+   +`<td class="${n.loss_pct!=null&&n.loss_pct>0?"bad":""}">${n.loss_pct==null?"--":Math.round(n.loss_pct)+"%"}</td>`
+   +`<td>${meterCell(n.cpu,70,90)}</td>`
+   +`<td>${meterCell(n.mem,75,90)}</td>`
+   +`<td class="${tcls(n.temp,70,80)}">${n.temp==null?"--":Math.round(n.temp)+"°"}</td>`
+   +`<td>${sparkArea(n.node)||"<span style='color:var(--dim)'>--</span>"}</td>`
    +`<td>${fmtAge(n.age_s)}</td>`
    +`<td>${fmtK(f.rows_per_day!=null?f.rows_per_day:f.rows)}</td>`
-   +`<td>${sd==null?"--":fmtKB(sd)+(f.wire_bytes_per_day!=null?"/d":"")}</td>`
-   +`</tr>`;
+   +`<td>${sd==null?"--":fmtKB(sd)+(f.wire_bytes_per_day!=null?"/d":"")}</td></tr>`;
  }).join("");
- T.innerHTML=`<table><thead><tr><th></th><th>node</th><th>rtt</th><th>loss</th><th>cpu</th>`
-  +`<th>mem</th><th>temp</th><th>trend</th><th>seen</th><th>rows/d</th><th>ship/d</th></tr></thead>`
-  +`<tbody>${body}</tbody></table>`;
+ return `<table class="grid-t"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+}
+function tilesHtml(nodes){
+ return `<div class="tilegrid">`+nodes.map(n=>{
+  const rc=n.rtt_ms==null?"":n.rtt_ms>250?"bad":n.rtt_ms>120?"warnv":"";
+  return `<div class="ntile ${n.state}" data-node="${esc(n.node)}">`
+   +`<div class="ntile-h"><span class="st s-${n.state}"></span>`
+   +`<span class="nm">${esc(n.node)}</span><span class="chip ${n.state}">${esc(n.state)}</span></div>`
+   +(sparkArea(n.node,"ntile-spark")||`<div class="ntile-spark"></div>`)
+   +`<div class="ntile-m">`
+   +`<span class="${rc}">rtt <b>${fmtRtt(n.rtt_ms)}</b></span>`
+   +`<span class="${n.loss_pct>0?"bad":""}">loss <b>${n.loss_pct==null?"--":Math.round(n.loss_pct)+"%"}</b></span>`
+   +`<span>cpu <b>${n.cpu==null?"--":Math.round(n.cpu)+"%"}</b></span>`
+   +`<span>mem <b>${n.mem==null?"--":Math.round(n.mem)+"%"}</b></span>`
+   +(n.temp==null?"":`<span>temp <b>${Math.round(n.temp)}°</b></span>`)
+   +`<span>seen <b>${fmtAge(n.age_s)}</b></span></div></div>`;}).join("")+`</div>`;
+}
+function renderTable(nodes){
+ const T=viewEl("table");
+ const bar=`<div class="nodebar"><div class="seg-ctl" id="layout-ctl">`
+  +`<button data-l="table" class="${nodeLayout==="table"?"on":""}">table</button>`
+  +`<button data-l="tiles" class="${nodeLayout==="tiles"?"on":""}">tiles</button></div>`
+  +`<span class="cnt">${nodes.length} node${nodes.length===1?"":"s"}</span></div>`;
+ if(!nodes.length){T.innerHTML=bar+`<div class="empty">no nodes reporting yet</div>`;return;}
+ let sorted=nodes;
+ if(tableSort.key){const k=tableSort.key,d=tableSort.dir;sorted=nodes.slice().sort((a,b)=>{
+  const va=sortVal(a,k),vb=sortVal(b,k);
+  if(va==null&&vb==null)return 0;if(va==null)return 1;if(vb==null)return -1;
+  return (va<vb?-1:va>vb?1:0)*d;});}
+ T.innerHTML=bar+(nodeLayout==="tiles"?tilesHtml(sorted):tableHtml(sorted));
 }
 async function tick(){
  try{
@@ -546,7 +1001,7 @@ q.addEventListener("input",render);
 
 // ---- view tabs: grid (live) · ranking · heatmap · risks. Only the active non-grid view
 // polls (slow, 15s); grid status + sparklines + header pills always refresh. -------------
-const VIEWS=[["grid","grid"],["table","table"],["rank","ranking"],["heat","heatmap"],["risk","risks"],["cost","cost"]];
+const VIEWS=[["grid","grid"],["table","table"],["rank","ranking"],["heat","heatmap"],["risk","risks"],["svc","services"],["cost","cost"]];
 let view="grid",heatMetric="loss",heatHours=24;
 // measured ship-cost cache (/api/cost): actual compressed bytes each node pushed over the wire,
 // per node. shared by cost view, ranking columns and the modal stat line. cached ~25s.
@@ -563,10 +1018,11 @@ tabs.innerHTML=VIEWS.map(([id,l])=>`<div class="tab" data-v="${id}">${l}</div>`)
 function setView(v){view=v;
  VIEWS.forEach(([id])=>viewEl(id).hidden=(id!==v));
  tabs.querySelectorAll(".tab").forEach(t=>t.classList.toggle("on",t.dataset.v===v));
- q.style.display=(v==="grid"||v==="table")?"":"none";
+ q.style.display=(v==="table")?"":"none";  // filter only applies to the per-node table now
  refreshView();}
-function refreshView(){if(view==="rank")loadRank();else if(view==="heat")loadHeat();else if(view==="risk")loadRisk();else if(view==="cost")loadCost();
- else if(view==="table"){render();loadFoot().then(render);}}
+function refreshView(){if(view==="rank")loadRank();else if(view==="heat")loadHeat();else if(view==="risk")loadRisk();else if(view==="cost")loadCost();else if(view==="svc")loadServices();
+ else if(view==="table"){render();loadFoot().then(render);}
+ else if(view==="grid"){render();ingestTick();loadFoot().then(()=>{if(view==="grid")renderGrid();});}}
 tabs.addEventListener("click",e=>{if(e.target.dataset.v)setView(e.target.dataset.v);});
 
 // open a node's graph modal from any view's [data-node] row
@@ -577,8 +1033,15 @@ function nodeClick(box){box.addEventListener("click",e=>{const el=e.target.close
 async function loadRank(){await loadFoot();try{const r=await fetch("/api/fleet?hours=24",{cache:"no-store"});if(!r.ok)return;
  const rows=(await r.json()).fleet||[];
  const body=rows.map(x=>{const f=foot[x.node]||{},sd=f.wire_bytes_per_day!=null?f.wire_bytes_per_day:f.wire_bytes;
-  return `<tr data-node="${esc(x.node)}"><td>${esc(x.node)}</td><td>${x.uptime_pct==null?"--":x.uptime_pct.toFixed(1)}</td><td>${fmtRtt(x.rtt_ms)}</td><td>${x.incidents}</td><td>${fmtDur(x.downtime_s)}</td><td>${fmtK(f.rows_per_day!=null?f.rows_per_day:f.rows)}</td><td>${sd==null?"--":fmtKB(sd)}</td></tr>`;}).join("");
- viewEl("rank").innerHTML=rows.length?`<table><thead><tr><th>node</th><th>uptime%</th><th>rtt</th><th>incidents</th><th>downtime</th><th>rows/day</th><th>ship/day</th></tr></thead><tbody>${body}</tbody></table>`:`<div class="empty">no data</div>`;
+  const up=x.uptime_pct,upCls=up==null?"":up>=99.5?"okv":up>=95?"warnv":"bad";
+  return `<tr data-node="${esc(x.node)}"><td class="tname">${esc(x.node)}</td>`
+   +`<td class="${upCls}">${up==null?"--":up.toFixed(1)+"%"}</td>`
+   +`<td class="${x.rtt_ms>250?"bad":x.rtt_ms>120?"warnv":""}">${fmtRtt(x.rtt_ms)}</td>`
+   +`<td class="${x.incidents?"warnv":""}">${x.incidents}</td>`
+   +`<td class="${x.downtime_s?"bad":""}">${fmtDur(x.downtime_s)}</td>`
+   +`<td>${fmtK(f.rows_per_day!=null?f.rows_per_day:f.rows)}</td>`
+   +`<td>${sd==null?"--":fmtKB(sd)}</td></tr>`;}).join("");
+ viewEl("rank").innerHTML=rows.length?`<table class="grid-t"><thead><tr><th>node</th><th>uptime</th><th>rtt</th><th>incidents</th><th>downtime</th><th>rows/day</th><th>ship/day</th></tr></thead><tbody>${body}</tbody></table>`:`<div class="empty">no ranking data in this window</div>`;
 }catch(e){}}
 
 // cost view: horizontal bars comparing MEASURED ship volume (actual gzip bytes on the wire) per
@@ -595,27 +1058,116 @@ function renderCost(){const ns=Object.values(foot);
  viewEl("cost").innerHTML=`<div class="fnote">actual compressed bytes shipped to the hub per node (gzip on the wire, measured from POST sizes, ~24h). top tables show where the volume goes.</div>${bars}`;
 }
 
-// heatmap (/api/heatmap): node×hour grid, metric+window switchable.
-function heatColor(v){if(v==null)return"#11151c";
- if(heatMetric==="loss")return v<=0?"#11251a":v<1?"#1f3a1f":v<5?"#5f5717":v<25?"#8a5a18":"#7a1f1f";
- return v<50?"#11251a":v<120?"#1f3a2a":v<250?"#5f5717":v<500?"#8a5a18":"#7a1f1f";}
+// heatmap (/api/heatmap): node×hour grid, metric+window switchable. a smooth interpolated colour
+// scale (calmer = cooler) plus a legend gradient and an hour axis, all derived from real values.
+const HEAT_STOPS={loss:[[0,"#0e2a1a"],[1,"#1f6f3a"],[5,"#caa21a"],[25,"#d2691e"],[100,"#e5484d"]],
+ rtt:[[0,"#0e2a1a"],[50,"#1f6f3a"],[120,"#caa21a"],[250,"#d2691e"],[600,"#e5484d"]]};
+function hexRgb(h){return [parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];}
+function heatColor(v){if(v==null)return "var(--card2)";
+ const st=HEAT_STOPS[heatMetric]||HEAT_STOPS.loss;
+ if(v<=st[0][0])return st[0][1];
+ for(let i=1;i<st.length;i++){if(v<=st[i][0]){const A=hexRgb(st[i-1][1]),B=hexRgb(st[i][1]),
+   t=(v-st[i-1][0])/((st[i][0]-st[i-1][0])||1);
+  return `rgb(${Math.round(A[0]+(B[0]-A[0])*t)},${Math.round(A[1]+(B[1]-A[1])*t)},${Math.round(A[2]+(B[2]-A[2])*t)})`;}}
+ return st[st.length-1][1];}
+function heatGradientCss(){const st=HEAT_STOPS[heatMetric]||HEAT_STOPS.loss,mx=st[st.length-1][0];
+ return "linear-gradient(90deg,"+st.map(s=>s[1]+" "+Math.round(s[0]/mx*100)+"%").join(",")+")";}
+function heatTip(n,ts,v){const t=new Date(ts*1000),hh=String(t.getHours()).padStart(2,"0");
+ const val=v==null?"no data":(heatMetric==="loss"?v+"% loss":v+" ms");
+ return esc(n+"  "+hh+":00  "+val);}
 async function loadHeat(){try{const r=await fetch(`/api/heatmap?metric=${heatMetric}&hours=${heatHours}`,{cache:"no-store"});if(!r.ok)return;
- const d=await r.json(),ns=Object.keys(d.nodes).sort();
- const ctl=`<div class="hbar"><span class="dh"><button data-m="loss" class="${heatMetric==="loss"?"on":""}">loss%</button><button data-m="rtt" class="${heatMetric==="rtt"?"on":""}">rtt</button></span><span class="dh">${[[6,"6h"],[24,"24h"],[168,"7d"]].map(([h,l])=>`<button data-hh="${h}" class="${heatHours===h?"on":""}">${l}</button>`).join("")}</span></div>`;
- const rows=ns.map(n=>`<div class="hrow"><span class="hname" data-node="${esc(n)}">${esc(n)}</span><div class="hcells">${d.nodes[n].map(v=>`<div class="hcell" style="background:${heatColor(v)}" title="${v==null?"no data":(heatMetric==="loss"?v+"% loss":v+" ms")}"></div>`).join("")}</div></div>`).join("");
- viewEl("heat").innerHTML=ctl+(ns.length?rows:`<div class="empty">no data</div>`);
+ const d=await r.json(),ns=Object.keys(d.nodes).sort(),hrs=d.hours||[];
+ const tools=`<div class="heat-tools">`
+  +`<div class="btn-grp"><button data-m="loss" class="${heatMetric==="loss"?"on":""}">loss %</button><button data-m="rtt" class="${heatMetric==="rtt"?"on":""}">rtt</button></div>`
+  +`<div class="btn-grp">${[[6,"6h"],[24,"24h"],[168,"7d"]].map(([h,l])=>`<button data-hh="${h}" class="${heatHours===h?"on":""}">${l}</button>`).join("")}</div>`
+  +`<div class="heat-legend"><span>${heatMetric==="loss"?"0%":"0ms"}</span><span class="bar" style="background:${heatGradientCss()}"></span><span>${heatMetric==="loss"?"100%":"600ms+"}</span></div></div>`;
+ if(!ns.length){viewEl("heat").innerHTML=tools+`<div class="empty">no ping history in this window</div>`;return;}
+ const rows=ns.map(n=>`<div class="hrow"><span class="hname" data-node="${esc(n)}">${esc(n)}</span><div class="hcells">`
+  +d.nodes[n].map((v,i)=>`<div class="hcell" style="background:${heatColor(v)}" title="${heatTip(n,hrs[i],v)}"></div>`).join("")
+  +`</div></div>`).join("");
+ const axis=`<div class="haxis">`+hrs.map((ts,i)=>`<span>${i%6===0?new Date(ts*1000).getHours():""}</span>`).join("")+`</div>`;
+ viewEl("heat").innerHTML=tools+`<div class="heatgrid">`+rows+axis+`</div>`;
 }catch(e){}}
 viewEl("heat").addEventListener("click",e=>{const t=e.target;
  if(t.dataset.m){heatMetric=t.dataset.m;loadHeat();}else if(t.dataset.hh){heatHours=+t.dataset.hh;loadHeat();}});
 
-// risks (/api/risks): death-clocks (disk-full / SD-wear / throttle) + recent incident feed.
+// risks (/api/risks): death-clocks (disk-full / SD-wear / throttle) + recent incident feed,
+// as colour-coded cards with a per-kind glyph and the ETA / age emphasised on the right.
+const RISK_ICON={
+ disk:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>`,
+ "sd-wear":`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h9l4 4v14H6z"/><path d="M10 3v4M13 3v4M16 7v3"/></svg>`,
+ throttle:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13V5a2 2 0 0 1 4 0v8a4 4 0 1 1-4 0z"/></svg>`};
+function riskIcon(k){return RISK_ICON[k]||RISK_ICON.disk;}
 async function loadRisk(){try{const r=await fetch("/api/risks?hours=24",{cache:"no-store"});if(!r.ok)return;
  const d=await r.json(),cl=d.clocks||[],inc=d.incidents||[];
- const clh=cl.length?cl.map(c=>`<div class="risk ${c.kind}" data-node="${esc(c.node)}"><span class="rk">${esc(c.kind)}</span><span class="rn">${esc(c.node)}</span><span class="rd">${esc(c.detail)}</span></div>`).join(""):`<div class="empty">nothing projected to fail</div>`;
- const ih=inc.length?inc.map(i=>`<div class="risk sev${i.severity}" data-node="${esc(i.node)}"><span class="rk">${esc(i.klass)}</span><span class="rn">${esc(i.node)}</span><span class="rd">${esc(i.scope)} · ${esc(i.detail)} · ${tago(i.start)}</span></div>`).join(""):`<div class="empty">no incidents in window</div>`;
- viewEl("risk").innerHTML=`<h2>death clocks</h2>${clh}<h2>recent incidents</h2>${ih}`;
+ const clh=cl.length?cl.map(c=>{const eta=c.eta_s==null?"":fmtDur(c.eta_s);
+  return `<div class="risk ${esc(c.kind)}" data-node="${esc(c.node)}"><span class="ic">${riskIcon(c.kind)}</span>`
+   +`<span class="rk">${esc(c.kind)}</span><span class="rn">${esc(c.node)}</span>`
+   +`<span class="rd">${esc(c.detail)}</span>${eta?`<span class="reta">${esc(eta)}</span>`:""}</div>`;}).join(""):`<div class="empty">nothing projected to fail soon</div>`;
+ const ih=inc.length?inc.map(i=>`<div class="risk sev${i.severity}" data-node="${esc(i.node)}">`
+  +`<span class="rk">${esc(i.klass)}</span><span class="rn">${esc(i.node)}</span>`
+  +`<span class="rd">${esc(i.scope)} · ${esc(i.detail)}</span><span class="reta">${esc(tago(i.start))}</span></div>`).join(""):`<div class="empty">no incidents in window</div>`;
+ viewEl("risk").innerHTML=`<h2>death clocks <span class="cnt">${cl.length}</span></h2>${clh}<h2>recent incidents <span class="cnt">${inc.length}</span></h2>${ih}`;
 }catch(e){}}
-[viewEl("table"),viewEl("rank"),viewEl("heat"),viewEl("risk"),viewEl("cost")].forEach(nodeClick);
+// services (/api/services): fleet-wide latest docker / redis / pipeline telemetry as tables.
+// rows are click-through to the node graph modal (which has the matching time-series panels).
+async function loadServices(){try{const r=await fetch("/api/services",{cache:"no-store"});if(!r.ok)return;
+ renderServices(await r.json());}catch(e){}}
+function renderServices(d){
+ const S=viewEl("svc"),mb=v=>v==null?"--":Math.round(v)+"MB",pc=v=>v==null?"--":Math.round(v)+"%",
+  agec=a=>a==null?"?":fmtAge(a),sec=(l,n)=>`<h2>${l}<span class="cnt">${n}</span></h2>`;
+ let html="";
+ const dk=d.docker||[],ddown=d.docker_down||[];
+ if(dk.length||ddown.length){
+  const body=dk.map(c=>{const st=c.bad?"bad":(c.running?"ok":"warn");
+   const hl=c.health?` <span class="badge ${c.health==="unhealthy"?"bad":c.health==="healthy"?"ok":"warn"}">${esc(c.health)}</span>`:"";
+   return `<tr data-node="${esc(c.node)}"><td class="tname">${esc(c.node)}</td><td class="tname">${esc(c.name)}</td>`
+    +`<td style="text-align:left"><span class="badge ${st}">${esc(c.state||(c.running?"running":"stopped"))}</span>${hl}</td>`
+    +`<td class="${c.cpu_pct>80?"bad":c.cpu_pct>50?"warnv":""}">${pc(c.cpu_pct)}</td><td>${mb(c.mem_mb)}</td>`
+    +`<td class="${c.restart_count?"warnv":""}">${c.restart_count==null?"--":c.restart_count}</td>`
+    +`<td class="${c.oom_killed?"bad":""}">${c.oom_killed?"OOM":""}</td><td>${agec(c.age_s)}</td></tr>`;}).join("");
+  const dn=ddown.length?`<tr><td colspan="8" class="bad">daemon unreachable: ${esc(ddown.join(", "))}</td></tr>`:"";
+  html+=sec("docker containers",dk.length)+`<table class="svc-tbl"><thead><tr><th>node</th><th>container</th><th>state</th><th>cpu</th><th>mem</th><th>restarts</th><th>oom</th><th>seen</th></tr></thead><tbody>${body}${dn}</tbody></table>`;
+ }
+ const rd=d.redis||[];
+ if(rd.length){
+  const body=rd.map(x=>{const up=(x.connected||0)>=1;
+   const streams=(x.streams||[]).map(s=>`${esc(String(s.stream).split(":").pop())} ${s.xlen==null?0:s.xlen}${s.pending?"/"+s.pending+"p":""}`).join(", ");
+   return `<tr data-node="${esc(x.node)}"><td class="tname">${esc(x.node)}</td><td class="tname">${esc(x.instance||"redis")}</td>`
+    +`<td style="text-align:left"><span class="badge ${up?"ok":"bad"}">${up?"up":"down"}</span></td><td>${mb(x.used_memory_mb)}</td>`
+    +`<td>${x.connected_clients==null?"--":x.connected_clients}</td>`
+    +`<td class="${x.blocked_clients?"warnv":""}">${x.blocked_clients==null?"--":x.blocked_clients}</td>`
+    +`<td>${x.ops_per_sec==null?"--":Math.round(x.ops_per_sec)}</td>`
+    +`<td class="${x.evicted_keys?"warnv":""}">${x.evicted_keys==null?"--":x.evicted_keys}</td>`
+    +`<td style="text-align:left;color:var(--mut)">${esc(streams)}</td><td>${agec(x.age_s)}</td></tr>`;}).join("");
+  html+=sec("redis",rd.length)+`<table class="svc-tbl"><thead><tr><th>node</th><th>instance</th><th>state</th><th>mem</th><th>clients</th><th>blocked</th><th>ops/s</th><th>evicted</th><th>top streams</th><th>seen</th></tr></thead><tbody>${body}</tbody></table>`;
+ }
+ const pr=d.procs||[];
+ if(pr.length){
+  const body=pr.map(p=>{const up=(p.count||0)>0;
+   return `<tr data-node="${esc(p.node)}"><td class="tname">${esc(p.node)}</td><td class="tname">${esc(p.label)}</td>`
+    +`<td style="text-align:left"><span class="badge ${up?"ok":"bad"}">${up?"x"+p.count:"down"}</span></td>`
+    +`<td>${pc(p.cpu_pct)}</td><td>${mb(p.rss_mb)}</td><td>${p.uptime_s==null?"--":fmtDur(p.uptime_s)}</td>`
+    +`<td class="${p.restarts?"warnv":""}">${p.restarts==null?"--":p.restarts}</td><td>${agec(p.age_s)}</td></tr>`;}).join("");
+  html+=sec("watched processes",pr.length)+`<table class="svc-tbl"><thead><tr><th>node</th><th>process</th><th>state</th><th>cpu</th><th>rss</th><th>uptime</th><th>restarts</th><th>seen</th></tr></thead><tbody>${body}</tbody></table>`;
+ }
+ const st=d.streams||[];
+ if(st.length){
+  const body=st.map(s=>{const ok=!!s.ok;
+   return `<tr data-node="${esc(s.node)}"><td class="tname">${esc(s.node)}</td><td class="tname">${esc(s.url)}</td>`
+    +`<td style="text-align:left"><span class="badge ${ok?"ok":"bad"}">${ok?"serving":"down"}</span></td>`
+    +`<td>${s.latency_ms==null?"--":Math.round(s.latency_ms)+"ms"}</td>`
+    +`<td style="text-align:left;color:var(--mut)">${esc(s.status||"")}</td><td>${agec(s.age_s)}</td></tr>`;}).join("");
+  html+=sec("stream probes",st.length)+`<table class="svc-tbl"><thead><tr><th>node</th><th>endpoint</th><th>state</th><th>latency</th><th>status</th><th>seen</th></tr></thead><tbody>${body}</tbody></table>`;
+ }
+ S.innerHTML=html||`<div class="empty">no docker / redis / pipeline telemetry reported yet</div>`;
+}
+[viewEl("table"),viewEl("rank"),viewEl("heat"),viewEl("risk"),viewEl("svc"),viewEl("cost")].forEach(nodeClick);
+// per-node view: layout toggle (table/tiles) + click-to-sort column headers (re-renders in place).
+viewEl("table").addEventListener("click",e=>{
+ const lb=e.target.closest("[data-l]");if(lb){nodeLayout=lb.dataset.l;render();return;}
+ const th=e.target.closest("th[data-sort]");if(th&&th.dataset.sort){const k=th.dataset.sort;
+  if(tableSort.key===k)tableSort.dir*=-1;else{tableSort.key=k;tableSort.dir=(k==="node")?1:-1;}render();}});
 
 // per-node detail: embed the live PNG (same renderer as `smoke png`), refreshed every 15s
 // (matches the shipper cadence; data granularity is PING_INTERVAL=10s so no point going lower).
@@ -626,7 +1178,8 @@ const detail=document.getElementById("detail"),dgraph=document.getElementById("d
  dfoot=document.getElementById("dfoot"),dplot=document.getElementById("dplot"),
  dimg=document.getElementById("dimg"),dmode=document.getElementById("dmode");
 // render mode: png (matplotlib image) or plot (the TUI's plotext braille graphs as ANSI text).
-let dMode="png";
+// plot (braille) is the default — the granular terminal-style graphs open first; png is opt-in.
+let dMode="plot";
 dmode.innerHTML=[["png","png"],["plot","plot"]].map(([m,l])=>`<button data-m2="${m}">${l}</button>`).join("");
 // xterm 256-colour index -> rgb, for converting plotext's ANSI (only 0 + 38;5;N appear).
 function xterm256(n){
@@ -678,7 +1231,7 @@ function renderFoot(){if(!dNode){dfoot.textContent="";return;}const f=foot[dNode
 const HOURS=[[0.25,"15m"],[1,"1h"],[6,"6h"],[24,"24h"],[168,"7d"]],COLS=[[1,"1 col"],[2,"2 cols"],[3,"3 cols"]];
 // dSel: Set of enabled panel keys, or null = "all". dAvail: keys that actually have data
 // for this node (learned from the meta of the last full render), in render order.
-let dNode=null,dH=24,dC=2,dTimer=null,dSel=null,dAvail=[];
+let dNode=null,dH=0.25,dC=2,dTimer=null,dSel=null,dAvail=[];  // dH=0.25h = 15m default window
 dhours.innerHTML=HOURS.map(([h,l])=>`<button data-h="${h}">${l}</button>`).join("");
 dcols.innerHTML=COLS.map(([c,l])=>`<button data-c="${c}">${l}</button>`).join("");
 function selParam(){if(!dSel)return"all";const on=dAvail.filter(k=>dSel.has(k));return on.length===dAvail.length?"all":on.join(",");}
@@ -734,7 +1287,11 @@ async function paintPlot(){
  }catch(e){dplot.textContent="fetch error";}
 }
 function setMode(m){dMode=m;dimg.hidden=(m!=="png");dplot.hidden=(m!=="plot");syncCtl();paintActive();}
-function openDetail(node){dNode=node;dname.textContent=node;detail.hidden=false;
+function openDetail(node){dNode=node;detail.hidden=false;
+ // name + a status dot looked up from the latest fleet-status, built via safe DOM (no innerHTML)
+ dname.textContent="";const fn=(last.nodes||[]).find(x=>x.node===node);
+ if(fn){const dot=document.createElement("span");dot.className="st s-"+fn.state;dname.appendChild(dot);}
+ dname.appendChild(document.createTextNode(node));
  dSel=null;dAvail=[];dpanels.innerHTML="";  // reset filter; the first (all) render relearns this node's panels
  dfoot.textContent="";loadFoot().then(renderFoot);  // footprint stat line under the graphs
  dmsg.hidden=true;setMode(dMode);clearInterval(dTimer);dTimer=setInterval(paintActive,15000);}
@@ -751,9 +1308,10 @@ document.getElementById("dclose").onclick=closeDetail;
 detail.addEventListener("click",e=>{if(e.target===detail)closeDetail();});
 addEventListener("keydown",e=>{if(e.key==="Escape")closeDetail();});
 
-async function sparkTick(){try{const r=await fetch("/api/spark?hours=2",{cache:"no-store"});if(r.ok){sparks=(await r.json()).spark||{};if(view==="grid"||view==="table")render();}}catch(e){}}
+async function sparkTick(){try{const r=await fetch("/api/spark?hours=2",{cache:"no-store"});if(r.ok){sparks=(await r.json()).spark||{};if(view==="table")render();}}catch(e){}}
 tick();setInterval(tick,REFRESH);
-sparkTick();setInterval(sparkTick,30000);                 // sparklines: slow 2h trend
+sparkTick();setInterval(sparkTick,30000);                 // sparklines: slow 2h trend (table)
+ingestTick();setInterval(ingestTick,REFRESH);             // live ingest gauge (grid)
 setInterval(()=>{if(view!=="grid")refreshView();},15000); // active non-grid view auto-refresh
 setView("grid");
 </script>

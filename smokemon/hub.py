@@ -3,7 +3,7 @@ via POST /ingest and writes a hub DB (same schema + node + src_id). Idempotent v
 UNIQUE(node,src_id) + INSERT OR IGNORE in one transaction. Stdlib http.server."""
 
 import base64
-import gzip
+import collections
 import hmac
 import json
 import os
@@ -11,6 +11,7 @@ import subprocess
 import sys
 import threading
 import time
+import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -22,6 +23,34 @@ _render_lock = threading.Lock()  # serialize the (heavy) PNG subprocess renders
 _hub_cols: dict[str, set[str]] = {}
 _last_prune = 0.0  # ingest_log housekeeping throttle (prune at most hourly)
 _INGEST_LOG_RETENTION_S = 14 * 86400
+
+# Live ingest-rate gauge: a bounded in-memory ring buffer of (ts, wire_bytes, raw_bytes, rows)
+# for each accepted POST /ingest. Deliberately NOT persisted (the durable per-node ship cost is
+# already in ingest_log) - this is cheap, ephemeral, and only powers the realtime dashboard gauge.
+# maxlen caps memory; snapshots also drop anything older than the rate window so it stays flat.
+_INGEST_RATE_WINDOW_S = 900.0  # 15 min horizon backing the live gauge sparkline
+_INGEST_BUF_MAX = 8000  # hard cap on retained ingest events (~0.5 MB worst case)
+_ingest_events: collections.deque = collections.deque(maxlen=_INGEST_BUF_MAX)
+_ingest_buf_lock = threading.Lock()
+
+
+def _record_ingest(ts: float, wire_bytes: int, raw_bytes: int, rows: int) -> None:
+    """Append one accepted ingest to the bounded in-memory ring buffer behind /api/ingest-rate."""
+    with _ingest_buf_lock:
+        _ingest_events.append((ts, int(wire_bytes), int(raw_bytes), int(rows)))
+
+
+def _ingest_snapshot(now: float | None = None) -> list[tuple[float, int, int, int]]:
+    """Copy of the ring buffer trimmed to the rate window, compacting the deque so retained
+    memory tracks the live window even when traffic is sparse."""
+    now = time.time() if now is None else now
+    cutoff = now - _INGEST_RATE_WINDOW_S
+    with _ingest_buf_lock:
+        events = [e for e in _ingest_events if e[0] >= cutoff]
+        if len(events) != len(_ingest_events):  # drop aged-out events from the live buffer
+            _ingest_events.clear()
+            _ingest_events.extend(events)
+        return events
 
 
 def _render_png(node: str, hours: float, panels: str, cols: int) -> tuple[bytes | None, str]:
@@ -144,7 +173,46 @@ def ingest(payload: dict, wire_bytes: int = 0, raw_bytes: int = 0) -> dict:
         except Exception:
             _conn.rollback()
             raise
+    # feed the ephemeral live-rate gauge (outside the DB lock; cheap deque append)
+    _record_ingest(time.time(), wire_bytes, raw_bytes, sum(counts.values()))
     return counts
+
+
+def _ingest_secret() -> str | None:
+    """The ingest secret to authorize against, or None when no real secret is configured.
+    Failing closed here prevents the empty/default-secret auth bypass (hmac.compare_digest('','')
+    is True), which matters because the hub binds 0.0.0.0 by default."""
+    s = config.HUB_SECRET
+    return s if s and s != "changeme" else None
+
+
+def _gunzip_bounded(data: bytes, limit: int) -> bytes:
+    """Streaming gzip inflate capped at `limit` bytes, so a small compressed body cannot expand
+    into a multi-GB decompression bomb that OOMs the hub. Raises ValueError once output exceeds
+    the cap."""
+    dec = zlib.decompressobj(16 + zlib.MAX_WBITS)
+    out = bytearray()
+    for i in range(0, len(data), 65536):
+        out += dec.decompress(data[i:i + 65536], max(1, limit - len(out) + 1))
+        if len(out) > limit:
+            raise ValueError("decompressed body too large")
+    out += dec.flush()
+    if len(out) > limit:
+        raise ValueError("decompressed body too large")
+    return bytes(out)
+
+
+_MAX_HOURS = 24 * 90  # clamp the window so ?hours=1e9 can't drive an unbounded scan
+
+
+def _clamp_hours(qs: dict, default: float = 24.0) -> float:
+    """Parse the `hours` query param defensively: non-numeric input falls back to the default
+    instead of throwing into the 500 path, and the value is clamped to a sane maximum."""
+    try:
+        hours = float(qs.get("hours", [str(default)])[0])
+    except (TypeError, ValueError):
+        hours = default
+    return max(0.0, min(hours, _MAX_HOURS))
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -174,7 +242,7 @@ class Handler(BaseHTTPRequestHandler):
         so every read takes the same write lock the ingest path uses."""
         u = urlparse(self.path)
         qs = parse_qs(u.query)
-        hours = float(qs.get("hours", ["24"])[0])
+        hours = _clamp_hours(qs)
         try:
             if u.path == "/metrics":
                 with _lock:
@@ -201,7 +269,7 @@ class Handler(BaseHTTPRequestHandler):
                 with _lock:
                     return self._send(200, hubapi.heatmap(_conn, metric, hours))
             if u.path == "/api/spark":
-                spark_hours = float(qs.get("hours", ["2"])[0])
+                spark_hours = _clamp_hours(qs, default=2.0)
                 with _lock:
                     return self._send(200, {"spark": hubapi.sparklines(_conn, spark_hours)})
             if u.path == "/api/risks":
@@ -210,6 +278,12 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/cost":
                 with _lock:
                     return self._send(200, hubapi.ship_volume(_conn, hours))
+            if u.path == "/api/services":
+                with _lock:
+                    return self._send(200, hubapi.services(_conn))
+            if u.path == "/api/ingest-rate":
+                # in-memory ring buffer, not the DB - no _lock needed (own buffer lock)
+                return self._send(200, hubapi.ingest_rate(_ingest_snapshot()))
             if u.path == "/api/plot":
                 node = qs.get("node", [""])[0]
                 if not node:
@@ -241,13 +315,18 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_bytes(200, png, "image/png", extra)
         except Exception as e:  # noqa: BLE001
             core.log(f"GET {u.path} error: {e!r}")
-            return self._send(500, {"error": str(e)})
+            return self._send(500, {"error": "internal error"})
         return self._send(404, {"error": "not found"})
 
     def do_POST(self):  # noqa: N802
         if self.path != "/ingest":
             return self._send(404, {"error": "not found"})
-        if not hmac.compare_digest(self.headers.get("X-Smokemon-Key", ""), config.HUB_SECRET):
+        # Fail closed: refuse ingest entirely when no real secret is configured, so an empty/
+        # default HUB_SECRET can't accept unauthenticated pushes (hmac.compare_digest('','') is True).
+        secret = _ingest_secret()
+        if secret is None:
+            return self._send(503, {"error": "ingest disabled: server secret not configured"})
+        if not hmac.compare_digest(self.headers.get("X-Smokemon-Key", ""), secret):
             return self._send(401, {"error": "unauthorized"})
         length = int(self.headers.get("Content-Length", "0"))
         if length <= 0 or length > config.HUB_MAX_BODY:
@@ -256,12 +335,15 @@ class Handler(BaseHTTPRequestHandler):
             compressed = self.rfile.read(length)
             body = compressed
             if "gzip" in self.headers.get("Content-Encoding", "").lower():
-                body = gzip.decompress(compressed)  # ship._post gzips the body; plain json still works
+                try:  # bounded inflate: a small gzip can't expand into a multi-GB OOM
+                    body = _gunzip_bounded(compressed, config.HUB_MAX_BODY)
+                except ValueError:
+                    return self._send(413, {"error": "decompressed body too large"})
             # wire_bytes = what actually crossed the network (compressed); raw_bytes = decoded size
             counts = ingest(json.loads(body), wire_bytes=len(compressed), raw_bytes=len(body))
         except Exception as e:  # noqa: BLE001
             core.log(f"ingest error: {e!r}")
-            return self._send(500, {"error": str(e)})
+            return self._send(500, {"error": "internal error"})
         self._send(200, {"ok": True, "counts": counts})
 
     def log_message(self, *_args):  # silence default access log
@@ -279,7 +361,8 @@ def main() -> int:
     srv = ThreadingHTTPServer((config.HUB_BIND, config.HUB_PORT), Handler)
     core.log(f"hub listening on {config.HUB_BIND}:{config.HUB_PORT} db={config.HUB_DB} "
              "(dashboard GET / · POST /ingest · GET /metrics /api/fleet-status "
-             "/api/latest /api/fleet /api/heatmap /api/nodes /api/png)")
+             "/api/latest /api/fleet /api/heatmap /api/nodes /api/services "
+             "/api/ingest-rate /api/png)")
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

@@ -23,7 +23,10 @@ NODE_MODULES = [
     "smokemon.probes.iperf",
     "smokemon.probes.host",
     "smokemon.probes.ext",
+    "smokemon.probes.synthetic",
     "smokemon.probes.redisq",
+    "smokemon.probes.dockerps",
+    "smokemon.probes.pipeline",
 ]
 
 

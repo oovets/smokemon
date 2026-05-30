@@ -16,11 +16,14 @@ def _probes(group: str) -> list[tuple[float, object]]:
         slow.append((config.PROBE_INTERVAL, synthetic.collect))
     if config.EXT_HTTP:
         slow.append((config.EXT_INTERVAL, ext.collect))
+    # Auto by default: each of these is registered unless explicitly disabled (=0), and
+    # self-detects its dependency at collect time (docker socket / reachable redis / running
+    # gst+rtsp), staying a cheap no-op on nodes that don't run the corresponding service.
     if config.REDIS_ENABLED:
         slow.append((config.REDIS_INTERVAL, redisq.collect))
     if config.DOCKER_ENABLED:
         slow.append((config.DOCKER_INTERVAL, dockerps.collect))
-    if config.PROC_WATCH or config.RTSP_URLS:
+    if config.PIPELINE_ENABLED:
         slow.append((config.PIPELINE_INTERVAL, pipeline.collect))
     return {"fast": fast, "slow": slow, "all": fast + slow}[group]
 

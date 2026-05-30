@@ -13,10 +13,18 @@ Two opt-in signals, both stdlib and bounded:
 from __future__ import annotations
 
 import os
+import re
 import socket
 import time
 
 from .. import adapters, config, schema
+
+_RTSP_RE = re.compile(r"rtsp://[^\s'\"]+")
+_AUTO_PROC = ("gst", "gst-launch")  # zero-config watch: any running GStreamer pipeline
+# Hard cap on auto-discovered RTSP endpoints probed per cycle, so a node with many pipelines
+# can never turn one slow cycle into an unbounded fan-out of socket connects. Explicit
+# SMOKEMON_RTSP_URLS are user-bounded and not subject to this cap.
+_AUTO_RTSP_MAX = 16
 
 _CLK = os.sysconf("SC_CLK_TCK") if hasattr(os, "sysconf") else 100
 _PAGE = os.sysconf("SC_PAGE_SIZE") if hasattr(os, "sysconf") else 4096
@@ -128,14 +136,45 @@ def _split_rtsp(url: str) -> tuple[str, int, str]:
     return host or "127.0.0.1", int(port) if port.isdigit() else 554, "/" + path
 
 
+def _proc_watches() -> list[tuple[str, str, bool]]:
+    """(label, substring, always_record). Explicit PROC_WATCH entries always record (a
+    count of 0 is a meaningful 'down'). The auto gst watch only records when present, so
+    nodes without GStreamer stay silent instead of logging an endless 'gst down'."""
+    watches = [(label, pat, True) for label, pat in _watches(config.PROC_WATCH)]
+    if config.PIPELINE_AUTO and not any(pat == _AUTO_PROC[1] for _, pat, _ in watches):
+        watches.append((_AUTO_PROC[0], _AUTO_PROC[1], False))
+    return watches
+
+
+def _auto_rtsp(procs: list[dict]) -> list[tuple[str, str]]:
+    """RTSP endpoints discovered inside watched process cmdlines (e.g. a gst pipeline's
+    `rtspclientsink location=rtsp://...`). Label = the last path segment of the URL."""
+    if not config.PIPELINE_AUTO:
+        return []
+    seen: dict[str, str] = {}
+    for p in procs:
+        for raw in _RTSP_RE.findall(p["cmdline"]):
+            url = raw.rstrip(",;)")
+            if url not in seen:
+                seen[url] = url.rstrip("/").rsplit("/", 1)[-1] or url
+            if len(seen) >= _AUTO_RTSP_MAX:
+                break
+        if len(seen) >= _AUTO_RTSP_MAX:
+            break
+    return [(label, url) for url, label in seen.items()]
+
+
 def _collect_proc_rows(procs: list[dict], ts: float) -> list[dict]:
     global _prev_ts
     dt = ts - _prev_ts if _prev_ts else 0.0
     btime = _btime()
     rows = []
-    for label, pat in _watches(config.PROC_WATCH):
+    for label, pat, always in _proc_watches():
         matched = [p for p in procs if pat in p["cmdline"]]
         count = len(matched)
+        if not matched and not always:
+            _prev_start[label] = None  # so a later reappearance is counted as a restart
+            continue
         if matched:
             cpu = None
             if dt > 0:
@@ -160,22 +199,26 @@ def _collect_proc_rows(procs: list[dict], ts: float) -> list[dict]:
 
 
 def collect(conn, ts: float | None = None) -> None:
-    if not (config.PROC_WATCH or config.RTSP_URLS):
+    if not config.PIPELINE_ENABLED:
         return
     ts = time.time() if ts is None else ts
-    proc_rows = []
-    if config.PROC_WATCH:
-        procs = _read_procs()
-        proc_rows = _collect_proc_rows(procs, ts)
-        global _prev_ts
-        _prev_ticks.clear()
-        _prev_ticks.update({p["pid"]: p["ticks"] for p in procs})
-        _prev_ts = ts
+    procs = _read_procs()
+    proc_rows = _collect_proc_rows(procs, ts)
+    global _prev_ts
+    _prev_ticks.clear()
+    _prev_ticks.update({p["pid"]: p["ticks"] for p in procs})
+    _prev_ts = ts
+
+    # Explicit RTSP endpoints plus any discovered inside watched cmdlines (deduped by url).
+    targets = list(_rtsp_targets())
+    have = {url for _, url in targets}
+    targets += [(label, url) for label, url in _auto_rtsp(procs) if url not in have]
     stream_rows = []
-    for label, url in _rtsp_targets():
+    for label, url in targets:
         ok, latency, status = _rtsp_probe(url)
         stream_rows.append({"ts": ts, "url": label, "ok": ok,
                             "latency_ms": latency, "status": status})
+
     if proc_rows:
         schema.insert(conn, "proc_watch", proc_rows)
     if stream_rows:

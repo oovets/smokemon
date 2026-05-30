@@ -5,11 +5,12 @@ import gzip
 import json
 import threading
 import time
+import urllib.error
 import urllib.request
 
 import pytest
 
-from smokemon import config, core, hub, schema, ship
+from smokemon import config, core, hub, hubapi, schema, ship
 
 
 @pytest.fixture
@@ -97,6 +98,33 @@ def test_partial_overlap_inserts_only_new(hub_ready):
     assert counts["host_samples"] == 0
 
 
+def test_ingest_records_live_rate_buffer(hub_ready):
+    """Each accepted ingest appends (ts, wire, raw, rows) to the bounded in-memory ring buffer
+    that backs /api/ingest-rate - not the SQLite DB. The snapshot + ingest_rate() see it."""
+    hub._ingest_events.clear()
+    ts0 = time.time()
+    counts = hub.ingest(_payload(ts0), wire_bytes=1234, raw_bytes=5678)
+    snap = hub._ingest_snapshot()
+    assert len(snap) == 1
+    ts, wire, raw, rows = snap[0]
+    assert wire == 1234 and raw == 5678 and rows == sum(counts.values())
+    rate = hubapi.ingest_rate(snap)
+    assert rate["total_wire_bytes"] == 1234 and rate["posts"] == 1 and rate["last_ts"] == ts
+    hub._ingest_events.clear()
+
+
+def test_ingest_buffer_drops_aged_out_events(hub_ready):
+    """_ingest_snapshot trims events older than the rate window so memory tracks the live window."""
+    hub._ingest_events.clear()
+    now = time.time()
+    hub._record_ingest(now - hub._INGEST_RATE_WINDOW_S - 100, 10, 10, 1)  # stale
+    hub._record_ingest(now - 10, 20, 20, 2)                               # fresh
+    snap = hub._ingest_snapshot(now=now)
+    assert len(snap) == 1 and snap[0][1] == 20
+    assert len(hub._ingest_events) == 1  # deque compacted in place
+    hub._ingest_events.clear()
+
+
 def test_run_map_links_rtts_to_new_run_ids(hub_ready):
     ts0 = time.time()
     hub.ingest(_payload(ts0))
@@ -169,3 +197,103 @@ def core_http_server():
     srv = ThreadingHTTPServer(("127.0.0.1", 0), hub.Handler)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     return srv
+
+
+# --- security hardening: ingest auth fails closed, decompression is bounded, hours is clamped ---
+
+def _ingest_post(port, body, headers):
+    return urllib.request.Request(
+        f"http://127.0.0.1:{port}/ingest", data=body, method="POST", headers=headers)
+
+
+def test_ingest_fails_closed_without_secret(hub_ready, monkeypatch):
+    """An empty/unset HUB_SECRET must reject ingest (503), not accept unauthenticated pushes
+    (hmac.compare_digest('', '') is True, so the old code authorized everyone)."""
+    monkeypatch.setattr(config, "HUB_SECRET", "")
+    assert hub._ingest_secret() is None
+    monkeypatch.setattr(config, "HUB_SECRET", "changeme")  # the install default is also "no secret"
+    assert hub._ingest_secret() is None
+
+    srv = core_http_server()
+    try:
+        port = srv.server_address[1]
+        body = json.dumps(_payload(time.time())).encode()
+        req = _ingest_post(port, body, {"Content-Type": "application/json"})
+        with pytest.raises(urllib.error.HTTPError) as ei:
+            urllib.request.urlopen(req, timeout=5)
+        assert ei.value.code == 503
+    finally:
+        srv.shutdown()
+        srv.server_close()
+    assert hub_ready.execute("SELECT COUNT(*) FROM ping_runs").fetchone()[0] == 0
+
+
+def test_ingest_wrong_key_401_correct_key_200(hub_ready, monkeypatch):
+    monkeypatch.setattr(config, "HUB_SECRET", "s3cret")
+    srv = core_http_server()
+    try:
+        port = srv.server_address[1]
+        body = json.dumps(_payload(time.time())).encode()
+        wrong = _ingest_post(port, body, {"Content-Type": "application/json", "X-Smokemon-Key": "nope"})
+        with pytest.raises(urllib.error.HTTPError) as ei:
+            urllib.request.urlopen(wrong, timeout=5)
+        assert ei.value.code == 401
+
+        ok = _ingest_post(port, body, {"Content-Type": "application/json", "X-Smokemon-Key": "s3cret"})
+        with urllib.request.urlopen(ok, timeout=5) as resp:
+            assert resp.status == 200
+            assert json.loads(resp.read())["ok"] is True
+    finally:
+        srv.shutdown()
+        srv.server_close()
+    assert hub_ready.execute("SELECT COUNT(*) FROM ping_runs").fetchone()[0] == 2
+
+
+def test_gunzip_bounded_caps_output():
+    raw = b"x" * 50000
+    packed = gzip.compress(raw)
+    assert hub._gunzip_bounded(packed, 100000) == raw  # under the cap: exact roundtrip
+    with pytest.raises(ValueError):
+        hub._gunzip_bounded(packed, 1000)  # over the cap: rejected, no unbounded allocation
+
+
+def test_gzip_bomb_returns_413_not_500(hub_ready, monkeypatch):
+    """A tiny gzip body that inflates well past HUB_MAX_BODY must be rejected with a clean 413,
+    never decompressed into RAM (no OOM, no 500 traceback)."""
+    monkeypatch.setattr(config, "HUB_SECRET", "s3cret")
+    monkeypatch.setattr(config, "HUB_MAX_BODY", 4096)
+    body = gzip.compress(b"a" * 500000)  # ~120 compressed bytes -> inflates to 500 KB
+    assert len(body) <= config.HUB_MAX_BODY  # passes the compressed-length gate first
+    srv = core_http_server()
+    try:
+        port = srv.server_address[1]
+        req = _ingest_post(port, body, {"Content-Type": "application/json",
+                                        "Content-Encoding": "gzip", "X-Smokemon-Key": "s3cret"})
+        with pytest.raises(urllib.error.HTTPError) as ei:
+            urllib.request.urlopen(req, timeout=5)
+        assert ei.value.code == 413
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_clamp_hours_bounds_and_defaults():
+    assert hub._clamp_hours({"hours": ["1e9"]}) == hub._MAX_HOURS  # huge value clamped
+    assert hub._clamp_hours({"hours": ["-5"]}) == 0.0              # negative floored
+    assert hub._clamp_hours({"hours": ["abc"]}) == 24.0           # non-numeric -> default
+    assert hub._clamp_hours({}) == 24.0
+    assert hub._clamp_hours({}, default=2.0) == 2.0
+    assert hub._clamp_hours({"hours": ["6"]}) == 6.0
+
+
+def test_huge_hours_query_does_not_500(hub_ready):
+    """An attacker-supplied ?hours=1e9 (or garbage) must not throw into the 500 path."""
+    srv = core_http_server()
+    try:
+        port = srv.server_address[1]
+        for q in ("hours=1e9", "hours=notanumber"):
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/fleet?{q}", timeout=5) as resp:
+                assert resp.status == 200
+    finally:
+        srv.shutdown()
+        srv.server_close()
