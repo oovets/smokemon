@@ -8,6 +8,31 @@ roadmap / ideas -> [PLAN.md](PLAN.md)
 tagged; dated entries begin at the first release, 0.11.0.)
 
 ```
+== 0.16.0 - 2026-05-31  log/error visibility + per-application network view ==
+
+added:
+
+- hub: a "logs" dashboard tab + /api/logs - a fleet-wide, newest-first stream of ext_events
+  (warn/error/crit) and log_excerpts, filterable by node (the filter box) and severity
+  (all/elevated/error), with tail-truncated excerpts. Surfaces data that already ships; no new
+  per-device capture.
+
+- ship: expedite-on-error. When an elevated ext_events row lands, the collector kicks an
+  out-of-band ship on a daemon thread (~10s detection on the fast loop, rate-limited + coalesced)
+  so errors reach the hub in seconds, decoupled from the bulk ship cadence. Toggle via
+  SMOKEMON_SHIP_EXPEDITE / SMOKEMON_SHIP_EXPEDITE_INTERVAL. ext_events/log_excerpts are also
+  gathered before the bulk metric tables so they lead any backlog batch.
+
+- hub: a "network" dashboard tab + /api/network - per-application throughput (bytes/s) over time
+  from port_samples, as positive deltas of the bucketed cumulative byte gauge. Fleet-wide by
+  default (each app summed across nodes); drill into one node via the filter box. Well-known ports
+  map to service names (https/redis/ssh/postgres/…) for labels.
+
+changed:
+
+- hub: /api/ports is now cached (was an uncached MAX(ts) scan + full fetch on every modal open),
+  so the per-node ports tab no longer lags when opened.
+
 == 0.15.0 - 2026-05-31  multi-hub fan-out shipping ==
 
 added:

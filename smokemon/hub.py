@@ -324,6 +324,14 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/risks":
                 data = _cached(f"risks:{hours}", lambda: _ro_call(lambda c: hubapi.risks(c, hours)))
                 return self._send(200, data)
+            if u.path == "/api/logs":
+                node = qs.get("node", [""])[0]
+                sev = qs.get("severity", ["elevated"])[0]
+                if sev not in ("all", "elevated", "error"):
+                    sev = "elevated"
+                data = _cached(f"logs:{node}:{sev}:{hours}",
+                               lambda: _ro_call(lambda c: hubapi.events_log(c, node or None, sev, hours)))
+                return self._send(200, data)
             if u.path == "/api/cost":
                 data = _cached(f"cost:{hours}", lambda: _ro_call(lambda c: hubapi.ship_volume(c, hours)))
                 return self._send(200, data)
@@ -334,8 +342,14 @@ class Handler(BaseHTTPRequestHandler):
                 node = qs.get("node", [""])[0]
                 if not node:
                     return self._send(400, {"error": "node required"})
-                with _read_lock:
-                    return self._send(200, hubapi.ports(_ro_conn, node))
+                data = _cached(f"ports:{node}", lambda: _ro_call(lambda c: hubapi.ports(c, node)))
+                return self._send(200, data)
+            if u.path == "/api/network":
+                node = qs.get("node", [""])[0]
+                nhours = _clamp_hours(qs, default=6.0)
+                data = _cached(f"network:{node}:{nhours}",
+                               lambda: _ro_call(lambda c: hubapi.network(c, node or None, nhours)))
+                return self._send(200, data)
             if u.path == "/api/inventory":
                 with _read_lock:
                     return self._send(200, hubapi.inventory(_ro_conn))

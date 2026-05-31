@@ -201,6 +201,11 @@ HUB_SECRET = os.environ.get("SMOKEMON_HUB_SECRET", "changeme")
 HUB_INSECURE = os.environ.get("SMOKEMON_HUB_INSECURE", "0") != "0"
 SHIP_BATCH = _i("SMOKEMON_SHIP_BATCH", "2000")
 SHIP_INTERVAL = _f("SMOKEMON_SHIP_INTERVAL", "0")  # 0 = drain once and exit
+# Expedite: when an elevated ext_events row lands, the collector kicks an immediate ship so errors
+# reach the hub in seconds rather than on the next bulk tick. Event-driven + rate-limited by the
+# check interval (also the effective min gap between expedited ships). No-op without a hub.
+SHIP_EXPEDITE = os.environ.get("SMOKEMON_SHIP_EXPEDITE", "1") != "0"
+SHIP_EXPEDITE_INTERVAL = _f("SMOKEMON_SHIP_EXPEDITE_INTERVAL", "10")
 # Raw per-ping rtts stay node-local by default: the hub renders percentile bands from the
 # pre-aggregated rtt_min/p25/median/p75/max in ping_runs and never reads raw ping_rtts for
 # fresh rows, so shipping them is ~85% of ship traffic for zero hub-side gain. Opt in if a

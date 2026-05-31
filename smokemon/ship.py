@@ -89,10 +89,20 @@ def _set_last(conn, dest: str, table: str, value: int) -> None:
                  (dest, table, value))
 
 
+# ext_events / log_excerpts carry the "what broke" signal; gather them before the bulk metric
+# tables so under a backlog they ride the earliest batch (and the hub commits them first).
+_SHIP_PRIORITY = ("ext_events", "log_excerpts")
+
+
+def _ordered_tables() -> tuple[str, ...]:
+    rest = tuple(t for t in schema.STD_TABLES if t not in _SHIP_PRIORITY)
+    return tuple(t for t in _SHIP_PRIORITY if t in schema.STD_TABLES) + rest
+
+
 def gather(conn, dest: str) -> tuple[dict, dict]:
     payload: dict[str, dict] = {}
     maxids: dict[str, int] = {}
-    for t in schema.STD_TABLES:
+    for t in _ordered_tables():
         last = _last(conn, dest, t)
         try:
             cur = conn.execute(f"SELECT * FROM {t} WHERE id>? ORDER BY id LIMIT ?", (last, config.SHIP_BATCH))
@@ -198,6 +208,28 @@ def valid_hubs(hubs: list[tuple[str, str]]) -> list[tuple[str, str]]:
         else:
             core.log(f"ship: skipping hub {u}: {reason}")
     return out
+
+
+def connect_and_drain(hubs: list[tuple[str, str]]) -> int:
+    """Open the node DB, ensure ship_state, drain to `hubs`, close. Shared by the one-shot ship
+    path and by expedite() so both go through the identical migration + fan-out logic."""
+    conn = core.connect(config.DB_PATH)
+    try:
+        init_state(conn)
+        return drain(conn, hubs)
+    finally:
+        conn.close()
+
+
+def expedite() -> int:
+    """One-shot drain triggered out-of-band (by the collector when an elevated event lands) so
+    errors reach the hub without waiting for the bulk ship timer. No-op without configured/valid
+    hubs. Safe to run concurrently with the timer shipper: the hub is idempotent on
+    UNIQUE(node, src_id) and per-dest cursors converge."""
+    if not config.HUBS:
+        return 0
+    valid = valid_hubs(config.HUBS)
+    return connect_and_drain(valid) if valid else 0
 
 
 def main() -> int:

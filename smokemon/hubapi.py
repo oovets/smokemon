@@ -11,6 +11,7 @@ import sqlite3
 import time
 
 from . import analyze, config, query, schema
+from .probes.logexcerpt import is_elevated
 
 
 def _rows(conn, sql, params=()):
@@ -300,6 +301,49 @@ def risks(conn, hours: float = 24.0, now: float | None = None) -> dict:
             "alerts": _service_alerts(conn, hours, now), "incidents": incidents[:50]}
 
 
+_ERROR_SEVS = {"error", "err", "crit", "critical", "fatal", "emerg", "alert", "panic"}
+_LOG_PREVIEW = 2000  # chars of excerpt sent to the browser (the freshest tail)
+
+
+def _event_rank(severity) -> int:
+    """3 = error/crit, 2 = warn/other-elevated, 1 = info/quiet. Drives the row colour + filtering."""
+    if (severity or "").strip().lower() in _ERROR_SEVS:
+        return 3
+    return 2 if is_elevated(severity) else 1
+
+
+def events_log(conn, node=None, severity="elevated", hours: float = 24.0,
+               limit: int = 200, now: float | None = None) -> dict:
+    """Merged newest-first stream of ext_events + log_excerpts for the dashboard logs tab.
+    `severity` filters the events: 'all' | 'elevated' (warn+; default) | 'error' (error/crit only).
+    log_excerpts are incident tails (only captured when something elevated fired) and are included
+    except in the strict 'error' view; their excerpt is tail-truncated for the browser."""
+    now = time.time() if now is None else now
+    since = now - hours * 3600
+    nf, npar = (" AND node=?", [node]) if node else ("", [])
+    rows: list[dict] = []
+    for ts, nd, src, sev, ev, det in conn.execute(
+            "SELECT ts,node,source,severity,event,detail FROM ext_events "
+            "WHERE ts>=?" + nf + " ORDER BY ts DESC LIMIT ?", [since, *npar, limit]):
+        rank = _event_rank(sev)
+        if severity == "elevated" and rank < 2:
+            continue
+        if severity == "error" and rank < 3:
+            continue
+        rows.append({"kind": "event", "ts": ts, "node": nd, "source": src or "",
+                     "severity": sev or "", "label": ev or "", "detail": det or "", "sev": rank})
+    if severity != "error":  # log tails ride along except in the strict error-only view
+        for ts, nd, src, reason, nbytes, dropped, excerpt in conn.execute(
+                "SELECT ts,node,source,reason,bytes,dropped,excerpt FROM log_excerpts "
+                "WHERE ts>=?" + nf + " ORDER BY ts DESC LIMIT ?", [since, *npar, limit]):
+            ex = excerpt or ""
+            rows.append({"kind": "log", "ts": ts, "node": nd, "source": src or "", "severity": "",
+                         "label": reason or "", "detail": ex[-_LOG_PREVIEW:], "sev": 2,
+                         "bytes": nbytes, "dropped": dropped, "truncated": len(ex) > _LOG_PREVIEW})
+    rows.sort(key=lambda r: -r["ts"])
+    return {"now": now, "hours": hours, "node": node or "", "severity": severity, "rows": rows[:limit]}
+
+
 def _service_alerts(conn, hours: float, now: float) -> list[dict]:
     """Current service/host degradations across the fleet (newest state per entity). Reuses
     services() for docker/redis/watched-procs/stream-probes, plus host-level OOM kills, swap /
@@ -417,6 +461,61 @@ def ports(conn, node: str, now: float | None = None) -> dict:
     listen.sort(key=_busy)
     out.sort(key=_busy)
     return {"now": now, "node": node, "ts": ts, "listen": listen, "out": out}
+
+
+# Well-known port -> service label, so the network view reads as "https / redis / ssh" instead of
+# bare numbers. The node probe records only the port; this is a hub-side display convenience.
+_WELLKNOWN = {
+    20: "ftp-data", 21: "ftp", 22: "ssh", 23: "telnet", 25: "smtp", 53: "dns", 67: "dhcp",
+    68: "dhcp", 80: "http", 110: "pop3", 119: "nntp", 123: "ntp", 143: "imap", 161: "snmp",
+    179: "bgp", 389: "ldap", 443: "https", 445: "smb", 465: "smtps", 514: "syslog", 587: "smtp",
+    631: "ipp", 636: "ldaps", 873: "rsync", 993: "imaps", 995: "pop3s", 1194: "openvpn",
+    1433: "mssql", 1521: "oracle", 1883: "mqtt", 2049: "nfs", 2375: "docker", 2376: "docker-tls",
+    3000: "grafana", 3306: "mysql", 3389: "rdp", 4222: "nats", 5044: "logstash", 5432: "postgres",
+    5601: "kibana", 5672: "amqp", 6379: "redis", 6443: "k8s-api", 8000: "http-alt",
+    8080: "http-proxy", 8086: "influxdb", 8443: "https-alt", 8765: "smokemon", 9000: "http-alt",
+    9090: "prometheus", 9092: "kafka", 9200: "elasticsearch", 11211: "memcached",
+    15672: "rabbitmq", 25565: "minecraft", 27017: "mongodb", 51820: "wireguard"}
+
+
+def app_label(port: int) -> str:
+    """Friendly service name for a port, falling back to the bare number."""
+    return _WELLKNOWN.get(port, f":{port}")
+
+
+def network(conn, node=None, hours: float = 6.0, buckets: int = 60, now: float | None = None) -> dict:
+    """Per-application throughput (bytes/s) over time from port_samples. Fleet-wide when node is
+    None (each app summed across the fleet), or one node's ports when given. Throughput is the
+    positive delta of the bucketed cumulative byte gauge / bucket-width (cumulative counters churn
+    as connections come and go, so negative deltas - a closed connection - clamp to 0). Returns
+    busiest-first apps each with a bytes/s series, ready for an area chart."""
+    now = time.time() if now is None else now
+    since = now - hours * 3600
+    width = max(1.0, (hours * 3600) / buckets)
+    nf, npar = (" AND node=?", [node]) if node else ("", [])
+    # bucketed cumulative gauge per (node, port, dir); delta'd into a rate below
+    gauges: dict[tuple, dict[int, float]] = {}
+    for nd, port, d, b, g in _rows(
+            conn, "SELECT node, port, dir, CAST((ts-?)/? AS INT) b, "
+            "AVG(COALESCE(bytes_sent,0)+COALESCE(bytes_recv,0)) FROM port_samples "
+            "WHERE ts>=?" + nf + " GROUP BY node, port, dir, b", (since, width, since, *npar)):
+        if port is None or b is None or not (0 <= b < buckets):
+            continue
+        gauges.setdefault((nd, port, d), {})[int(b)] = g or 0.0
+    apps: dict[int, list] = {}  # port -> [bytes/s per bucket], summed across node+dir
+    for (_nd, port, _d), gmap in gauges.items():
+        arr = apps.setdefault(port, [0.0] * buckets)
+        prev_b = prev_g = None
+        for b in sorted(gmap):
+            if prev_b is not None and b > prev_b:
+                arr[b] += max(0.0, gmap[b] - prev_g) / width
+            prev_b, prev_g = b, gmap[b]
+    items = [{"port": p, "app": app_label(p), "series": [round(x, 1) for x in arr],
+              "total": round(sum(arr), 1)} for p, arr in apps.items()]
+    items.sort(key=lambda x: (-x["total"], x["port"]))
+    top = 12 if node else 16
+    return {"now": now, "hours": hours, "node": node or "", "buckets": buckets,
+            "since": since, "width": width, "apps": items[:top]}
 
 
 def ship_volume(conn, hours: float = 24.0, now: float | None = None) -> dict:
@@ -1001,6 +1100,24 @@ _DASHBOARD_HTML = """<!doctype html>
  .rd-detail{flex:1 1 auto;font-family:var(--mono);font-size:12.5px;color:var(--fg);min-width:0}
  .rd-tail{flex:0 0 auto;font:700 11.5px var(--mono);color:var(--dim)}
  .rd-row.s3 .rd-tail{color:var(--downf)}
+ /* logs tab: severity bar + clickable node + monospace excerpt tails */
+ .logbar{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+ .logbar .fnote{margin:0;color:var(--dim)}
+ .lg-node{flex:0 0 auto;width:120px;font:600 11.5px var(--mono);color:var(--accent);cursor:pointer;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ .lg-ex{margin:-2px 0 8px 12px;padding:8px 10px;background:var(--bg2);border:1px solid var(--line);
+  border-radius:8px;font:12px/1.5 var(--mono);color:var(--mut);white-space:pre-wrap;word-break:break-word;
+  max-height:220px;overflow:auto}
+ /* network tab: per-application throughput cards (small multiples) */
+ .netgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
+ .netcard{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+ .netcard[data-node]{cursor:pointer}
+ .netcard[data-node]:hover{border-color:var(--line2)}
+ .nc-h{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+ .nc-app{font:600 13px var(--mono);color:var(--fg)}
+ .nc-rate{font:600 11px var(--mono);color:var(--accent);flex:0 0 auto}
+ .ntspark{width:100%;height:42px;display:block;margin:6px 0 4px}
+ .nc-sub{font:11px var(--mono);color:var(--dim)}
  .rd-load{color:var(--dim);padding:14px;font-style:italic}
  /* ports tab inside the detail modal: two columns of per-port connection counts */
  #dports{margin:0;padding:12px 14px;background:var(--bg);overflow-y:auto;height:80vh}
@@ -1067,7 +1184,9 @@ _DASHBOARD_HTML = """<!doctype html>
 <div id="table" class="view" hidden></div>
 <div id="rank" class="view" hidden></div>
 <div id="heat" class="view" hidden></div>
+<div id="net" class="view" hidden></div>
 <div id="risk" class="view" hidden></div>
+<div id="logs" class="view" hidden></div>
 <div id="svc" class="view" hidden></div>
 <div id="cost" class="view" hidden></div>
 <div id="detail" hidden>
@@ -1408,7 +1527,7 @@ q.addEventListener("input",render);
 
 // ---- view tabs: grid (live) · ranking · heatmap · risks. Only the active non-grid view
 // polls (slow, 15s); grid status + sparklines + header pills always refresh. -------------
-const VIEWS=[["grid","grid"],["table","table"],["rank","ranking"],["heat","heatmap"],["risk","risks"],["svc","services"],["cost","cost"]];
+const VIEWS=[["grid","grid"],["table","table"],["rank","ranking"],["heat","heatmap"],["net","network"],["risk","risks"],["logs","logs"],["svc","services"],["cost","cost"]];
 let view="grid",heatMetric="loss",heatHours=24;
 // measured ship-cost cache (/api/cost): actual compressed bytes each node pushed over the wire,
 // per node. shared by cost view, ranking columns and the modal stat line. cached ~25s.
@@ -1428,6 +1547,7 @@ tabs.innerHTML=VIEWS.map(([id,l])=>`<div class="tab" data-v="${id}">${l}</div>`)
 // loader overwrites innerHTML. Re-opens already hold content, so no spinner flash on return.
 const WARMUP={grid:"the fleet overview",table:"the per-node table",
  rank:"the 24-hour ranking",heat:"the latency heatmap",risk:"the risk death-clocks + incident feed",
+ logs:"the fleet event & log stream",net:"the per-application network view",
  cost:"the measured ship-cost view",svc:"the fleet service telemetry"};
 function loadingHtml(v){return `<div class="loading"><div class="spin"></div>`
  +`<div class="lt">building ${WARMUP[v]}…</div>`
@@ -1435,11 +1555,11 @@ function loadingHtml(v){return `<div class="loading"><div class="spin"></div>`
 function setView(v){view=v;
  VIEWS.forEach(([id])=>viewEl(id).hidden=(id!==v));
  tabs.querySelectorAll(".tab").forEach(t=>t.classList.toggle("on",t.dataset.v===v));
- q.style.display=(v==="table"||v==="grid")?"":"none";  // filter applies to the grid + per-node table
+ q.style.display=(v==="table"||v==="grid"||v==="logs"||v==="net")?"":"none";  // node filter (net: drill-in)
  const el=viewEl(v);
  if(WARMUP[v]&&!el.firstChild)el.innerHTML=loadingHtml(v);  // first visit only (empty view)
  refreshView();}
-function refreshView(){if(view==="rank")loadRank();else if(view==="heat")loadHeat();else if(view==="risk")loadRisk();else if(view==="cost")loadCost();else if(view==="svc")loadServices();
+function refreshView(){if(view==="rank")loadRank();else if(view==="heat")loadHeat();else if(view==="risk")loadRisk();else if(view==="logs")loadLogs();else if(view==="net")loadNet();else if(view==="cost")loadCost();else if(view==="svc")loadServices();
  else if(view==="table"){render();loadFoot().then(render);}
  else if(view==="grid"){render();ingestTick();sparkTick();
   loadFoot().then(()=>{if(view==="grid")renderGrid();});
@@ -1560,6 +1680,60 @@ function renderRisk(d){
    +`<div class="pissues">${chips}</div></div>`;}).join(""):`<div class="empty">no problems detected — fleet healthy</div>`;
  viewEl("risk").innerHTML=strip+`<div class="pnodes">${cards}</div>`;
 }
+// logs tab (/api/logs): fleet-wide newest-first stream of ext_events + log_excerpts. Severity
+// segmented control (all/elevated/error) + the #q node filter; rows click through to the modal.
+let logSev="elevated";
+async function loadLogs(){
+ const node=q.value.trim();
+ const qs="severity="+logSev+"&hours=24"+(node?"&node="+encodeURIComponent(node):"");
+ try{const r=await fetch("/api/logs?"+qs,{cache:"no-store"});if(!r.ok)return;
+  renderLogs(await r.json());}catch(e){}}
+function renderLogs(d){
+ const rows=d.rows||[],sevName=s=>s===3?"error":s===2?"warn":"info";
+ const ctl=`<div class="logbar"><div class="seg-ctl" id="logsev">`
+  +["all","elevated","error"].map(s=>`<button data-sev="${s}" class="${logSev===s?"on":""}">${s}</button>`).join("")
+  +`</div><span class="fnote">${rows.length} most recent · errors are expedited to the hub on capture</span></div>`;
+ const body=rows.length?rows.map(r=>{
+  const when=`<span class="rd-tail">${esc(tago(r.ts))}</span>`;
+  const node=`<span class="lg-node" data-node="${esc(r.node)}">${esc(r.node)}</span>`;
+  if(r.kind==="log"){
+   const drop=r.dropped?` · +${fmtKB(r.dropped)} dropped`:"",trunc=r.truncated?" · truncated":"";
+   return `<div class="rd-row s2"><span class="rd-sev">log</span>${node}`
+    +`<span class="rd-detail">${esc(r.source)} · ${esc(r.label)}${drop}${trunc}</span>${when}</div>`
+    +`<pre class="lg-ex">${esc(r.detail)}</pre>`;}
+  return `<div class="rd-row s${r.sev}"><span class="rd-sev">${sevName(r.sev)}</span>${node}`
+   +`<span class="rd-kind">${esc(r.source)}</span>`
+   +`<span class="rd-detail">${esc(r.label)}${r.detail?" · "+esc(r.detail):""}</span>${when}</div>`;
+ }).join(""):`<div class="empty">no events in this window</div>`;
+ viewEl("logs").innerHTML=ctl+body;
+}
+// network tab (/api/network): per-application throughput (bytes/s) over ~6h. No node filter ->
+// fleet-wide (each app summed across nodes); type a node in #q to drill into that node's ports.
+function netSpark(s){
+ const ys=s.map(v=>v||0),hi=Math.max(...ys)||1,xmax=Math.max(1,s.length-1);
+ const X=i=>(i/xmax*100).toFixed(1),Y=v=>(38-(v/hi)*34).toFixed(1);
+ const pts=ys.map((v,i)=>X(i)+" "+Y(v));
+ return `<svg class="ntspark" viewBox="0 0 100 40" preserveAspectRatio="none">`
+  +`<path d="M0,40 L${pts.join(" L")} L100,40 Z" fill="url(#gIngest)"/>`
+  +`<path d="M${pts.join(" L")}" fill="none" stroke="#7c83ff" stroke-width="1.5" vector-effect="non-scaling-stroke"/></svg>`;
+}
+async function loadNet(){
+ const node=q.value.trim();
+ try{const r=await fetch("/api/network?hours=6"+(node?"&node="+encodeURIComponent(node):""),{cache:"no-store"});
+  if(!r.ok)return;renderNet(await r.json());}catch(e){}}
+function renderNet(d){
+ const apps=d.apps||[],node=d.node;
+ const hdr=`<div class="logbar"><span class="fnote">throughput per application · `
+  +`${node?("node <b>"+esc(node)+"</b>"):"<b>fleet-wide</b>"} · last ${d.hours}h`
+  +`${node?"":" · type a node in the filter to drill into its ports"}</span></div>`;
+ const body=apps.length?`<div class="netgrid">`+apps.map(a=>{
+  const peak=Math.max(0,...a.series),avg=d.buckets?a.total/d.buckets:0,dn=node?` data-node="${esc(node)}"`:"";
+  return `<div class="netcard"${dn}><div class="nc-h"><span class="nc-app">${esc(a.app)}</span>`
+   +`<span class="nc-rate">${fmtKB(peak)}/s peak</span></div>${netSpark(a.series)}`
+   +`<div class="nc-sub">:${a.port} · ${fmtKB(avg)}/s avg</div></div>`;
+ }).join("")+`</div>`:`<div class="empty">no port traffic in this window (is the ports probe deployed?)</div>`;
+ viewEl("net").innerHTML=hdr+body;
+}
 // services (/api/services): fleet-wide latest docker / redis / pipeline telemetry as tables.
 // rows are click-through to the node graph modal (which has the matching time-series panels).
 async function loadServices(){try{const r=await fetch("/api/services",{cache:"no-store"});if(!r.ok)return;
@@ -1613,7 +1787,13 @@ function renderServices(d){
  }
  S.innerHTML=html||`<div class="empty">no docker / redis / pipeline telemetry reported yet</div>`;
 }
-[viewEl("table"),viewEl("rank"),viewEl("heat"),viewEl("risk"),viewEl("svc"),viewEl("cost")].forEach(nodeClick);
+[viewEl("table"),viewEl("rank"),viewEl("heat"),viewEl("net"),viewEl("risk"),viewEl("logs"),viewEl("svc"),viewEl("cost")].forEach(nodeClick);
+// logs: severity segmented control (delegated, survives innerHTML re-renders) + debounced #q reload
+viewEl("logs").addEventListener("click",e=>{const b=e.target.closest("[data-sev]");
+ if(b){logSev=b.dataset.sev;loadLogs();}});
+let filtQT=null;  // #q drives the node filter on logs + the fleet/node drill-in on network
+q.addEventListener("input",()=>{if(view!=="logs"&&view!=="net")return;
+ clearTimeout(filtQT);filtQT=setTimeout(()=>{if(view==="logs")loadLogs();else if(view==="net")loadNet();},250);});
 // per-node view: layout toggle (table/tiles) + click-to-sort column headers (re-renders in place).
 viewEl("table").addEventListener("click",e=>{
  const lb=e.target.closest("[data-l]");if(lb){nodeLayout=lb.dataset.l;render();return;}

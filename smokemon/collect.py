@@ -4,7 +4,7 @@ Production runs `fast` and `slow` as two services so a slow probe never delays p
 
 import sys
 
-from . import adapters, config, core, governor, schema
+from . import adapters, config, core, expedite, governor, schema
 from .probes import (
     dockerps,
     ext,
@@ -26,6 +26,8 @@ from .probes import (
 def _probes(group: str) -> list[tuple[float, str, object]]:
     """(interval, name, collect_fn). The name lets the governor identify which probes to shed."""
     fast = [(config.PING_INTERVAL, "ping", ping.collect), (config.PING_INTERVAL, "net", net.collect)]
+    if config.SHIP_EXPEDITE and config.HUBS:  # ship elevated events out-of-band, ~10s after they land
+        fast.append((config.SHIP_EXPEDITE_INTERVAL, "expedite", expedite.check))
     slow = [(config.PROBE_INTERVAL, "http", http.collect), (config.PROBE_INTERVAL, "mtr", mtr.collect),
             (config.PROBE_INTERVAL, "wifi", wifi.collect), (config.HOST_INTERVAL, "host", host.collect),
             (config.PROBE_INTERVAL, "ports", ports.collect)]  # per-port conn counts (stdlib /proc, cheap)

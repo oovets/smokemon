@@ -31,6 +31,12 @@ from .. import config, schema
 # treat everything outside this allow-list (warn/error/crit/numeric levels) as an incident.
 _QUIET_SEVERITIES = {"", "info", "debug", "notice", "trace"}
 
+
+def is_elevated(severity: str | None) -> bool:
+    """True for warn/error/crit/numeric/unknown - anything outside the routine-chatter allow-list.
+    Shared so the log-excerpt trigger and the ship-expedite check agree on what counts as 'broke'."""
+    return (severity or "").strip().lower() not in _QUIET_SEVERITIES
+
 # Bearer/Basic/Token <credential> -> drop the credential but keep the scheme word for context.
 _SCHEME_RE = re.compile(r"(?i)\b(bearer|basic|token)\s+[A-Za-z0-9._~+/=-]+")
 # key=value / key: value secrets in log lines. Value is replaced, the key kept for context.
@@ -122,7 +128,7 @@ def _trigger(conn) -> tuple[bool, str]:
     for _id, source, event, severity in conn.execute(
             "SELECT id, source, event, severity FROM ext_events WHERE id > ? ORDER BY id",
             (prev,)).fetchall():
-        if (severity or "").strip().lower() in _QUIET_SEVERITIES:
+        if not is_elevated(severity):
             continue
         reason = f"ext_event:{source or '?'}/{event or severity or '?'}"  # keep the latest match
     return bool(reason), reason

@@ -238,6 +238,69 @@ def test_dashboard_has_loading_warmup():
     assert "let gotData=false" in h  # grid/table gate
 
 
+def test_dashboard_has_logs_tab():
+    h = hubapi.dashboard_html()
+    assert '["logs","logs"]' in h and 'id="logs" class="view"' in h
+    assert "function loadLogs(" in h and "function renderLogs(" in h
+    assert "/api/logs?" in h and "data-sev=" in h
+
+
+def test_dashboard_has_network_tab():
+    h = hubapi.dashboard_html()
+    assert '["net","network"]' in h and 'id="net" class="view"' in h
+    assert "function loadNet(" in h and "function netSpark(" in h and "/api/network?hours=6" in h
+
+
+def test_api_network_route(hub_ready, monkeypatch):
+    monkeypatch.setattr(config, "HUB_CACHE_TTL_S", 0)  # avoid cross-test cache bleed on shared keys
+    now = time.time()
+    for ago, bs in ((400, 0), (40, 360000)):
+        schema.insert(hub_ready, "port_samples", [{"ts": now - ago, "proto": "tcp", "dir": "in",
+                      "port": 443, "conns": 1, "peers": 1, "listening": 1, "bytes_sent": bs,
+                      "bytes_recv": 0}], node="pi9")
+    hub_ready.commit()
+    srv = core_http_server()
+    try:
+        port = srv.server_address[1]
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/network", timeout=5) as r:
+            assert r.status == 200
+            assert any(a["port"] == 443 and a["app"] == "https" for a in json.loads(r.read())["apps"])
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/network?node=pi9", timeout=5) as r:
+            assert r.status == 200 and json.loads(r.read())["node"] == "pi9"
+        # the previously-uncached /api/ports route still answers (now cached)
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/ports?node=pi9", timeout=5) as r:
+            assert r.status == 200 and json.loads(r.read())["node"] == "pi9"
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_api_logs_route(hub_ready):
+    """/api/logs serves the merged ext_events + log_excerpts stream; node + severity params flow
+    through and an unknown severity falls back instead of 500ing."""
+    schema.insert(hub_ready, "ext_events", [{"ts": time.time(), "source": "gov", "severity": "error",
+                                             "event": "boom", "detail": "d"}], node="pi9")
+    schema.insert(hub_ready, "log_excerpts", [{"ts": time.time(), "source": "syslog",
+                  "path": "/var/log/syslog", "reason": "ext_event:gov/boom", "bytes": 3,
+                  "dropped": 0, "excerpt": "uh oh\n"}], node="pi9")
+    hub_ready.commit()
+    srv = core_http_server()
+    try:
+        port = srv.server_address[1]
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/logs?severity=error", timeout=5) as r:
+            assert r.status == 200
+            d = json.loads(r.read())
+            assert any(x["node"] == "pi9" and x["severity"] == "error" for x in d["rows"])
+        # node filter + an unknown severity (must not 500; falls back to elevated)
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/logs?severity=bogus&node=pi9", timeout=5) as r:
+            assert r.status == 200
+            d = json.loads(r.read())
+            assert d["node"] == "pi9" and any(x["kind"] == "log" for x in d["rows"])
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
 # --- security hardening: ingest auth fails closed, decompression is bounded, hours is clamped ---
 
 def _ingest_post(port, body, headers):

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "smokemon"
-version = "0.15.0"
+version = "0.16.0"
 description = "full-stack network + host monitoring for the edge — every signal on one timeline, in stdlib python and ~30 mb of ram. no cloud, no dependencies, nothing to install but python."
 readme = "README.md"
 requires-python = ">=3.10"
