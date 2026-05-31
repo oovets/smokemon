@@ -5,6 +5,7 @@ idempotent (UNIQUE(node,src_id)) so optimistic advancement is safe.
 Default: drain once and exit (for a timer). Set SMOKEMON_SHIP_INTERVAL>0 to loop."""
 
 import gzip
+import ipaddress
 import json
 import sqlite3
 import sys
@@ -15,22 +16,38 @@ from urllib.parse import urlparse
 from . import config, core, schema
 
 _LOOPBACK_HOSTS = ("127.0.0.1", "::1", "localhost")
+# Tailscale's address ranges: CGNAT IPv4 (100.64.0.0/10) and the IPv6 ULA prefix. Traffic to a
+# tailnet address is WireGuard-encrypted end to end, so http:// to it does NOT expose the shared
+# secret - it's an encrypted transport just like https, and is the project's actual fleet path.
+_TAILSCALE_NETS = (ipaddress.ip_network("100.64.0.0/10"), ipaddress.ip_network("fd7a:115c:a1e0::/48"))
+
+
+def _is_tailscale(host: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False  # a hostname, not a literal IP - can't tell, fall through to the other rules
+    return any(ip in net for net in _TAILSCALE_NETS)
 
 
 def hub_url_ok(url: str) -> tuple[bool, str]:
     """The shipper authenticates with a shared secret carried in a plaintext header, so the
-    transport must be encrypted or the secret leaks. Allow https, loopback (local testing), or
-    an explicit SMOKEMON_HUB_INSECURE=1 (trusted LAN). Returns (ok, reason)."""
+    transport must be encrypted or the secret leaks. Allow https, loopback (local testing), a
+    Tailscale address (the tailnet is WireGuard-encrypted), or an explicit SMOKEMON_HUB_INSECURE=1
+    (other trusted LAN). Returns (ok, reason)."""
     parsed = urlparse(url)
     if parsed.scheme == "https":
         return True, "https"
     host = (parsed.hostname or "").lower()
     if host in _LOOPBACK_HOSTS:
         return True, "loopback"
+    if _is_tailscale(host):
+        return True, "tailscale"
     if config.HUB_INSECURE:
         return True, "insecure-allowed"
     return False, (f"refusing to ship over {parsed.scheme or 'unknown'}:// to {host or '?'} - the "
-                   "shared secret would be sent in clear. Use https, or set SMOKEMON_HUB_INSECURE=1.")
+                   "shared secret would be sent in clear. Use https, a Tailscale (100.64/10) hub "
+                   "address, or set SMOKEMON_HUB_INSECURE=1.")
 
 
 def init_state(conn: sqlite3.Connection) -> None:
