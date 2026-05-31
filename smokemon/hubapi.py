@@ -1535,8 +1535,7 @@ function hostCard(n){
  if(st.length){const ok=st.filter(x=>x.ok).length;const cls=ok<st.length?"bad":"ok";
   svcb+=`<span class="svcb ${cls}"><span class="sk">strm</span><span class="sv">${ok}/${st.length}</span></span>`;}
  return `<div class="hcard ${n.state}" data-node="${esc(n.node)}">`
-  +`<div class="hc-top"><span class="st s-${n.state}"></span>`
-  +`<span class="hc-name">${esc(n.node)}</span>`
+  +`<div class="hc-top"><span class="hc-name">${esc(n.node)}</span>`
   +(sparkArea(n.node,"hc-spark")||"")
   +`<span class="hc-chip ${n.state}">${esc(n.state)}</span></div>`
   +`<div class="hc-metrics">${metrics}</div>`
