@@ -1,6 +1,6 @@
 # smokemon
 
-> full-stack network + host monitoring for the edge — every signal on one timeline, in stdlib python and ~30 mb of ram. no cloud, no dependencies, nothing to install but python.
+> full-stack network + host monitoring for the edge — every signal on one timeline, in stdlib python and ~30 mb of ram. no cloud, no agent to pay for: collection/ship/hub are pure stdlib; you add only the probe tools (fping/mtr/iperf3/iw) and a plotting lib for graphs.
 
 smokemon watches network and the box it runs on — ping loss & latency spread, bandwidth, http breakdown, per-hop routes, wifi, throughput, cpu/mem/temp/psi/power — and lays it all on a single timeline, so you can see what else was happening the moment things went bad.
 
@@ -43,9 +43,10 @@ Linux    curl -fsSL https://raw.githubusercontent.com/oovets/smokemon/main/insta
   incidents` (incidents + blame), `smoke digest` (plain-english summary). `smoke replay`
   scrubs any past window. `--bell` rings on degraded health; `--notify` pushes incidents.
 
-- hub now serves a live fleet dashboard at GET / , a prometheus /metrics endpoint, and
-  read-only /api/{nodes,latest,fleet,heatmap,fleet-status}. push alerts via
-  smokemon/notify.py (ntfy/slack/discord/webhook).
+- hub now serves a live fleet dashboard at GET / , a prometheus /metrics endpoint, and a
+  family of read-only /api/* json endpoints (nodes/latest/fleet/fleet-status/heatmap/risks/
+  cost/services/logs/ports/network/inventory/ingest-rate/spark + render plot/png). push
+  alerts via smokemon/notify.py (ntfy/slack/discord/webhook).
 
 - node-side: a `self` panel graphs smokemon's own RSS/CPU; opt-in synthetic transactions
   (captive-portal + DoH) via probes/synthetic.py; opt-in lightweight external HTTP
@@ -86,8 +87,9 @@ Linux    curl -fsSL https://raw.githubusercontent.com/oovets/smokemon/main/insta
 earlier versions (v0.1 - v0.9) → [CHANGELOG.md](CHANGELOG.md)
 
 ```
-smoke [tui]                 static TUI; 14 panel types: ping,net,http,mtr,wifi,iperf,
-                            host,disk,thermal,power,tcp,psi,freq,self|all  --cols N|0(auto)
+smoke [tui]                 static TUI; 18 panel types: ping,net,http,mtr,wifi,iperf,host,
+                            gpu,redis,docker,pipeline,disk,thermal,power,tcp,psi,freq,self|all
+                            --cols N|0(auto). a panel only draws if the node has that data.
                             psi+freq are Linux-only; thermal/power/tcp also work on macOS
                             (cpu_speed_limit, battery rail, netstat -s parsing)
 
@@ -112,9 +114,10 @@ common: --minutes N|--hours N|--since|--until --targets --panels --node (req. on
 
 analysis: smokemon/analyze.py (incident detection + multi-signal blame + anomaly/change-
           point/path/attribution stats, hub-side read-only). hub also serves a live fleet
-          dashboard at GET / (grid/table/ranking/heatmap/risks/services/cost tabs),
-          plus GET /metrics (prometheus) and
-          GET /api/{nodes,latest,fleet,fleet-status,heatmap,risks,cost,services}.
+          dashboard at GET / (grid/table/ranking/heatmap/risks/services/logs/cost tabs),
+          plus GET /metrics (prometheus) and read-only GET /api/* (nodes, latest, fleet,
+          fleet-status, heatmap, risks, cost, services, logs, ports, network, inventory,
+          ingest-rate, spark; plot/png render a node's panels). see INSTALL.md for the list.
 
 alerting: set SMOKEMON_NOTIFY_URL (ntfy/slack/discord/webhook) + `smoke digest --notify`
           or the smokemon-notify timer. synthetic checks: SMOKEMON_SYNTHETIC=1.
@@ -137,25 +140,6 @@ deploy: macOS deploy/launchd/*.plist (collect-fast/slow, iperf, daily, shipper, 
 
 deps:   node: fping,mtr,iperf3,iw + python3 stdlib + plotext(TUI);
         hub: +matplotlib/numpy(PNG) + iperf3 (runs iperf3 -s as the nodes' bandwidth target).
-```
-
-```
-== what the metrics mean (the non-obvious ones) ==
-
-rtt spread        the p25-p75 / p0-p100 band around median ping, not a single number - a
-                  wide band = jitter even when the average looks fine.
-bufferbloat grade A+..F from idle ping vs ping-under-load (iperf). F = the link buffers
-                  badly under load (calls/games stutter while something downloads).
-psi               linux pressure-stall info (/proc/pressure): % of time tasks stalled on
-                  cpu/mem/io. rises *before* utilisation hits 100% - an early warning.
-conntrack fill    how full the kernel's connection-tracking table is. near 100% = new
-                  connections get dropped (looks like packet loss, isn't the link).
-death clocks      linear extrapolation to a limit: disk-full eta, sd/emmc wear-out eta, and
-                  headroom (degC) before the cpu thermally throttles.
-roam count        how many times wifi jumped between bssids (access points) in the window;
-                  frequent roams correlate with throughput dips.
-throttle bits     raspberry pi vcgencmd flags (under-voltage / freq-capped / throttled),
-                  past and currently-active - the usual cause of silent pi slowdowns.
 ```
 
 ```

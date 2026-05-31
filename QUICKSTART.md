@@ -91,7 +91,7 @@ smoke fleet --hub-url http://HUB-HOST:8765 --heatmap  # node × hour loss/rtt gr
 smoke tui --db /opt/smokemon/data/smokemon-hub.db --node NAME
 ```
 
-repoint a node to a different hub later (writes `SMOKEMON_HUB_URL`, applied within 60s):
+repoint a node to a different hub later (writes `SMOKEMON_HUB_URL`, applied on the shipper's next run, <=15s):
 
 ```bash
 smoke hub NEW-HUB-HOST

@@ -1,7 +1,7 @@
 # smokemon — install & reference
 
 full install and operations reference for smokemon. the short version lives in
-[README.md](README.md); this is the detailed one. smokemon is a `smokemon/` python package: collectors, shipper and hub are stdlib-only, the renderers add plotext (TUI) or matplotlib+numpy (PNG). a node runs two long-lived collector daemons (`collect fast` = ping+net @10s, `collect slow` = http+mtr+wifi+host @60s/30s) plus two timers (`iperf` @15min, `ship` @60s). a hub runs one process (`smokemon.hub`) that ingests delta batches the nodes push to it. everything is driven by launchd (macOS) or systemd (Linux); nothing daemonizes itself.
+[README.md](README.md); this is the detailed one. smokemon is a `smokemon/` python package: collectors, shipper and hub are stdlib-only, the renderers add plotext (TUI) or matplotlib+numpy (PNG). a node runs two long-lived collector daemons (`collect fast` = ping+net @10s, `collect slow` = http+mtr+wifi+host @60s/30s) plus three timers (`iperf` @15min, `ship` @60s, `prune` daily). a hub runs one process (`smokemon.hub`) that ingests delta batches the nodes push to it. everything is driven by launchd (macOS) or systemd (Linux); nothing daemonizes itself.
 
 ```
 one node (local only)
@@ -38,10 +38,13 @@ package layout
 schema is single-source (`schema.py`): node DDL, hub DDL (adds `node` + `src_id` +
 `UNIQUE(node,src_id)`), `STD_TABLES` and the generic INSERT all derive from one table
 spec. migrations are additive (`ensure_node_column`), so the node DB and the hub DB share
-one schema and one plotter codebase. storage is SQLite WAL with no pruning (~5–6 GB/yr per
-node; if it matters, roll up to a lower resolution — never delete raw data blindly).
-footprint is ~30 MB RSS per node (two daemons) and well under 1% of one core; the hub adds
-~20 MB.
+one schema and one plotter codebase. storage is SQLite WAL; a daily prune
+(`python -m smokemon.prune`, enabled by `install.sh`) deletes node rows older than
+`SMOKEMON_RETENTION_DAYS` (default 14) once they have been shipped, then checkpoint-truncates
+the WAL so the file actually shrinks. raw growth before pruning is ~5–6 GB/yr per node, so a
+14-day window keeps a node DB small; set `SMOKEMON_RETENTION_DAYS=0` to keep everything (and
+roll up to a lower resolution rather than deleting raw data blindly). footprint is ~30 MB RSS
+per node (two daemons) and well under 1% of one core; the hub adds ~20 MB.
 
 ```
 node:  python3 >=3.10 (stdlib only for collection); plotext for the local TUI.
@@ -114,7 +117,7 @@ EOF
 # python path if not /usr/bin/python3) before bootstrapping.
 sed -i '' "s#/Users/YOUR_USERNAME#$HOME#g" deploy/launchd/*.plist
 cp deploy/launchd/*.plist ~/Library/LaunchAgents/
-for s in collect-fast collect-slow iperf daily; do
+for s in collect-fast collect-slow iperf daily prune; do
     launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.smokemon.$s.plist
 done
 # optional shipper (edit SMOKEMON_HUB_URL + SMOKEMON_HUB_SECRET first) and hub:
@@ -122,8 +125,8 @@ done
 ```
 
 services: `collect-fast` (RunAtLoad+KeepAlive), `collect-slow` (KeepAlive), `iperf`
-(StartInterval 900s), `daily` (`smoke daily` at 23:55), `shipper` (StartInterval 60s,
-optional), `hub` (KeepAlive, optional).
+(StartInterval 900s), `daily` (`smoke daily` at 23:55), `prune` (daily at 00:20, DB
+retention), `shipper` (StartInterval 60s, optional), `hub` (KeepAlive, optional).
 
 `install.sh` does it all: apt deps, `setcap cap_net_raw+ep` on fping/mtr-packet (so mtr
 needs no sudo), `pip --user plotext`, writes `/etc/smokemon.env`, installs `smoke` (plus
@@ -137,6 +140,7 @@ sudo ./install.sh --node NAME [--hub-url http://HUB-HOST:8765/ingest --secret S]
 #   smokemon-collect-slow.service   http/mtr/wifi/host, always on
 #   smokemon-iperf.timer            iperf every 15 min (targets the hub when --hub-url is set)
 #   smokemon-shipper.timer          ship every 60s
+#   smokemon-prune.timer            DB retention: prune shipped+old rows daily
 ```
 
 ```
@@ -152,10 +156,12 @@ sudo ./install.sh --hub --secret SHARED_SECRET
 
 the hub listens on 8765/tcp. writes go to `POST /ingest` (header `X-Smokemon-Key`); reads
 are open and unauthenticated: `GET /` (live fleet dashboard), `GET /health`, `GET /metrics`
-(prometheus/openmetrics), and `GET /api/{nodes,latest,fleet,fleet-status,heatmap,risks,cost,
-services}` (read-only json; `services` is the docker/redis/pipeline fleet rollup behind the
-dashboard's services tab). if the secret is the default `changeme` it logs a warning at startup. expose the port
-only over a private network — there is no TLS and the read endpoints have no auth.
+(prometheus/openmetrics), and the read-only json family `GET /api/{nodes,latest,fleet,
+fleet-status,heatmap,risks,cost,services,logs,ports,network,inventory,ingest-rate,spark}`
+plus `GET /api/{plot,png}?node=NAME` (render a node's panels server-side). `services` is the
+docker/redis/pipeline fleet rollup behind the dashboard's services tab; `logs` backs the logs
+tab. if the secret is the default `changeme` it logs a warning at startup and refuses ingest.
+expose the port only over a private network — there is no TLS and the read endpoints have no auth.
 
 set in the launchd plist `EnvironmentVariables` (macOS) or `/etc/smokemon.env` (Linux).
 
@@ -165,7 +171,9 @@ general
   SMOKEMON_NODE            node name              (default hostname)
 
 ping + net (collect fast)
-  SMOKEMON_TARGETS         comma-sep ping targets (default 1.1.1.1,192.168.0.1)
+  SMOKEMON_TARGETS         comma-sep ping targets (default 1.1.1.1,gw). the token gw
+                           (or gateway/auto) auto-detects this node's default gateway, so a
+                           fresh install needs no per-site LAN address; drop it if undetected.
   SMOKEMON_INTERVAL        seconds/cycle          (default 10)
   SMOKEMON_COUNT           pings/cycle/target     (default 20)
   SMOKEMON_PERIOD          ms between pings        (default 50)
@@ -193,9 +201,10 @@ iperf (probes.iperf)
 
 synthetic transactions (probes.synthetic, opt-in)
   SMOKEMON_SYNTHETIC       1 = enable captive-portal + DoH checks (default 0/off)
-  SMOKEMON_DOH_URL         DNS-over-HTTPS endpoint (default cloudflare-dns.com/dns-query)
+  SMOKEMON_DOH_URL         DNS-over-HTTPS endpoint (default https://cloudflare-dns.com/dns-query)
   SMOKEMON_DOH_NAME        name to resolve via DoH (default example.com)
-  SMOKEMON_CAPTIVE_URL     204-no-content probe URL (default gstatic generate_204)
+  SMOKEMON_CAPTIVE_URL     204-no-content probe URL
+                           (default http://connectivitycheck.gstatic.com/generate_204)
 
 external lightweight scrapes (probes.ext, opt-in)
   SMOKEMON_EXT_HTTP        ; separated endpoints:
@@ -255,12 +264,44 @@ alerting (notify, S4)
 ship (push -> hub)   (repoint a node any time with `smoke hub NEW-HUB`)
   SMOKEMON_HUB_URL         hub /ingest URL        (unset -> ship no-ops)
   SMOKEMON_HUB_SECRET      shared secret          (default changeme - CHANGE)
+  SMOKEMON_HUB_INSECURE    1 = allow plain-HTTP shipping to a non-loopback host (default 0:
+                           the shipper refuses unless the URL is https or the host is loopback,
+                           so the secret never crosses the wire in clear — set 1 on a trusted
+                           LAN/VPN where the documented plain-HTTP hub is reachable)
   SMOKEMON_SHIP_BATCH      max rows/batch/table   (default 2000)
-  SMOKEMON_SHIP_INTERVAL   loop seconds; 0 = drain once and exit (for a timer)
+  SMOKEMON_SHIP_INTERVAL   in-process loop seconds; 0 = drain once and exit (default 0). the
+                           "@60s" cadence is the systemd/launchd timer, not this loop — the
+                           timer re-runs `python -m smokemon.ship` (which drains and exits)
+                           every 60s. set >0 only to run the shipper as its own daemon.
+  SMOKEMON_SHIP_EXPEDITE   1 = on (default): an elevated event kicks an immediate ship so
+                           errors reach the hub in seconds, rate-limited by SHIP_EXPEDITE_INTERVAL
+  SMOKEMON_SHIP_EXPEDITE_INTERVAL  min seconds between expedited ships (default 10)
   SMOKEMON_SHIP_RTTS       1 = also ship raw per-ping rtts (default 0). off keeps the raw
                            rtts node-local: the hub renders percentile bands from the
                            aggregates in ping_runs, so this cuts ~85% of ship traffic for
                            no hub-side change. ingest bodies are gzipped either way.
+
+retention / prune (node DB; `python -m smokemon.prune`, daily timer)
+  SMOKEMON_RETENTION_DAYS  delete rows older than N days (default 14); 0 = keep everything.
+                           when a hub is configured, a row is deleted only once it is BOTH
+                           older than N days AND shipped, so a hub outage never loses data.
+  SMOKEMON_PRUNE_VACUUM    1 = also run a full VACUUM after pruning (heavier, reclaims pages
+                           to the filesystem; default 0 — freed pages are reused by new inserts)
+
+footprint governor (node, opt-in; sheds expensive probes when over budget)
+  SMOKEMON_MAX_RSS_MB      this process's RSS ceiling in MB (0 = disabled, the default)
+  SMOKEMON_MAX_DB_MB       node DB (+WAL) size ceiling in MB (0 = disabled)
+                           over budget -> drops mtr/synthetic/ext for that cycle, logs an event.
+
+inventory (device facts, auto, delta-coded; near-zero steady-state cost)
+  SMOKEMON_INVENTORY       0 = disable (default on); emits a device_facts row only on change
+  SMOKEMON_INVENTORY_INTERVAL  scan seconds (default 3600)
+
+log excerpts (opt-in, OFF by default; capped+redacted tail, never a stream)
+  SMOKEMON_LOGEXCERPT      1 = enable shipping a tail of LOGEXCERPT_PATHS on warn/error events
+  SMOKEMON_LOGEXCERPT_PATHS  comma-sep files to tail
+  SMOKEMON_LOGEXCERPT_MAX_BYTES  per-excerpt hard cap (default 16 KiB)
+  SMOKEMON_LOGEXCERPT_ALWAYS  1 = capture every cycle regardless of events (testing)
 
 hub (smokemon.hub)
   SMOKEMON_HUB_DB          hub DB path            (default <home>/smokemon/data/smokemon-hub.db)
@@ -268,6 +309,16 @@ hub (smokemon.hub)
   SMOKEMON_HUB_PORT        port                   (default 8765)
   SMOKEMON_HUB_SECRET      shared secret          (must match the nodes)
   SMOKEMON_HUB_MAX_BODY    max POST bytes         (default 64 MiB)
+  SMOKEMON_HUB_CACHE_TTL_S short-TTL cache for the heavy aggregate endpoints (default 20; 0=off)
+  SMOKEMON_HUB_LATEST_WINDOW_S  bound the latest-row lookup as the DB grows (default 30 days; 0=off)
+  SMOKEMON_AWS_GB_COST     $/GB applied to each node's ship volume for the cost tab (default 0.09)
+
+hub alert delivery (smokemon.hub background pass; tracks always, pages if NOTIFY_URL set)
+  SMOKEMON_ALERT_TRACK     0 = disable the background pass (default on: tracks firing alerts)
+  SMOKEMON_ALERT_EVAL_INTERVAL  seconds between passes (default 60)
+  SMOKEMON_ALERT_RENOTIFY_S  re-page a still-firing alert after this many seconds (default 1800)
+  SMOKEMON_ALERT_NOTIFY_RESOLVED  1 = also page when an alert clears (default 1)
+  SMOKEMON_ALERT_MUTE      ; list of node/kind/label globs never paged (still shown on the Risk tab)
 ```
 
 run as `smoke <sub>` (zsh helper) or `python -m smokemon.cli <sub>` (`PYTHONPATH`=repo).
@@ -322,7 +373,7 @@ shared time/scope flags (panel + text views):
 node config
   smoke hub            show where this node ships + hub reachability
   smoke hub HOST       repoint it: writes SMOKEMON_HUB_URL (host -> http://host:8765/ingest)
-                       to /etc/smokemon.env; the shipper picks it up on its next 60s run.
+                       to /etc/smokemon.env; the shipper picks it up on its next run (<=15s).
                        (root-owned file -> prints the sudo line if smoke can't write it;
                        macOS keeps the value in the launchd plist, so it prints that path.)
 
@@ -331,6 +382,7 @@ daemons (launchd/systemd, or by hand with PYTHONPATH=repo) — these collect/shi
   python -m smokemon.probes.iperf      one iperf3 up+down sample
   python -m smokemon.probes.synthetic  one synthetic-checks sample (needs SMOKEMON_SYNTHETIC=1)
   python -m smokemon.ship              drain deltas to the hub
+  python -m smokemon.prune             delete shipped rows older than retention, shrink the WAL
   python -m smokemon.hub               run the ingest + read-API + dashboard server
   python -m smokemon.notify            alert on the last hour's incidents (for a timer)
 ```
@@ -372,7 +424,9 @@ no mtr/iperf on macOS   the launchd PATH must include /opt/homebrew/{bin,sbin} (
 no mtr on Linux         getcap "$(command -v mtr-packet)" should show cap_net_raw+ep; set
                         SMOKEMON_MTR_SUDO=0 in /etc/smokemon.env.
 no wifi on Linux        `iw dev` must list a wireless iface and /proc/net/wireless be non-empty.
-db growth               ~5-6 GB/yr; aggregate to lower resolution, do not delete raw data.
+db growth               daily prune keeps ~SMOKEMON_RETENTION_DAYS (14) of rows; raw rate is
+                        ~5-6 GB/yr. RETENTION_DAYS=0 keeps everything — then aggregate to a
+                        lower resolution rather than deleting raw data blindly.
 ```
 
 ```

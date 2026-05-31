@@ -11,7 +11,7 @@ import fnmatch
 import sqlite3
 import time
 
-from . import analyze, config, query, schema
+from . import analyze, config, mlanomaly, query, schema
 from .probes.logexcerpt import is_elevated
 
 
@@ -265,11 +265,23 @@ def risks(conn, hours: float = 24.0, now: float | None = None) -> dict:
     disk_horizon, wear_horizon = 365 * 86400, 5 * 365 * 86400
     clocks: list[dict] = []
     incidents: list[dict] = []
+    anomalies: list[dict] = []
     for node in nodes(conn):
         ping = query.load_ping_agg(conn, since, now, None, node)
         http = query.load_http(conn, since, now, node)
         for inc in analyze.detect_incidents(ping, http):
             incidents.append({**inc, "node": node})
+        # Multivariate anomalies: joint co-deviation across host/network signals that the
+        # per-signal incident detectors miss. Reuses the analysis frame; numpy-optional.
+        frame = analyze.build_frame(conn, since, now, node)
+        for a in mlanomaly.multivariate_anomalies(frame):
+            sigs = ", ".join(f"{name} {z:.0f}sigma" for name, z in a["signals"])
+            anomalies.append({
+                "node": node, "ts": a["ts"], "score": a["score"],
+                "severity": 2 if a["score"] >= 6.0 else 1,
+                "signals": a["signals"],
+                "detail": f"{len(a['signals'])} signals co-deviated ({sigs})",
+            })
         # drop read-only pseudo-mounts (snap/loop squashfs sit at 100% by design -> false "full")
         disk = {m: v for m, v in query.load_disk(conn, since, now, node).items()
                 if not (m.startswith("/snap") or m.startswith("/var/snap") or "/snapd/" in m)}
@@ -298,9 +310,38 @@ def risks(conn, hours: float = 24.0, now: float | None = None) -> dict:
     clocks.sort(key=lambda c: (c["eta_s"] is None, c["eta_s"] or 0))
     incidents += _http_error_incidents(conn, since, now)
     incidents.sort(key=lambda i: -i["start"])
+    anomalies.sort(key=lambda a: -a["score"])
     return {"now": now, "hours": hours, "clocks": clocks,
             "alerts": _annotate_alerts(conn, _service_alerts(conn, hours, now), now),
-            "incidents": incidents[:50]}
+            "incidents": incidents[:50],
+            "incident_groups": _group_incidents(incidents),
+            "anomalies": anomalies[:20]}
+
+
+def _group_incidents(incidents: list[dict]) -> list[dict]:
+    """Per-node correlated incident groups (storm dedup) for the risk feed. Incidents from
+    different nodes are never grouped together; within a node, analyze.correlate_incidents
+    folds a co-firing cluster into one group with a likely root. Each group carries its node
+    and a one-line summary; raw members ride along so the dashboard can expand them."""
+    by_node: dict[str, list[dict]] = {}
+    for inc in incidents:
+        by_node.setdefault(inc.get("node", ""), []).append(inc)
+    out: list[dict] = []
+    for node, incs in by_node.items():
+        for g in analyze.correlate_incidents(incs):
+            if len(g["members"]) < 2:
+                continue  # singletons are already shown in the flat incident feed
+            root = g["root"]
+            kinds = ", ".join(sorted({m.get("klass", "?") for m in g["members"]}))
+            out.append({
+                "node": node, "start": g["start"], "end": g["end"],
+                "severity": g["severity"], "klass": root.get("klass", "?"),
+                "count": len(g["members"]),
+                "detail": f"{len(g['members'])} correlated incidents ({kinds})",
+                "members": g["members"],
+            })
+    out.sort(key=lambda g: -g["start"])
+    return out
 
 
 _ERROR_SEVS = {"error", "err", "crit", "critical", "fatal", "emerg", "alert", "panic"}
@@ -1192,9 +1233,20 @@ _DASHBOARD_HTML = """<!doctype html>
  .rd-detail{flex:1 1 auto;font-family:var(--mono);font-size:12.5px;color:var(--fg);min-width:0}
  .rd-tail{flex:0 0 auto;font:700 11.5px var(--mono);color:var(--dim)}
  .rd-row.s3 .rd-tail{color:var(--downf)}
- /* logs tab: severity bar + clickable node + monospace excerpt tails */
- .logbar{display:flex;align-items:center;gap:12px;margin-bottom:10px}
- .logbar .fnote{margin:0;color:var(--dim)}
+ /* logs tab: filter bar (severity/kind/source) + sortable headers + clickable node + excerpt tails */
+ .logbar{display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap}
+ .logbar .fnote{margin:0 0 0 auto;color:var(--dim)}
+ .logfilt{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+ .logfilt .lg-lbl{font:600 10px var(--mono);text-transform:uppercase;letter-spacing:.4px;color:var(--dim)}
+ .lg-srch{background:var(--card);border:1px solid var(--line);color:var(--fg);font:500 12px var(--mono);
+  padding:5px 10px;border-radius:7px;width:200px;outline:none}
+ .lg-srch:focus{border-color:var(--accent)}
+ .lg-head{display:flex;align-items:center;gap:12px;padding:6px 10px;border-bottom:1px solid var(--line2);
+  font:600 10px var(--mono);text-transform:uppercase;letter-spacing:.5px;color:var(--mut);user-select:none}
+ .lg-head span[data-lsort]{cursor:pointer}.lg-head span[data-lsort]:hover{color:var(--fg)}
+ .lg-head .ar{color:var(--accent);font-size:9px;margin-left:2px}
+ .lg-h-sev{flex:0 0 auto;width:52px}.lg-h-node{flex:0 0 auto;width:120px}
+ .lg-h-src{flex:0 0 auto;width:88px}.lg-h-det{flex:1 1 auto}.lg-h-when{flex:0 0 auto;width:64px;text-align:right}
  .lg-node{flex:0 0 auto;width:120px;font:600 11.5px var(--mono);color:var(--accent);cursor:pointer;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
  .lg-ex{margin:-2px 0 8px 12px;padding:8px 10px;background:var(--bg2);border:1px solid var(--line);
@@ -1738,7 +1790,8 @@ const RISK_ICON={
  redis:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>`,
  proc:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 9l3 3-3 3M13 15h3"/></svg>`,
  stream:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l3 7 4-14 3 7h4"/></svg>`,
- tcp:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M7.7 7.7l3 8M16.3 7.7l-3 8"/></svg>`};
+ tcp:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M7.7 7.7l3 8M16.3 7.7l-3 8"/></svg>`,
+ anomaly:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg>`};
 function riskIcon(k){return RISK_ICON[k]||RISK_ICON.disk;}
 async function loadRisk(){try{const r=await fetch("/api/risks?hours=24",{cache:"no-store"});if(!r.ok)return;
  renderRisk(await r.json());}catch(e){}}
@@ -1752,7 +1805,7 @@ const RISK_SEVS=[["all","all"],["crit","critical"],["warn","warn+"]];
 function renderRisk(d){riskData=d;drawRisk();}
 function drawRisk(){
  const d=riskData||{};
- const clocks=d.clocks||[],alerts=d.alerts||[],incidents=d.incidents||[];
+ const clocks=d.clocks||[],alerts=d.alerts||[],incidents=d.incidents||[],anomalies=d.anomalies||[];
  // fold every clock/alert/incident into one issue list. text = short chip label; full = the
  // headline shown in the chip's hover tooltip; alerts carry their mute/firing delivery state.
  const issues=[];
@@ -1762,6 +1815,8 @@ function drawRisk(){
   (a.label?a.label+" · ":"")+a.detail,{muted:a.muted,notified:a.notified,sinceS:a.since_s}));
  incidents.forEach(i=>add(i.node,i.severity,i.klass,"incident",i.scope+" · "+i.detail,
   i.scope+" · "+i.detail,{ago:i.start}));
+ anomalies.forEach(a=>add(a.node,a.severity||1,"anomaly","anomaly","co-deviation ·"+a.score,
+  a.detail,{ago:a.ts}));
  const allKinds=[...new Set(issues.map(x=>x.kind))].sort();
  const f=riskFilter,hostq=(view==="risk"?q.value.trim().toLowerCase():"");
  const pass=x=>{
@@ -1798,20 +1853,59 @@ function drawRisk(){
    +`<div class="pissues">${chips}</div></div>`;}).join(""):`<div class="empty">${issues.length?"no issues match the filter":"no problems detected — fleet healthy"}</div>`;
  viewEl("risk").innerHTML=strip+bar+`<div class="pnodes">${cards}</div>`;
 }
-// logs tab (/api/logs): fleet-wide newest-first stream of ext_events + log_excerpts. Severity
-// segmented control (all/elevated/error) + the #q node filter; rows click through to the modal.
-let logSev="elevated";
+// logs tab (/api/logs): fleet-wide newest-first stream of ext_events + log_excerpts. We fetch the
+// full window (severity=all) once, keep the payload, and do severity / kind / source / text
+// filtering + column sorting entirely client-side so the filter bar re-renders instantly.
+let logData=null;
+const logFilter={sev:"all",kinds:new Set(),sources:new Set(),text:"",sort:{key:"ts",dir:-1}};
+const LOG_SEVS=[["all","all"],["error","error"],["warn","warn"],["info","info"]];
+const logSevName=s=>s===3?"error":s===2?"warn":"info";
 async function loadLogs(){
  const node=q.value.trim();
- const qs="severity="+logSev+"&hours=24"+(node?"&node="+encodeURIComponent(node):"");
+ const qs="severity=all&hours=24"+(node?"&node="+encodeURIComponent(node):"");
  try{const r=await fetch("/api/logs?"+qs,{cache:"no-store"});if(!r.ok)return;
   renderLogs(await r.json());}catch(e){}}
-function renderLogs(d){
- const rows=d.rows||[],sevName=s=>s===3?"error":s===2?"warn":"info";
- const ctl=`<div class="logbar"><div class="seg-ctl" id="logsev">`
-  +["all","elevated","error"].map(s=>`<button data-sev="${s}" class="${logSev===s?"on":""}">${s}</button>`).join("")
-  +`</div><span class="fnote">${rows.length} most recent · errors are expedited to the hub on capture</span></div>`;
- const body=rows.length?rows.map(r=>{
+function renderLogs(d){logData=d;drawLogs();}
+function drawLogs(){
+ const d=logData||{},rows=d.rows||[],f=logFilter;
+ // a log-excerpt row is its own "log" kind; events keep their numeric sev for the kind chip.
+ const kindOf=r=>r.kind==="log"?"log":logSevName(r.sev);
+ const allKinds=[...new Set(rows.map(kindOf))].sort();
+ const allSources=[...new Set(rows.map(r=>r.source||"--"))].sort();
+ const txt=f.text.trim().toLowerCase();
+ const pass=r=>{
+  if(f.sev==="error"&&r.sev!==3)return false;
+  if(f.sev==="warn"&&r.sev!==2)return false;
+  if(f.sev==="info"&&r.sev!==1)return false;
+  if(f.kinds.size&&!f.kinds.has(kindOf(r)))return false;
+  if(f.sources.size&&!f.sources.has(r.source||"--"))return false;
+  if(txt){const hay=((r.label||"")+" "+(r.detail||"")+" "+(r.source||"")+" "+(r.node||"")).toLowerCase();
+   if(!hay.includes(txt))return false;}
+  return true;};
+ const vis=rows.filter(pass);
+ const sk=f.sort.key,dir=f.sort.dir;
+ const sval=r=>sk==="sev"?r.sev:sk==="node"?(r.node||""):sk==="source"?(r.source||""):r.ts;
+ vis.sort((a,b)=>{const x=sval(a),y=sval(b);
+  return (x<y?-1:x>y?1:0)*dir || (b.ts-a.ts);});  // stable tiebreak: newest first
+ const seg=`<div class="seg-ctl" id="logsev">`
+  +LOG_SEVS.map(([k,l])=>`<button data-lsev="${k}" class="${f.sev===k?"on":""}">${l}</button>`).join("")+`</div>`;
+ const kinds=allKinds.map(k=>`<button class="kbtn ${f.kinds.has(k)?"on":""}" data-lkind="${esc(k)}">${esc(k)}</button>`).join("");
+ const srcs=allSources.map(s=>`<button class="kbtn ${f.sources.has(s)?"on":""}" data-lsrc="${esc(s)}">${esc(s)}</button>`).join("");
+ const srch=`<input id="logq" class="lg-srch" type="text" placeholder="search text…" value="${esc(f.text)}">`;
+ const bar=`<div class="logfilt">${seg}`
+  +(allKinds.length>1?`<span class="lg-lbl">kind</span><div class="kbtns">${kinds}</div>`:"")
+  +(allSources.length>1?`<span class="lg-lbl">source</span><div class="kbtns">${srcs}</div>`:"")
+  +`${srch}</div>`;
+ const arrow=k=>f.sort.key===k?`<span class="ar">${dir<0?"▼":"▲"}</span>`:"";
+ const head=`<div class="lg-head">`
+  +`<span class="lg-h-sev" data-lsort="sev">sev${arrow("sev")}</span>`
+  +`<span class="lg-h-node" data-lsort="node">node${arrow("node")}</span>`
+  +`<span class="lg-h-src" data-lsort="source">source${arrow("source")}</span>`
+  +`<span class="lg-h-det">detail</span>`
+  +`<span class="lg-h-when" data-lsort="ts">time${arrow("ts")}</span></div>`;
+ const note=`<div class="logbar"><span class="fnote">${vis.length} of ${rows.length} `
+  +`· errors are expedited to the hub on capture</span></div>`;
+ const body=vis.length?vis.map(r=>{
   const when=`<span class="rd-tail">${esc(tago(r.ts))}</span>`;
   const node=`<span class="lg-node" data-node="${esc(r.node)}">${esc(r.node)}</span>`;
   if(r.kind==="log"){
@@ -1819,11 +1913,15 @@ function renderLogs(d){
    return `<div class="rd-row s2"><span class="rd-sev">log</span>${node}`
     +`<span class="rd-detail">${esc(r.source)} · ${esc(r.label)}${drop}${trunc}</span>${when}</div>`
     +`<pre class="lg-ex">${esc(r.detail)}</pre>`;}
-  return `<div class="rd-row s${r.sev}"><span class="rd-sev">${sevName(r.sev)}</span>${node}`
+  return `<div class="rd-row s${r.sev}"><span class="rd-sev">${logSevName(r.sev)}</span>${node}`
    +`<span class="rd-kind">${esc(r.source)}</span>`
    +`<span class="rd-detail">${esc(r.label)}${r.detail?" · "+esc(r.detail):""}</span>${when}</div>`;
- }).join(""):`<div class="empty">no events in this window</div>`;
- viewEl("logs").innerHTML=ctl+body;
+ }).join(""):`<div class="empty">${rows.length?"no rows match the filter":"no events in this window"}</div>`;
+ const el=viewEl("logs"),hadFocus=document.activeElement&&document.activeElement.id==="logq";
+ const caret=hadFocus?document.activeElement.selectionStart:null;
+ el.innerHTML=bar+note+head+body;
+ if(hadFocus){const s=el.querySelector("#logq");if(s){s.focus();
+  if(caret!=null)try{s.setSelectionRange(caret,caret);}catch(e){}}}
 }
 // network tab (/api/network): per-application throughput (bytes/s) over ~6h. No node filter ->
 // fleet-wide (each app summed across nodes); type a node in #q to drill into that node's ports.
@@ -1906,9 +2004,18 @@ function renderServices(d){
  S.innerHTML=html||`<div class="empty">no docker / redis / pipeline telemetry reported yet</div>`;
 }
 [viewEl("table"),viewEl("rank"),viewEl("heat"),viewEl("net"),viewEl("risk"),viewEl("logs"),viewEl("svc"),viewEl("cost")].forEach(nodeClick);
-// logs: severity segmented control (delegated, survives innerHTML re-renders) + debounced #q reload
-viewEl("logs").addEventListener("click",e=>{const b=e.target.closest("[data-sev]");
- if(b){logSev=b.dataset.sev;loadLogs();}});
+// logs: severity / kind / source filters + sortable headers (delegated, all client-side so they
+// survive innerHTML re-renders and never refetch). The #q node filter + #logq text both call drawLogs.
+viewEl("logs").addEventListener("click",e=>{
+ const sv=e.target.closest("[data-lsev]");if(sv){logFilter.sev=sv.dataset.lsev;drawLogs();return;}
+ const kd=e.target.closest("[data-lkind]");if(kd){const k=kd.dataset.lkind;
+  logFilter.kinds.has(k)?logFilter.kinds.delete(k):logFilter.kinds.add(k);drawLogs();return;}
+ const sc=e.target.closest("[data-lsrc]");if(sc){const s=sc.dataset.lsrc;
+  logFilter.sources.has(s)?logFilter.sources.delete(s):logFilter.sources.add(s);drawLogs();return;}
+ const th=e.target.closest("[data-lsort]");if(th){const k=th.dataset.lsort;const so=logFilter.sort;
+  if(so.key===k)so.dir*=-1;else{so.key=k;so.dir=(k==="node"||k==="source")?1:-1;}drawLogs();}});
+viewEl("logs").addEventListener("input",e=>{const s=e.target.closest("#logq");
+ if(s){logFilter.text=s.value;drawLogs();}});
 let filtQT=null;  // #q drives the node filter on logs + the fleet/node drill-in on network
 q.addEventListener("input",()=>{if(view!=="logs"&&view!=="net"&&view!=="risk")return;
  clearTimeout(filtQT);filtQT=setTimeout(()=>{if(view==="logs")loadLogs();else if(view==="net")loadNet();else if(view==="risk")drawRisk();},250);});
@@ -2057,11 +2164,14 @@ async function paintRisks(){
  const cl=(d.clocks||[]).filter(x=>x.node===dNode).sort((a,b)=>(b.severity||1)-(a.severity||1));
  const al=(d.alerts||[]).filter(x=>x.node===dNode).sort((a,b)=>b.severity-a.severity);
  const inc=(d.incidents||[]).filter(x=>x.node===dNode).sort((a,b)=>b.start-a.start);
+ const an=(d.anomalies||[]).filter(x=>x.node===dNode).sort((a,b)=>b.score-a.score);
  let h="";
  if(cl.length)h+='<div class="rd-sec">death clocks <span>'+cl.length+'</span></div>'
   +cl.map(c=>row(c.severity||1,c.kind,c.detail,c.eta_s!=null?"in "+fmtDur(c.eta_s):"")).join("");
  if(al.length)h+='<div class="rd-sec">service alerts <span>'+al.length+'</span></div>'
   +al.map(arow).join("");
+ if(an.length)h+='<div class="rd-sec">anomalies <span>'+an.length+'</span></div>'
+  +an.map(a=>row(a.severity||1,"anomaly",a.detail,tago(a.ts))).join("");
  if(inc.length)h+='<div class="rd-sec">recent incidents <span>'+inc.length+'</span></div>'
   +inc.map(i=>row(i.severity,i.klass,i.scope+" · "+i.detail,tago(i.start))).join("");
  drisk.innerHTML=h||'<div class="empty">no risks for this node — healthy</div>';}

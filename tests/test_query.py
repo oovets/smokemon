@@ -264,6 +264,48 @@ def test_load_net_lag_python_parity(tmp_db, ts0, monkeypatch):
     conn.close()
 
 
+def test_theil_sen_eta_matches_linear_on_clean_ramp():
+    """On a noise-free linear ramp the robust slope equals the least-squares slope, so the
+    two ETAs agree. 0->target at a steady rate."""
+    import math
+    t = [float(i) for i in range(10)]
+    vals = [10.0 + i * 2.0 for i in range(10)]  # slope 2.0 per second, current 28.0
+    lin = query.linear_eta_seconds(t, vals, 100.0)
+    ts = query.theil_sen_eta_seconds(t, vals, 100.0)
+    assert lin is not None and ts is not None
+    assert math.isclose(ts, lin, rel_tol=1e-9)
+    assert math.isclose(ts, (100.0 - 28.0) / 2.0, rel_tol=1e-9)
+
+
+def test_theil_sen_eta_resists_outlier():
+    """A single wild spike skews least-squares (inflates or shrinks the projected ETA) but
+    the Theil-Sen median pair is unmoved, so the robust ETA stays close to the true trend."""
+    t = [float(i) for i in range(12)]
+    vals = [10.0 + i * 1.0 for i in range(12)]  # true slope 1.0/s
+    vals[5] = 500.0  # one absurd outlier sample
+    robust = query.theil_sen_eta_seconds(t, vals, 100.0)
+    # true trend reaches 100 in ~(100-21)/1.0 = 79s from the last sample; allow slack.
+    assert robust is not None
+    assert 60.0 < robust < 100.0
+
+
+def test_theil_sen_eta_flat_and_past_target():
+    t = [float(i) for i in range(5)]
+    assert query.theil_sen_eta_seconds(t, [50.0] * 5, 100.0) is None     # flat -> no ETA
+    assert query.theil_sen_eta_seconds(t, [10.0, 11.0, 12.0], 5.0) == 0.0  # already past
+    assert query.theil_sen_eta_seconds([1.0], [2.0], 100.0) is None       # too few points
+
+
+def test_theil_sen_eta_subsamples_large_series():
+    """A long series is capped to max_pts so the O(n^2) pair scan stays bounded, while the
+    projected ETA still tracks the underlying ramp."""
+    t = [float(i) for i in range(2000)]
+    vals = [i * 0.5 for i in range(2000)]  # slope 0.5/s, current 999.5
+    eta = query.theil_sen_eta_seconds(t, vals, 2000.0, max_pts=50)
+    assert eta is not None
+    assert abs(eta - (2000.0 - 999.5) / 0.5) < 5.0
+
+
 def test_node_filter(tmp_db, ts0):
     """Inserting under different node names and then filtering by --node must isolate
     each node's rows. Used on hub DBs that hold many nodes."""

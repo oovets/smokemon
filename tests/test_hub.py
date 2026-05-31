@@ -242,13 +242,24 @@ def test_dashboard_has_logs_tab():
     h = hubapi.dashboard_html()
     assert '["logs","logs"]' in h and 'id="logs" class="view"' in h
     assert "function loadLogs(" in h and "function renderLogs(" in h
-    assert "/api/logs?" in h and "data-sev=" in h
+    assert "/api/logs?" in h and "data-lsev=" in h
+    # logs tab carries client-side kind/source filters and sortable column headers
+    assert "data-lkind=" in h and "data-lsrc=" in h and "data-lsort=" in h
 
 
 def test_dashboard_has_network_tab():
     h = hubapi.dashboard_html()
     assert '["net","network"]' in h and 'id="net" class="view"' in h
     assert "function loadNet(" in h and "function netSpark(" in h and "/api/network?hours=6" in h
+
+
+def test_dashboard_risk_tab_renders_anomalies():
+    """The risk tab + per-node risk modal fold the new multivariate anomaly tier into their
+    issue list / sections, so the anomaly markup and glyph must be present."""
+    h = hubapi.dashboard_html()
+    assert "anomalies=d.anomalies||[]" in h          # risk overview reads the anomaly tier
+    assert 'anomaly:`<svg' in h                       # anomaly has its own glyph
+    assert '<div class="rd-sec">anomalies' in h       # per-node risk modal section
 
 
 def test_api_network_route(hub_ready, monkeypatch):

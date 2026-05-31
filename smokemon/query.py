@@ -677,6 +677,44 @@ def linear_eta_seconds(t, vals, target: float) -> float | None:
     return (target - cur) / slope
 
 
+def theil_sen_eta_seconds(t, vals, target: float, max_pts: int = 200) -> float | None:
+    """Robust counterpart to linear_eta_seconds: project to `target` using the Theil-Sen
+    slope (the median of all pairwise slopes) instead of least squares. A single cache
+    flush, log rotation or batch job that spikes one sample no longer drags the slope -
+    the median pair is unmoved - so disk/SD-wear ETAs stop flapping. Same return contract:
+    None when not projectable (fewer than 3 finite points, flat time span, or a slope not
+    moving toward the target), 0.0 when already at/past target. Pairwise enumeration is
+    O(n^2); when there are more than `max_pts` points we evenly subsample down to that cap
+    first so the hub stays     O(max_pts^2) regardless of window length. Pure stdlib, hub-side."""
+    import statistics
+    pts = [(ti, v) for ti, v in zip(t, vals) if ti is not None and v is not None and v == v]
+    if len(pts) < 3:
+        return None
+    cur = pts[-1][1]
+    if cur >= target:
+        return 0.0
+    if len(pts) > max_pts:
+        step = len(pts) / max_pts
+        sampled = [pts[int(i * step)] for i in range(max_pts)]
+        if sampled[-1] != pts[-1]:
+            sampled[-1] = pts[-1]  # always keep the latest sample (it sets `cur`)
+        pts = sampled
+    slopes = []
+    for i in range(len(pts)):
+        ti, vi = pts[i]
+        for j in range(i + 1, len(pts)):
+            tj, vj = pts[j]
+            dt = tj - ti
+            if dt != 0:
+                slopes.append((vj - vi) / dt)
+    if not slopes:
+        return None
+    slope = statistics.median(slopes)  # units per second
+    if slope <= 0:  # not trending toward the target -> no finite ETA
+        return None
+    return (target - cur) / slope
+
+
 def human_eta(seconds: float | None) -> str:
     """Compact countdown label: '~6h' / '~14d' / '~3y' / 'now'. None -> '' so callers
     can drop the annotation when nothing is projected."""
@@ -698,10 +736,12 @@ def human_eta(seconds: float | None) -> str:
 
 
 def _soonest_eta(series: dict, value_key: str, target: float) -> tuple[str, float] | None:
-    """(name, seconds) for the series member projected to hit `target` first, or None."""
+    """(name, seconds) for the series member projected to hit `target` first, or None.
+    Uses the robust Theil-Sen projection so a single outlier sample (a cache flush, a log
+    rotation) does not produce a flapping death clock."""
     best = None
     for name, d in series.items():
-        eta = linear_eta_seconds(d.get("t", []), d.get(value_key, []), target)
+        eta = theil_sen_eta_seconds(d.get("t", []), d.get(value_key, []), target)
         if eta is not None and (best is None or eta < best[1]):
             best = (name, eta)
     return best

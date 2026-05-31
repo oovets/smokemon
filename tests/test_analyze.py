@@ -221,3 +221,38 @@ def test_bandwidth_attribution(tmp_db, ts0):
     assert attrib[0]["direction"] == "down"
     assert "bittorrent" in attrib[0]["procs"]
     conn.close()
+
+
+# ---------- F3: incident correlation / storm dedup ----------
+
+def test_correlate_incidents_groups_overlapping():
+    """Three incidents firing in the same window collapse into one group whose root is the
+    highest-severity member; all three are kept as members."""
+    incs = [
+        {"start": 100.0, "end": 160.0, "severity": 1, "klass": "latency-spike"},
+        {"start": 120.0, "end": 200.0, "severity": 3, "klass": "isp-outage"},
+        {"start": 210.0, "end": 240.0, "severity": 2, "klass": "packet-loss"},
+    ]
+    groups = analyze.correlate_incidents(incs, window_s=120.0)
+    assert len(groups) == 1
+    g = groups[0]
+    assert g["start"] == 100.0 and g["end"] == 240.0
+    assert g["severity"] == 3
+    assert g["root"]["klass"] == "isp-outage"
+    assert len(g["members"]) == 3
+
+
+def test_correlate_incidents_splits_distant():
+    """Incidents separated by more than window_s stay in their own groups (a genuine second
+    fault is not folded into the first)."""
+    incs = [
+        {"start": 100.0, "end": 130.0, "severity": 2, "klass": "packet-loss"},
+        {"start": 1000.0, "end": 1030.0, "severity": 2, "klass": "latency-spike"},
+    ]
+    groups = analyze.correlate_incidents(incs, window_s=120.0)
+    assert len(groups) == 2
+    assert [len(g["members"]) for g in groups] == [1, 1]
+
+
+def test_correlate_incidents_empty():
+    assert analyze.correlate_incidents([]) == []

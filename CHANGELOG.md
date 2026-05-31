@@ -8,6 +8,33 @@ roadmap / ideas -> [PLAN.md](PLAN.md)
 tagged; dated entries begin at the first release, 0.11.0.)
 
 ```
+== unreleased ==
+
+added:
+
+- analysis: multivariate anomaly detection (smokemon/mlanomaly.py, hub-side, read-only). scores
+  each time bucket on how jointly anomalous its signals are, so a cluster of mild co-deviations
+  (moderate cpu + temp + a little rtt drift = an emerging thermal issue) surfaces even when no
+  single signal trips an incident - the payoff of the synchronized timeline. uses a numpy
+  mahalanobis distance when numpy is present (already the png extra) and a pure-stdlib root-sum-
+  square of co-deviating robust-z values otherwise, so it stays importable on a bare node. every
+  result names its contributing signals (never an opaque score). surfaced as a new "anomalies"
+  tier in the risk tab + per-node risk modal and a line in `smoke digest`.
+
+- analysis: incident correlation / storm dedup (analyze.correlate_incidents). co-firing incidents
+  on a node (one root cause tripping loss + latency + a restart at once) fold into a single group
+  with a likely root, exposed as incident_groups on /api/risks; raw members ride along so a genuine
+  second fault is never hidden.
+
+changed:
+
+- death clocks: disk-full and SD-wear ETAs now project with the robust theil-sen slope (median of
+  pairwise slopes, query.theil_sen_eta_seconds) instead of least squares, so a single cache flush
+  or log rotation no longer skews the ETA and the clocks stop flapping. pure stdlib; linear_eta_
+  seconds is kept for back-compat.
+```
+
+```
 == 0.16.0 - 2026-05-31  log/error visibility + per-application network view ==
 
 added:

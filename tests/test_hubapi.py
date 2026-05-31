@@ -168,3 +168,31 @@ def test_heatmap_grid(tmp_db, ts0):
     # pi01 had 100% loss in the window -> some bucket carries a high value.
     assert max(v for v in hm["nodes"]["pi01"] if v is not None) >= 100.0
     conn.close()
+
+
+def test_risks_shape_and_anomalies(tmp_db, ts0):
+    """risks() returns the new anomalies + incident_groups tiers; a node whose cpu/mem/temp
+    co-deviate in the same bucket surfaces a multivariate anomaly."""
+    conn = core.connect(str(tmp_db))
+    schema.init_node(conn)
+    # 15 quiet host buckets, then one bucket where cpu/mem/temp all jump together. build_frame
+    # buckets at 60s, so space samples one per minute and put the joint jump in the last.
+    rows = []
+    for i in range(16):
+        spike = i == 15
+        rows.append({
+            "ts": ts0 + i * 60, "cpu_pct": 70.0 if spike else 20.0,
+            "load1": 0.5, "load5": 0.5, "load15": 0.5,
+            "mem_used_pct": 85.0 if spike else 40.0,
+            "mem_total_mb": 4000.0, "temp_c": 75.0 if spike else 50.0})
+    schema.insert(conn, "host_samples", rows, node="pi01")
+    conn.commit()
+    now = ts0 + 16 * 60
+    out = hubapi.risks(conn, hours=24, now=now)
+    assert set(out) >= {"clocks", "alerts", "incidents", "incident_groups", "anomalies"}
+    assert isinstance(out["anomalies"], list) and isinstance(out["incident_groups"], list)
+    an = [a for a in out["anomalies"] if a["node"] == "pi01"]
+    assert an, "co-deviating cpu/mem/temp bucket should produce an anomaly"
+    names = {n for n, _z in an[0]["signals"]}
+    assert {"cpu", "mem", "temp"} <= names
+    conn.close()

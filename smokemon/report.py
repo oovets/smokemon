@@ -7,7 +7,7 @@ import os
 import sys
 from datetime import datetime
 
-from . import analyze, config, query
+from . import analyze, config, mlanomaly, query
 
 _SPARK = "▁▂▃▄▅▆▇█"
 _SPARK_ASCII = ".:-=+*#@"   # ascii magnitude ramp for terminals that can't render the blocks
@@ -339,6 +339,15 @@ def digest(conn, since, until, node=None) -> str:
             lines.append(f"Hard downtime: {analyze._dur(down_s)} across {len(outage)} outage(s).")
     else:
         lines.append("No incidents detected.")
+
+    # Multivariate anomalies: moments where several signals co-deviated at once even if no
+    # single one tripped an incident (the synchronized-timeline payoff). Top one only.
+    anomalies = mlanomaly.multivariate_anomalies(analyze.build_frame(conn, since, until, node))
+    if anomalies:
+        top = anomalies[0]
+        sigs = ", ".join(name for name, _z in top["signals"])
+        lines.append(f"Anomaly: {len(top['signals'])} signals co-deviated at "
+                     f"{_hhmm(top['ts'])} ({sigs}).")
 
     # Peak latency + coincidence.
     if tgt:

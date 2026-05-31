@@ -582,6 +582,40 @@ def _top_procs(conn, lo, hi, node=None, limit=3) -> list[str]:
 # ---------- shared formatting ----------
 
 
+def correlate_incidents(incidents: list[dict], window_s: float = 120.0) -> list[dict]:
+    """Group incidents that overlap (or sit within `window_s` of each other) in time into
+    correlated clusters, so one root cause - a thermal throttle trips loss + latency + a
+    docker restart at once - reads as a single incident instead of a storm of separate rows.
+
+    Each group is {start, end, duration_s, severity, root, members} where `root` is the
+    highest-severity member (tie-broken by earliest start) and `members` keeps every raw
+    incident so a genuine second fault inside the window is never hidden. Pure stdlib; the
+    grouping reuses the same gap-merge logic as merge_spans but carries the members along.
+    Incidents need {start, end, severity}; anything detect_incidents emits qualifies."""
+    if not incidents:
+        return []
+    ordered = sorted(incidents, key=lambda i: i["start"])
+    groups: list[list[dict]] = [[ordered[0]]]
+    span_end = ordered[0]["end"]
+    for inc in ordered[1:]:
+        if inc["start"] <= span_end + window_s:
+            groups[-1].append(inc)
+            span_end = max(span_end, inc["end"])
+        else:
+            groups.append([inc])
+            span_end = inc["end"]
+    out: list[dict] = []
+    for members in groups:
+        root = max(members, key=lambda i: (i.get("severity", 1), -i["start"]))
+        start = min(m["start"] for m in members)
+        end = max(m["end"] for m in members)
+        out.append({
+            "start": start, "end": end, "duration_s": end - start,
+            "severity": root.get("severity", 1), "root": root, "members": members,
+        })
+    return out
+
+
 def merge_spans(spans: list[tuple[float, float]]) -> list[tuple[float, float]]:
     """Union of (start, end) intervals so overlapping per-target incidents are counted
     once. Returns disjoint spans sorted by start."""
