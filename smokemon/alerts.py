@@ -28,18 +28,27 @@ def _muted(key: str) -> bool:
 
 
 def evaluate(conn, now: float | None = None) -> dict[str, dict]:
-    """key -> alert for the currently-firing service alerts, severity-gated (NOTIFY_MIN_SEVERITY)
-    and mute-filtered. Reuses hubapi._service_alerts, so the nodes do zero extra work."""
+    """key -> alert for the currently-firing service alerts, severity-gated (NOTIFY_MIN_SEVERITY).
+    Reuses hubapi._service_alerts, so the nodes do zero extra work. NB: mute is *not* applied here
+    - muting suppresses paging only (see to_page), while every alert is still tracked so the Risk
+    tab can show its firing-since even when nothing is sent."""
     now = time.time() if now is None else now
     out: dict[str, dict] = {}
     for a in hubapi._service_alerts(conn, config.ALERT_WINDOW_HOURS, now):
         if a["severity"] < config.NOTIFY_MIN_SEVERITY:
             continue
         k = _key(a)
-        if _muted(k):
-            continue
         out[k] = {**a, "key": k}
     return out
+
+
+def to_page(alerts: list[dict]) -> list[dict]:
+    """Subset of an alert list that should actually be sent to the webhook: only when a notify
+    URL is configured, and excluding muted keys. Mute and the missing-URL case suppress *paging*
+    only - tracking (alert_state, the dashboard's firing-since) still covers every alert."""
+    if not config.NOTIFY_URL:
+        return []
+    return [a for a in alerts if not _muted(a["key"])]
 
 
 def load_state(conn) -> dict[str, dict]:

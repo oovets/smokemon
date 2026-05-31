@@ -427,11 +427,13 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def _alert_loop() -> None:
-    """Background delivery pass (started only when SMOKEMON_NOTIFY_URL is set). Reuses the same
-    detector the Risk tab shows and pushes newly-firing/resolved service alerts to the webhook.
-    Locking mirrors the GET path: reads under _read_lock (WAL, concurrent with ingest), the small
-    alert_state writes under _lock, and the webhook POST outside every lock so a slow/blocked
-    notify endpoint can never stall intake. Never lets an exception kill the loop."""
+    """Background alert pass. Reuses the same detector the Risk tab shows; tracks every firing
+    alert in alert_state (powering the dashboard's firing-since), and pushes the page-able subset
+    (not muted, and only when a notify URL is set) to the webhook. With no NOTIFY_URL this is a
+    pure tracker that sends nothing. Locking mirrors the GET path: reads under _read_lock (WAL,
+    concurrent with ingest), the small alert_state writes under _lock, and the webhook POST
+    outside every lock so a slow/blocked notify endpoint can never stall intake. Never lets an
+    exception kill the loop."""
     while True:
         time.sleep(max(5.0, config.ALERT_EVAL_INTERVAL))
         try:
@@ -441,10 +443,12 @@ def _alert_loop() -> None:
             with _lock:
                 state = alerts.load_state(_conn)
             firing, resolved = alerts.plan(current, state, now)
-            title, body = alerts.render(firing, resolved)
+            page_firing = alerts.to_page(firing)
+            page_resolved = alerts.to_page(resolved)
+            title, body = alerts.render(page_firing, page_resolved)
             sent = notify.send(title, body) if title else False
-            notified = {a["key"] for a in firing} if sent else set()
-            with _lock:
+            notified = {a["key"] for a in page_firing} if sent else set()
+            with _lock:  # persist ALL current (tracks firing-since) + drop ALL resolved
                 alerts.persist(_conn, current, resolved, notified, now)
         except Exception as e:  # noqa: BLE001
             core.log(f"alert loop error: {e!r}")
@@ -461,11 +465,15 @@ def main() -> int:
     _ro_conn = core.connect_ro(config.HUB_DB)
     _hub_cols.update({t: {r[1] for r in _conn.execute(f"PRAGMA table_info({t})").fetchall()}
                       for t in schema.STD_TABLES})
-    if config.NOTIFY_URL:  # delivery-only service alerting; off entirely without a webhook URL
+    if config.ALERT_TRACK or config.NOTIFY_URL:  # background alert pass (track always, page if URL)
         threading.Thread(target=_alert_loop, name="smokemon-alerts", daemon=True).start()
-        core.log(f"alert delivery on: every {config.ALERT_EVAL_INTERVAL:.0f}s "
-                 f"-> {config.NOTIFY_KIND or notify.detect_kind(config.NOTIFY_URL)} "
-                 f"(min severity {config.NOTIFY_MIN_SEVERITY})")
+        if config.NOTIFY_URL:
+            core.log(f"alert delivery on: every {config.ALERT_EVAL_INTERVAL:.0f}s "
+                     f"-> {config.NOTIFY_KIND or notify.detect_kind(config.NOTIFY_URL)} "
+                     f"(min severity {config.NOTIFY_MIN_SEVERITY})")
+        else:
+            core.log(f"alert tracking on: every {config.ALERT_EVAL_INTERVAL:.0f}s "
+                     "(delivery off - no SMOKEMON_NOTIFY_URL)")
     srv = ThreadingHTTPServer((config.HUB_BIND, config.HUB_PORT), Handler)
     core.log(f"hub listening on {config.HUB_BIND}:{config.HUB_PORT} db={config.HUB_DB} "
              "(dashboard GET / · POST /ingest · GET /metrics /api/fleet-status "

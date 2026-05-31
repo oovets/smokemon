@@ -208,6 +208,10 @@ ALERT_NOTIFY_RESOLVED = os.environ.get("SMOKEMON_ALERT_NOTIFY_RESOLVED", "1") !=
 # 'pi04/*;*/docker/watchtower;*/*/scratch-*'. A matched alert is never paged (it still shows in
 # the dashboard). kinds: docker / redis / stream / proc / memory / throttle / tcp.
 ALERT_MUTE = _semi_list("SMOKEMON_ALERT_MUTE", "")
+# Run the hub's alert pass even with no webhook configured: it then only *tracks* firing alerts
+# in alert_state (so the Risk tab shows "firing <duration>" and which would-be-paged), and sends
+# nothing. Set =0 to disable the background pass entirely. Sending still requires NOTIFY_URL.
+ALERT_TRACK = _enabled("SMOKEMON_ALERT_TRACK", True)
 
 # central aggregation; set SMOKEMON_HUB_URL to the hub's /ingest endpoint
 HUB_URL = os.environ.get("SMOKEMON_HUB_URL", "")

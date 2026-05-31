@@ -46,13 +46,46 @@ def test_evaluate_severity_gating(hub_conn, ts0, monkeypatch):
     assert set(cur) == {"pi01/proc/gst"}  # only the sev-3 process-missing survives
 
 
-def test_evaluate_mute(hub_conn, ts0, monkeypatch):
+def test_evaluate_ignores_mute(hub_conn, ts0, monkeypatch):
+    """Mute no longer filters evaluate - every firing alert is tracked regardless."""
     monkeypatch.setattr(config, "NOTIFY_MIN_SEVERITY", 2)
     monkeypatch.setattr(config, "ALERT_MUTE", ["pi01/proc/*"])
     _seed_services(hub_conn, ts0)
     cur = alerts.evaluate(hub_conn, ts0 + 100)
-    assert "pi01/proc/gst" not in cur
-    assert {a["kind"] for a in cur.values()} == {"docker", "stream"}
+    assert "pi01/proc/gst" in cur  # still evaluated even though muted
+    assert {a["kind"] for a in cur.values()} == {"docker", "proc", "stream"}
+
+
+def test_to_page_filters_mute_and_requires_url(monkeypatch):
+    firing = [{"key": "pi01/proc/gst"}, {"key": "pi01/stream/cam"}]
+    # no URL -> nothing is page-able, even unmuted
+    monkeypatch.setattr(config, "NOTIFY_URL", "")
+    monkeypatch.setattr(config, "ALERT_MUTE", [])
+    assert alerts.to_page(firing) == []
+    # URL set, one muted -> only the unmuted key pages
+    monkeypatch.setattr(config, "NOTIFY_URL", "https://ntfy.sh/t")
+    monkeypatch.setattr(config, "ALERT_MUTE", ["pi01/stream/*"])
+    assert [a["key"] for a in alerts.to_page(firing)] == ["pi01/proc/gst"]
+
+
+def test_muted_alert_tracked_but_not_paged(hub_conn, ts0, monkeypatch):
+    """A muted firing alert lands in alert_state (so the dashboard shows firing-since) but the
+    full pass never calls notify.send for it."""
+    monkeypatch.setattr(config, "NOTIFY_MIN_SEVERITY", 2)
+    monkeypatch.setattr(config, "ALERT_MUTE", ["*"])  # mute everything
+    monkeypatch.setattr(config, "NOTIFY_URL", "https://ntfy.sh/t")
+    sent = []
+    monkeypatch.setattr("smokemon.notify.send", lambda *a, **k: sent.append(1) or True)
+    _seed_services(hub_conn, ts0)
+    now = ts0 + 100
+    cur = alerts.evaluate(hub_conn, now)
+    firing, resolved = alerts.plan(cur, alerts.load_state(hub_conn), now)
+    page = alerts.to_page(firing)
+    title, body = alerts.render(page, alerts.to_page(resolved))
+    assert page == [] and title is None                  # nothing page-able
+    alerts.persist(hub_conn, cur, resolved, set(), now)
+    assert sent == []                                    # never paged
+    assert set(alerts.load_state(hub_conn)) == set(cur)  # but all tracked
 
 
 def test_plan_new_then_dedup_then_renotify(monkeypatch):
@@ -121,9 +154,9 @@ def test_risks_annotates_alerts(hub_conn, ts0, monkeypatch):
            for a in hubapi.risks(hub_conn, 24, now=now)["alerts"]}
     gst = out["pi01/proc/gst"]
     assert gst["notified"] is True and gst["since_s"] == 0 and gst["muted"] is False
-    # stream alert is muted by the glob and was never recorded -> since_s None, notified False
+    # stream alert is muted by the glob: still tracked (since_s set) but never paged (notified False)
     stream = next(a for a in out.values() if a["kind"] == "stream")
-    assert stream["muted"] is True and stream["since_s"] is None and stream["notified"] is False
+    assert stream["muted"] is True and stream["since_s"] == 0 and stream["notified"] is False
 
 
 def test_full_pass_sends_once(hub_conn, ts0, monkeypatch):

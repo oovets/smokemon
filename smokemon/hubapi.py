@@ -1028,6 +1028,9 @@ _DASHBOARD_HTML = """<!doctype html>
    flex:0 0 auto;width:72px;text-align:center}
  .pi-d{color:var(--fg);font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto}
  .pi-e{color:var(--dim);font:700 10.5px var(--mono);flex:0 0 auto}
+ .pi-tag{font:600 9px var(--mono);padding:1px 6px;border-radius:4px;flex:0 0 auto;
+   background:var(--accent-bg);color:var(--accent)}
+ .pi-tag.muted{background:var(--card2);color:var(--dim)}
  .pi.s3 .pi-k{background:var(--down-bg);color:var(--downf)}.pi.s3 .pi-e{color:var(--downf)}
  .pi.s2 .pi-k{background:var(--warn-bg);color:var(--warnf)}
  .pi.s1 .pi-k{background:var(--accent-bg);color:var(--accent)}
@@ -1681,9 +1684,8 @@ function renderRisk(d){
  const byNode={};
  const push=(node,sev,kind,detail,extra)=>{(byNode[node]=byNode[node]||[]).push({sev,kind,detail,...(extra||{})});};
  clocks.forEach(c=>push(c.node,c.severity||1,c.kind,c.detail,{eta:c.eta_s}));
- alerts.forEach(a=>push(a.node,a.muted?1:a.severity,a.kind,
-  `${a.label} · ${a.detail}`+(a.since_s!=null?` · firing ${fmtDur(a.since_s)}`:"")
-  +(a.muted?" · muted":a.notified?" · paged":"")));
+ alerts.forEach(a=>push(a.node,a.severity,a.kind,`${a.label} · ${a.detail}`,
+  {muted:a.muted,notified:a.notified,sinceS:a.since_s}));
  incidents.forEach(i=>push(i.node,i.severity,i.klass,`${i.scope} · ${i.detail}`,{ago:i.start}));
  const nodes=Object.keys(byNode).map(n=>{const list=byNode[n].sort((a,b)=>b.sev-a.sev);
   return {node:n,list,worst:Math.max(...list.map(x=>x.sev)),cnt:list.length};})
@@ -1699,7 +1701,9 @@ function renderRisk(d){
  const cards=nodes.length?nodes.map(N=>{
   const chips=N.list.map(x=>{const tail=x.eta!=null?`<span class="pi-e">${esc(fmtDur(x.eta))}</span>`
     :(x.ago?`<span class="pi-e">${esc(tago(x.ago))}</span>`:"");
-   return `<div class="pi s${x.sev}"><span class="pi-k">${esc(x.kind)}</span><span class="pi-d">${esc(x.detail)}</span>${tail}</div>`;}).join("");
+   const tags=(x.sinceS!=null?`<span class="pi-tag">firing ${esc(fmtDur(x.sinceS))}</span>`:"")
+    +(x.muted?`<span class="pi-tag muted">muted</span>`:x.notified?`<span class="pi-tag">paged</span>`:"");
+   return `<div class="pi s${x.sev}"><span class="pi-k">${esc(x.kind)}</span><span class="pi-d">${esc(x.detail)}</span>${tags}${tail}</div>`;}).join("");
   return `<div class="pnode" data-node="${esc(N.node)}"><div class="pnode-h"><span class="pdot sev${N.worst}"></span>`
    +`<span class="pn">${esc(N.node)}</span><span class="pc">${N.cnt} issue${N.cnt>1?"s":""}</span></div>`
    +`<div class="pissues">${chips}</div></div>`;}).join(""):`<div class="empty">no problems detected — fleet healthy</div>`;
