@@ -30,10 +30,12 @@ added:
   with virtual interfaces filtered out), alongside loss % and rtt, and is rendered transposed and
   full-width: nodes are columns with diagonal labels, hours run down the y-axis, and cells flex to
   fill the screen. The per-application graphs gain a fleet vs per-node toggle: /api/network?by_node=1
-  breaks each app's bytes/s down per contributing node (busiest first, capped with a "+N more"
-  rollup), rendered as overlaid colour-coded series with a legend so you see the fleet total and who
-  drives it. Custom service ports are labelled: 8554/554 rtsp, 5000 raw-video, 19999 netdata, 1935
-  rtmp (plus the existing well-known set).
+  breaks each app's bytes/s down per contributing node. The per-node view is a 100%-stacked SHARE
+  chart (each node a band = its percentage of the app's total per bucket), so a tiny node reads as
+  clearly as one 500x bigger - absolute overlaid lines buried everything behind a single dominant
+  node. Node identity shows on hover; only the top-3 contributors get a compact share-% hint
+  instead of a giant permanent legend. Custom service ports are labelled: 8554/554 rtsp, 5000
+  raw-video, 19999 netdata, 1935 rtmp (plus the existing well-known set).
 
 - hub dashboard: merged the overlapping table / ranking / services tabs into one "nodes" tab
   backed by a single cached composite endpoint GET /api/nodes-detail. Each row carries live

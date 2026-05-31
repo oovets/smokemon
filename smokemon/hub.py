@@ -248,11 +248,12 @@ def _cached(key: str, producer, ttl: float | None = None):
     """Serve `producer()` memoized for up to `ttl` seconds (default HUB_CACHE_TTL_S). On a miss a
     single thread recomputes while concurrent callers wait on the per-key lock and then get the
     fresh value (single-flight), so the dashboard's repeated/parallel polls don't each pay the full
-    recompute. A per-key ttl lets fast-poll endpoints (fleet-status/spark) share one pass across
-    concurrent viewers without holding a stale value as long as the heavy aggregates. TTL<=0 = off.
-    When ttl exceeds the global HUB_CACHE_TTL_S it is clamped to it, so a 0/off global disables all
-    caching as before."""
-    ttl = config.HUB_CACHE_TTL_S if ttl is None else min(ttl, config.HUB_CACHE_TTL_S)
+    recompute. A per-key ttl lets fast-poll endpoints use a SHORTER window (fleet-status/spark) and
+    slow-changing ones a LONGER window (the hourly heatmap) than the default. Setting the global
+    HUB_CACHE_TTL_S<=0 is the kill-switch: it disables caching for every key regardless of ttl."""
+    if config.HUB_CACHE_TTL_S <= 0:  # global off-switch
+        return producer()
+    ttl = config.HUB_CACHE_TTL_S if ttl is None else ttl
     if ttl <= 0:
         return producer()
     hit = _resp_cache.get(key)
@@ -334,8 +335,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, data)
             if u.path == "/api/heatmap":
                 metric = qs.get("metric", ["loss"])[0]
+                # the heatmap is hourly-bucketed node x hour data that barely changes minute to
+                # minute, so cache it for a long time (clamped down to HUB_CACHE_TTL_S only if that
+                # global is set lower). It does not need to recompute on the dashboard's 15s polls.
                 data = _cached(f"heatmap:{metric}:{hours}",
-                               lambda: _ro_call(lambda c: hubapi.heatmap(c, metric, hours)))
+                               lambda: _ro_call(lambda c: hubapi.heatmap(c, metric, hours)),
+                               ttl=600.0)
                 return self._send(200, data)
             if u.path == "/api/spark":
                 spark_hours = _clamp_hours(qs, default=2.0)

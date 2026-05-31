@@ -1331,18 +1331,10 @@ _DASHBOARD_HTML = """<!doctype html>
     axis). cells flex to fill the full width dynamically. --tw = the time-gutter width, shared by
     the label header and every row so columns line up. */
  .hh-grid{--tw:52px;width:100%}
- .hh-labels{display:flex;align-items:flex-end;height:96px;gap:2px;margin-bottom:3px}
- .hh-corner{width:var(--tw);flex:0 0 auto}
- /* host name stands straight up (90deg) centred over its column; tiny font + the column width as
-    the rotated line's height cap, so it never spills past the heatmap square's width. */
- .hh-name{flex:1 1 0;min-width:0;display:flex;justify-content:center;align-items:flex-end;cursor:pointer;overflow:hidden}
- .hh-name>span{writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap;
-   font:600 9px var(--mono);color:var(--mut);max-height:92px;overflow:hidden;text-overflow:ellipsis;line-height:1}
- .hh-name:hover>span{color:var(--fg)}
  .hh-row{display:flex;align-items:center;gap:2px;height:16px;margin-bottom:2px}
  .hh-time{width:var(--tw);flex:0 0 auto;text-align:right;padding-right:8px;
    font:10px var(--mono);color:var(--dim)}
- .hh-cell{flex:1 1 0;min-width:0;height:100%;border-radius:3px;transition:transform .1s}
+ .hh-cell{flex:1 1 0;min-width:0;height:100%;border-radius:3px;transition:transform .1s;cursor:pointer}
  .hh-cell:hover{transform:scaleY(1.25);outline:1px solid var(--fg);position:relative;z-index:2}
  /* ---- risks: overview-style summary rail + per-node problem cards ---- */
  #risk{max-width:none}
@@ -1516,6 +1508,7 @@ _DASHBOARD_HTML = """<!doctype html>
 .nc-leg{display:inline-flex;align-items:center;gap:5px;font:11px var(--mono);color:var(--dim)}
 .nc-leg .sw{width:9px;height:9px;border-radius:2px;flex:0 0 auto}
 .nc-leg b{color:var(--fg);font-weight:600}
+.nc-more{color:var(--dim);font-style:italic}
  .rd-load{color:var(--dim);padding:14px;font-style:italic}
  /* ports tab inside the detail modal: two columns of per-port connection counts */
  #dports{margin:0;padding:12px 14px;background:var(--bg);overflow-y:auto;height:80vh}
@@ -2046,20 +2039,17 @@ function heatSectionHtml(d){
   +`<div class="heat-legend"><span>${lab[0]}</span><span class="bar" style="background:${heatGradientCss()}"></span><span>${lab[1]}</span></div></div>`;
  const ns=d&&d.nodes?Object.keys(d.nodes).sort():[],hrs=(d&&d.hours)||[];
  if(!ns.length)return tools+`<div class="empty">no ping/throughput history in this window</div>`;
- // Transposed grid: one COLUMN per node (diagonal label on top), one ROW per hour (time on the
- // y-axis). Cells flex to fill the full container width dynamically, so the map scales to any
- // screen instead of a fixed cell size with names crammed on the left.
- const labels=`<div class="hh-labels"><span class="hh-corner"></span>`
-  +ns.map(n=>`<span class="hh-name" data-node="${esc(n)}" title="${esc(n)}"><span>${esc(n)}</span></span>`).join("")
-  +`</div>`;
+ // Transposed grid: one COLUMN per node, one ROW per hour (time on the y-axis). No node-name header
+ // row - the per-cell tooltip (hover) names the node, which keeps the map clean and full-width.
+ // Cells flex to fill the container width dynamically, so it scales to any screen.
  const rows=hrs.map((ts,i)=>{
   const hh=String(new Date(ts*1000).getHours()).padStart(2,"0");
   const tick=i%3===0?hh+":00":"";  // label every 3rd hour to avoid clutter
   return `<div class="hh-row"><span class="hh-time">${tick}</span>`
    +ns.map(n=>{const v=d.nodes[n][i];
-    return `<span class="hh-cell" style="background:${heatColor(v)}" title="${heatTip(n,ts,v)}"></span>`;}).join("")
+    return `<span class="hh-cell" data-node="${esc(n)}" title="${heatTip(n,ts,v)}" style="background:${heatColor(v)}"></span>`;}).join("")
    +`</div>`;}).join("");
- return tools+`<div class="hh-grid">${labels}${rows}</div>`;
+ return tools+`<div class="hh-grid">${rows}</div>`;
 }
 
 // risks (/api/risks): death-clocks (disk-full / SD-wear / throttle) + recent incident feed,
@@ -2217,19 +2207,28 @@ function netSpark(s){
   +`<path d="M0,40 L${pts.join(" L")} L100,40 Z" fill="url(#gIngest)"/>`
   +`<path d="M${pts.join(" L")}" fill="none" stroke="#7c83ff" stroke-width="1.5" vector-effect="non-scaling-stroke"/></svg>`;
 }
-// draws several per-node series as overlaid coloured area+line paths sharing one scale (normalized
-// to the max across all node series), so a node's contribution to the app total reads at a glance.
+// 100%-stacked share chart: per bucket, each node is a band whose thickness = its share of THAT
+// bucket's total throughput. The bands always fill the full height, so a tiny node reads just as
+// clearly as a 500x-bigger one (absolute scale would bury it). Node identity is shown on hover
+// via each band's <svg><title>, not a giant permanent legend.
 function netMultiSpark(nodesArr){
  const series=nodesArr.map(x=>x.series||[]);
- const hi=Math.max(1,...series.map(s=>Math.max(0,...s.map(v=>v||0))));
  const len=Math.max(1,...series.map(s=>s.length));
- const xmax=Math.max(1,len-1),X=i=>(i/xmax*100).toFixed(1),Y=v=>(38-(v/hi)*34).toFixed(1);
- const paths=series.map((s,k)=>{const c=NET_COLORS[k%NET_COLORS.length];
-  const pts=s.map((v,i)=>X(i)+" "+Y(v||0));if(!pts.length)return "";
-  return `<path d="M0,40 L${pts.join(" L")} L100,40 Z" fill="${c}" fill-opacity="0.12"/>`
-   +`<path d="M${pts.join(" L")}" fill="none" stroke="${c}" stroke-width="1.3" vector-effect="non-scaling-stroke"/>`;
+ const totals=[];for(let i=0;i<len;i++){let t=0;series.forEach(s=>t+=(s[i]||0));totals.push(t);}
+ const xmax=Math.max(1,len-1),X=i=>(i/xmax*100).toFixed(2);
+ // cumulative share boundaries: lower[i]..upper[i] per node per bucket (0..40 svg units, 40=100%).
+ const cum=new Array(len).fill(0);
+ const bands=series.map((s,k)=>{const c=NET_COLORS[k%NET_COLORS.length];
+  const lower=[],upper=[];
+  for(let i=0;i<len;i++){const tot=totals[i]||0,share=tot>0?(s[i]||0)/tot:0;
+   const lo=cum[i],hi=lo+share;lower.push(lo);upper.push(hi);cum[i]=hi;}
+  // polygon: upper edge left->right, then lower edge right->left
+  const up=upper.map((v,i)=>X(i)+" "+(40-v*40).toFixed(2));
+  const dn=lower.map((v,i)=>X(i)+" "+(40-v*40).toFixed(2)).reverse();
+  return `<path d="M${up.join(" L")} L${dn.join(" L")} Z" fill="${c}" fill-opacity="0.85">`
+   +`<title>${esc(nodesArr[k].node)}</title></path>`;
  }).join("");
- return `<svg class="ntspark" viewBox="0 0 100 40" preserveAspectRatio="none">${paths}</svg>`;
+ return `<svg class="ntspark" viewBox="0 0 100 40" preserveAspectRatio="none">${bands}</svg>`;
 }
 // We always request the by_node breakdown: its payload is a superset (each app carries the fleet
 // `series` AND the per-node `nodes`), so the fleet/per-node toggle is a pure client-side re-render
@@ -2256,20 +2255,24 @@ async function loadNet(opts){
   renderNet(netData.hm,netData.nw,node);
  }catch(e){}
 }
-// fleet mode: one area card per app (summed across nodes), header = fleet peak/avg. split mode:
-// drop the fleet total entirely (it dwarfs individual nodes) and show only the per-node series +
-// a colour-swatch legend; the header then reads the BUSIEST node's peak so the chart scale is
-// framed by an actual node, not the sum.
+// fleet mode: one area card per app (summed across nodes), header = fleet peak/avg. split mode: a
+// 100%-stacked SHARE chart (each node a band = its % of the app total per bucket), so no node
+// drowns regardless of absolute size. Identity shows on hover (svg <title>); only the top-3
+// contributors get a compact inline swatch hint - no giant permanent legend.
 function netCardHtml(a,buckets,node){
  const dn=node?` data-node="${esc(node)}"`:"";
  const title=`<span class="nc-app">${esc(a.app)}</span>`;
  if(netMode==="split"&&a.nodes&&a.nodes.length){
-  const nodePeak=Math.max(0,...a.nodes.map(x=>Math.max(0,...(x.series||[]).map(v=>v||0))));
-  const hdr=`<div class="nc-h">${title}<span class="nc-rate">${fmtKB(nodePeak)}/s peak node</span></div>`;
-  const sub=`<div class="nc-sub">:${esc(String(a.port))} · ${a.nodes.length} node${a.nodes.length===1?"":"s"}</span>`;
-  const leg=`<div class="nc-legend">`+a.nodes.map((x,k)=>{const c=NET_COLORS[k%NET_COLORS.length];
+  const fleetRate=buckets?a.total/buckets:0;  // app total throughput (avg/s), not a single node
+  const hdr=`<div class="nc-h">${title}<span class="nc-rate">${fmtKB(fleetRate)}/s total</span></div>`;
+  const sub=`<div class="nc-sub">:${esc(String(a.port))} · ${a.nodes.length} node${a.nodes.length===1?"":"s"} · share over time · hover for node</div>`;
+  // top-3 contributors as a tiny hint row (share % of total), the rest implied by the bands.
+  const tot=a.nodes.reduce((s,x)=>s+(x.total||0),0)||1;
+  const top=a.nodes.slice(0,3).map((x,k)=>{const c=NET_COLORS[k%NET_COLORS.length];
    return `<span class="nc-leg"><span class="sw" style="background:${c}"></span>${esc(x.node)}`
-    +`<b>${fmtKB(x.total/(buckets||1))}/s</b></span>`;}).join("")+`</div>`;
+    +`<b>${Math.round(100*(x.total||0)/tot)}%</b></span>`;}).join("");
+  const more=a.nodes.length>3?`<span class="nc-leg nc-more">+${a.nodes.length-3} more</span>`:"";
+  const leg=`<div class="nc-legend">${top}${more}</div>`;
   return `<div class="netcard"${dn}>${hdr}${netMultiSpark(a.nodes)}${sub}${leg}</div>`;
  }
  const peak=Math.max(0,...a.series),avg=buckets?a.total/buckets:0;
