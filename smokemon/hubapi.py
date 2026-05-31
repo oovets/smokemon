@@ -456,36 +456,34 @@ _DASHBOARD_HTML = """<!doctype html>
 <title>smokemon fleet</title>
 <style>
  :root{
-  --bg:#0a0d13;--bg2:#0d1119;--card:#10151e;--card2:#161c27;--line:#1e2533;--line2:#2b3442;
-  --fg:#e6edf3;--mut:#97a1b0;--dim:#646f7e;
-  --ok:#3fb950;--okf:#56d364;--warn:#d99a1c;--warnf:#e3b341;--down:#f85149;--downf:#ff7b72;
-  --stale:#566071;--stalef:#9aa4b2;--accent:#58a6ff;
-  --ok-bg:rgba(63,185,80,.14);--warn-bg:rgba(227,179,65,.14);--down-bg:rgba(248,81,73,.14);
-  --stale-bg:rgba(120,131,148,.13);--accent-bg:rgba(88,166,255,.13);
+  --bg:#0b0e14;--bg2:#0e1118;--card:#11151d;--card2:#161b24;--line:#202632;--line2:#2c3340;
+  --fg:#dfe5ec;--mut:#8b95a3;--dim:#5c6675;
+  --ok:#3fb950;--okf:#54c266;--warn:#c98a16;--warnf:#d6a429;--down:#e5484d;--downf:#f0666b;
+  --stale:#4d5663;--stalef:#8b95a3;--accent:#4493e0;
+  --ok-bg:rgba(63,185,80,.12);--warn-bg:rgba(214,164,41,.12);--down-bg:rgba(229,72,77,.12);
+  --stale-bg:rgba(120,131,148,.10);--accent-bg:rgba(68,147,224,.12);
   --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,Roboto,"Helvetica Neue",Arial,sans-serif;
   --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
-  --r:12px;--sh:0 1px 2px rgba(0,0,0,.4),0 6px 20px rgba(0,0,0,.22)}
+  --r:8px;--sh:none}
  *{box-sizing:border-box}
- ::selection{background:rgba(88,166,255,.3)}
- ::-webkit-scrollbar{width:11px;height:11px}
+ ::selection{background:rgba(68,147,224,.3)}
+ ::-webkit-scrollbar{width:10px;height:10px}
  ::-webkit-scrollbar-track{background:transparent}
- ::-webkit-scrollbar-thumb{background:var(--line2);border-radius:7px;border:3px solid var(--bg)}
- ::-webkit-scrollbar-thumb:hover{background:#3a4453}
- body{margin:0;color:var(--fg);font:13px/1.45 var(--sans);background:var(--bg);
-   background-image:radial-gradient(1100px 560px at 82% -12%,rgba(88,166,255,.06),transparent 60%),
-     radial-gradient(900px 500px at -5% -5%,rgba(124,131,255,.05),transparent 55%);
-   background-attachment:fixed;-webkit-font-smoothing:antialiased}
+ ::-webkit-scrollbar-thumb{background:var(--line2);border-radius:6px;border:2px solid var(--bg)}
+ ::-webkit-scrollbar-thumb:hover{background:#39414f}
+ body{margin:0;color:var(--fg);font:13px/1.4 var(--sans);background:var(--bg);
+   -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
  .num{font-family:var(--mono);font-variant-numeric:tabular-nums}
  /* ---- header ---- */
- header{position:sticky;top:0;z-index:30;background:rgba(10,13,19,.82);
-   backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
- .hrow{display:flex;gap:16px;align-items:center;padding:9px 16px 0;flex-wrap:wrap}
- .hrow2{display:flex;gap:14px;align-items:center;padding:9px 16px;flex-wrap:wrap}
- .brand{display:flex;align-items:center;gap:9px;flex:0 0 auto}
- .brand svg{display:block;filter:drop-shadow(0 0 6px rgba(88,166,255,.5))}
- h1{font-size:14px;margin:0;font-weight:600;letter-spacing:.3px;color:var(--fg)}
- h1 b{color:var(--accent);font-weight:700;letter-spacing:1.5px;font-size:11px;padding:2px 7px;
-   border:1px solid var(--accent);border-radius:6px;margin-left:4px;background:var(--accent-bg)}
+ header{position:sticky;top:0;z-index:30;background:rgba(11,14,20,.9);
+   backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+ .hrow{display:flex;gap:14px;align-items:center;padding:7px 14px 0;flex-wrap:wrap}
+ .hrow2{display:flex;gap:12px;align-items:center;padding:7px 14px;flex-wrap:wrap}
+ .brand{display:flex;align-items:center;gap:8px;flex:0 0 auto}
+ .brand svg{display:block}
+ h1{font-size:13px;margin:0;font-weight:600;letter-spacing:.2px;color:var(--fg)}
+ h1 b{color:var(--accent);font-weight:600;letter-spacing:1.2px;font-size:10px;padding:1px 6px;
+   border:1px solid var(--line2);border-radius:4px;margin-left:4px;background:var(--accent-bg)}
  .tabs{display:flex;gap:3px;flex-wrap:wrap}
  .tab{padding:5px 12px;border-radius:8px;cursor:pointer;color:var(--mut);font-size:12.5px;
    font-weight:500;border:1px solid transparent;transition:.14s}
@@ -513,23 +511,22 @@ _DASHBOARD_HTML = """<!doctype html>
  .pill.down .pc{color:var(--downf)}.pill.warn .pc{color:var(--warnf)}.pill.healthy .pc{color:var(--okf)}
  .dot,.st{width:8px;height:8px;border-radius:50%;flex:0 0 auto;display:inline-block;vertical-align:middle}
  .st{width:9px;height:9px}
- .s-healthy{background:var(--okf);box-shadow:0 0 7px rgba(63,185,80,.7)}
- .s-warn{background:var(--warnf);box-shadow:0 0 7px rgba(227,179,65,.6)}
- .s-down{background:var(--downf);box-shadow:0 0 7px rgba(248,81,73,.7)}
+ .s-healthy{background:var(--okf)}
+ .s-warn{background:var(--warnf)}
+ .s-down{background:var(--downf)}
  .s-stale{background:var(--stale)}
  #err{color:var(--downf);padding:7px 16px;font-family:var(--mono);font-size:12px;
    background:var(--down-bg);border-bottom:1px solid rgba(248,81,73,.25)}
  #err:empty{display:none}
  /* ---- generic primitives ---- */
- .card{background:linear-gradient(180deg,var(--card),var(--bg2));border:1px solid var(--line);
-   border-radius:var(--r);box-shadow:var(--sh)}
- .card-h{display:flex;align-items:center;gap:8px;font-size:11px;text-transform:uppercase;
-   letter-spacing:.9px;color:var(--mut);font-weight:600;padding:13px 16px 0}
+ .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r)}
+ .card-h{display:flex;align-items:center;gap:8px;font-size:10.5px;text-transform:uppercase;
+   letter-spacing:.7px;color:var(--mut);font-weight:600;padding:10px 13px 0}
  .card-h .card-sub{margin-left:auto;text-transform:none;letter-spacing:0;color:var(--dim);
    font-weight:400;font-family:var(--mono);font-size:11px}
- .view{padding:16px;animation:fade .25s ease}
+ .view{padding:13px;animation:fade .18s ease}
  .view[hidden]{display:none}
- @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+ @keyframes fade{from{opacity:0}to{opacity:1}}
  .empty{color:var(--dim);padding:30px 16px;text-align:center;font-style:italic}
  .view h2{font-size:11px;color:var(--mut);font-weight:600;letter-spacing:.9px;text-transform:uppercase;
    margin:24px 2px 11px;display:flex;align-items:center;gap:9px}
@@ -541,43 +538,83 @@ _DASHBOARD_HTML = """<!doctype html>
  .btn-grp button:hover{color:var(--fg)}
  .btn-grp button.on{background:var(--card2);color:var(--fg);box-shadow:inset 0 0 0 1px var(--line2)}
  td.bad,.bad{color:var(--downf)}td.warnv,.warnv{color:var(--warnf)}td.okv,.okv{color:var(--okf)}
- /* ---- overview (grid tab) ---- */
- .ov{display:flex;flex-direction:column;gap:16px;max-width:1320px;margin:0 auto}
- .ov-hero{display:grid;grid-template-columns:minmax(280px,1fr) minmax(360px,1.5fr);gap:16px}
- @media(max-width:780px){.ov-hero{grid-template-columns:1fr}}
- .donut-wrap{display:flex;align-items:center;gap:18px;padding:10px 16px 16px}
- .donut{width:144px;height:144px;flex:0 0 auto}
- .donut .track{fill:none;stroke:var(--card2);stroke-width:13}
- .donut .seg{fill:none;stroke-width:13;transform:rotate(-90deg);transform-origin:60px 60px;
-   transition:stroke-dasharray .6s ease,stroke-dashoffset .6s ease}
+ /* ---- overview (grid tab): compact summary strip + dense per-host card grid ---- */
+ .ov{display:flex;flex-direction:column;gap:12px}
+ .ov-strip{display:grid;grid-template-columns:auto auto 1fr;gap:10px;align-items:stretch}
+ @media(max-width:900px){.ov-strip{grid-template-columns:1fr}}
+ .donut-wrap{display:flex;align-items:center;gap:14px;padding:10px 14px 12px}
+ .donut{width:104px;height:104px;flex:0 0 auto}
+ .donut .track{fill:none;stroke:var(--card2);stroke-width:12}
+ .donut .seg{fill:none;stroke-width:12;transform:rotate(-90deg);transform-origin:60px 60px;
+   transition:stroke-dasharray .5s ease,stroke-dashoffset .5s ease}
  .donut .seg.healthy{stroke:var(--okf)}.donut .seg.warn{stroke:var(--warnf)}
  .donut .seg.down{stroke:var(--downf)}.donut .seg.stale{stroke:var(--stale)}
- .donut-total{font:700 32px/1 var(--mono);fill:var(--fg)}
- .donut-cap{font:600 9px var(--sans);fill:var(--dim);letter-spacing:1.5px;text-transform:uppercase}
- .donut-legend{display:flex;flex-direction:column;gap:9px;flex:1 1 auto}
- .lg{display:flex;align-items:center;gap:9px;font-size:12.5px}
+ .donut-total{font:700 26px/1 var(--mono);fill:var(--fg)}
+ .donut-cap{font:600 8px var(--sans);fill:var(--dim);letter-spacing:1.4px;text-transform:uppercase}
+ .donut-legend{display:flex;flex-direction:column;gap:5px;flex:1 1 auto}
+ .lg{display:flex;align-items:center;gap:8px;font-size:12px}
  .lg .lg-label{color:var(--mut);flex:1 1 auto;text-transform:capitalize}
- .lg .lg-count{font-family:var(--mono);font-variant-numeric:tabular-nums;font-weight:700;font-size:15px}
+ .lg .lg-count{font-family:var(--mono);font-variant-numeric:tabular-nums;font-weight:700;font-size:14px}
  .lg.healthy .lg-count{color:var(--okf)}.lg.warn .lg-count{color:var(--warnf)}
  .lg.down .lg-count{color:var(--downf)}.lg.stale .lg-count{color:var(--stalef)}
- .ingest-card{display:flex;flex-direction:column}
- .gauge-row{display:flex;align-items:baseline;gap:8px;padding:8px 16px 0}
- .gval{font:700 40px/1 var(--mono);font-variant-numeric:tabular-nums;color:#9ea4ff;
-   text-shadow:0 0 26px rgba(124,131,255,.4)}
- .gunit{font-size:14px;color:var(--mut);font-weight:500}
- .igspark{width:100%;height:96px;display:block;margin-top:2px}
- .gsub{color:var(--dim);font-size:11.5px;font-family:var(--mono);padding:0 16px 14px}
- .kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px}
- .kpi{background:linear-gradient(180deg,var(--card),var(--bg2));border:1px solid var(--line);
-   border-radius:var(--r);padding:14px 15px;position:relative;overflow:hidden;box-shadow:var(--sh)}
- .kpi::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--line2)}
- .kpi.ok::before{background:var(--ok)}.kpi.warn::before{background:var(--warn)}.kpi.bad::before{background:var(--down)}
- .kpi .tv{font:700 27px/1.05 var(--mono);font-variant-numeric:tabular-nums;color:var(--fg)}
+ .ingest-card{display:flex;flex-direction:column;min-width:240px}
+ .gauge-row{display:flex;align-items:baseline;gap:7px;padding:6px 14px 0}
+ .gval{font:700 30px/1 var(--mono);font-variant-numeric:tabular-nums;color:#8e96ff}
+ .gunit{font-size:12px;color:var(--mut);font-weight:500}
+ .igspark{width:100%;height:56px;display:block;margin-top:2px}
+ .gsub{color:var(--dim);font-size:11px;font-family:var(--mono);padding:0 14px 12px}
+ /* compact KPI rail along the right of the summary strip */
+ .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:0;
+   background:var(--card);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+ .kpi{padding:9px 12px;position:relative;border-left:1px solid var(--line)}
+ .kpi:first-child{border-left:none}
+ .kpi::after{content:"";position:absolute;left:0;top:0;bottom:0;width:2px;background:transparent}
+ .kpi.ok::after{background:var(--ok)}.kpi.warn::after{background:var(--warn)}.kpi.bad::after{background:var(--down)}
+ .kpi .tv{font:700 20px/1.05 var(--mono);font-variant-numeric:tabular-nums;color:var(--fg)}
  .kpi.ok .tv{color:var(--okf)}.kpi.warn .tv{color:var(--warnf)}.kpi.bad .tv{color:var(--downf)}
- .kpi .tl{color:var(--mut);font-size:10.5px;text-transform:uppercase;letter-spacing:.7px;margin-top:7px}
- .kpi .meter{height:5px;border-radius:4px;background:var(--card2);margin-top:10px;overflow:hidden}
- .kpi .meter-fill{height:100%;border-radius:4px;width:0;transition:width .5s ease;background:var(--ok)}
+ .kpi .tl{color:var(--mut);font-size:9.5px;text-transform:uppercase;letter-spacing:.6px;margin-top:5px}
+ .kpi .meter{height:4px;border-radius:3px;background:var(--card2);margin-top:7px;overflow:hidden}
+ .kpi .meter-fill{height:100%;border-radius:3px;width:0;transition:width .5s ease;background:var(--ok)}
  .kpi.warn .meter-fill{background:var(--warn)}.kpi.bad .meter-fill{background:var(--down)}
+ /* per-host consolidated cards: one card = one host with net+sys+services rolled up */
+ .hostgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:9px}
+ .hcard{background:var(--card);border:1px solid var(--line);border-left:2px solid var(--stale);
+   border-radius:var(--r);padding:9px 11px;cursor:pointer;transition:border-color .1s,background .1s}
+ .hcard:hover{background:var(--card2);border-color:var(--line2)}
+ .hcard.healthy{border-left-color:var(--ok)}.hcard.warn{border-left-color:var(--warn)}
+ .hcard.down{border-left-color:var(--down)}.hcard.stale{border-left-color:var(--stale);opacity:.8}
+ .hc-top{display:flex;align-items:center;gap:7px}
+ .hc-name{font-weight:600;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+   flex:1 1 auto;font-family:var(--mono)}
+ .hc-spark{width:54px;height:18px;flex:0 0 auto}
+ .hc-chip{font:600 9px var(--mono);text-transform:uppercase;letter-spacing:.4px;padding:1px 5px;
+   border-radius:3px;flex:0 0 auto}
+ .hc-chip.healthy{background:var(--ok-bg);color:var(--okf)}.hc-chip.warn{background:var(--warn-bg);color:var(--warnf)}
+ .hc-chip.down{background:var(--down-bg);color:var(--downf)}.hc-chip.stale{background:var(--stale-bg);color:var(--stalef)}
+ /* metric strip: label over value, monospace, tight columns */
+ .hc-metrics{display:grid;grid-template-columns:repeat(6,1fr);gap:0 8px;margin-top:8px}
+ .hc-m{display:flex;flex-direction:column;gap:1px;min-width:0}
+ .hc-m .ml{font-size:8.5px;text-transform:uppercase;letter-spacing:.4px;color:var(--dim)}
+ .hc-m .mv{font:600 12px var(--mono);font-variant-numeric:tabular-nums;color:var(--fg);
+   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ .hc-m .mv.bad{color:var(--downf)}.hc-m .mv.warnv{color:var(--warnf)}.hc-m .mv.dim{color:var(--dim)}
+ /* services badges row: docker/redis/procs/streams, only present when the host runs them */
+ .hc-svc{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px;padding-top:8px;border-top:1px solid var(--line)}
+ .hc-svc:empty{display:none}
+ .svcb{display:inline-flex;align-items:center;gap:5px;padding:2px 7px;border-radius:4px;
+   background:var(--card2);border:1px solid var(--line);font:600 10px var(--mono);color:var(--mut)}
+ .svcb .sk{color:var(--dim);font-weight:500;text-transform:uppercase;letter-spacing:.3px;font-size:9px}
+ .svcb .sv{color:var(--fg)}
+ .svcb.ok{border-color:rgba(63,185,80,.3)}.svcb.ok .sv{color:var(--okf)}
+ .svcb.warn{border-color:rgba(214,164,41,.35);background:var(--warn-bg)}.svcb.warn .sv{color:var(--warnf)}
+ .svcb.bad{border-color:rgba(229,72,77,.4);background:var(--down-bg)}.svcb.bad .sv{color:var(--downf)}
+ /* host-grid toolbar: density + sort + count */
+ .hg-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+ .hg-bar .cnt{color:var(--dim);font-size:11px;font-family:var(--mono);margin-left:auto}
+ .hostgrid.dense{grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:7px}
+ .hostgrid.dense .hc-spark,.hostgrid.dense .hc-svc{display:none}
+ .hostgrid.dense .hcard{padding:7px 9px}
+ .hostgrid.dense .hc-metrics{grid-template-columns:repeat(3,1fr);gap:3px 8px;margin-top:6px}
  /* ---- per-node view (table tab) ---- */
  .nodebar{display:flex;align-items:center;gap:10px;margin-bottom:13px}
  .seg-ctl{display:flex;gap:2px;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:2px}
@@ -606,13 +643,13 @@ _DASHBOARD_HTML = """<!doctype html>
  .mini b{font-weight:600;color:var(--fg)}
  .mini.warn .mbar i{background:var(--warn)}.mini.bad .mbar i{background:var(--down)}
  .mini.warn b{color:var(--warnf)}.mini.bad b{color:var(--downf)}
- .tilegrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(214px,1fr));gap:12px}
- .ntile{background:linear-gradient(180deg,var(--card),var(--bg2));border:1px solid var(--line);
-   border-left:3px solid var(--stale);border-radius:var(--r);padding:12px 13px;cursor:pointer;
-   box-shadow:var(--sh);transition:.14s}
- .ntile:hover{border-color:var(--line2);transform:translateY(-2px)}
+ .tilegrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(214px,1fr));gap:9px}
+ .ntile{background:var(--card);border:1px solid var(--line);
+   border-left:2px solid var(--stale);border-radius:var(--r);padding:11px 12px;cursor:pointer;
+   transition:border-color .1s,background .1s}
+ .ntile:hover{border-color:var(--line2);background:var(--card2)}
  .ntile.healthy{border-left-color:var(--ok)}.ntile.warn{border-left-color:var(--warn)}
- .ntile.down{border-left-color:var(--down)}.ntile.stale{border-left-color:var(--stale);opacity:.74}
+ .ntile.down{border-left-color:var(--down)}.ntile.stale{border-left-color:var(--stale);opacity:.8}
  .ntile-h{display:flex;align-items:center;gap:8px}
  .ntile-h .nm{font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto}
  .ntile-spark{width:100%;height:30px;display:block;margin:8px 0}
@@ -679,8 +716,7 @@ _DASHBOARD_HTML = """<!doctype html>
    font-weight:500;font-size:12.5px}
  .fbar{flex:1 1 auto;height:18px;background:var(--card);border:1px solid var(--line);border-radius:6px;
    overflow:hidden;max-width:520px;min-width:70px}
- .ffill{height:100%;border-radius:5px;background:linear-gradient(90deg,var(--accent),#7c83ff);
-   box-shadow:0 0 14px rgba(88,166,255,.3);transition:width .5s ease}
+ .ffill{height:100%;border-radius:5px;background:var(--accent);transition:width .5s ease}
  .fval{flex:0 0 auto;width:96px;text-align:right;font:600 12.5px var(--mono);font-variant-numeric:tabular-nums}
  .frpd{flex:0 0 auto;width:128px;text-align:right;color:var(--mut);font-size:11.5px;font-family:var(--mono)}
  .ftop{flex:0 0 auto;width:160px;color:var(--dim);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -690,9 +726,9 @@ _DASHBOARD_HTML = """<!doctype html>
    -webkit-backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:18px;
    z-index:50;animation:fade .18s ease}
  #detail[hidden]{display:none}
- .dwin{background:linear-gradient(180deg,var(--card),var(--bg2));border:1px solid var(--line2);
-   border-radius:14px;width:min(98vw,1700px);max-height:94vh;display:flex;flex-direction:column;
-   overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.6)}
+ .dwin{background:var(--card);border:1px solid var(--line2);
+   border-radius:10px;width:min(98vw,1700px);max-height:94vh;display:flex;flex-direction:column;
+   overflow:hidden;box-shadow:0 16px 48px rgba(0,0,0,.5)}
  .dbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:11px 14px;border-bottom:1px solid var(--line)}
  .dbar .nm{font-weight:700;font-size:15px;display:flex;align-items:center;gap:8px}
  .dh{display:flex;gap:4px;flex-wrap:wrap;align-items:center}
@@ -821,7 +857,7 @@ function render(){
 // ---- fleet overview (grid tab): status donut + ingest area gauge + KPI cards ------------
 // static skeleton (no dynamic data -> safe innerHTML once); all live values are written via
 // textContent / setAttribute below so dynamic strings are never interpolated into markup.
-const GRID_SKELETON=`<div class="ov"><div class="ov-hero">`
+const GRID_SKELETON=`<div class="ov"><div class="ov-strip">`
  +`<div class="card"><div class="card-h">fleet status</div><div class="donut-wrap">`
  +`<svg class="donut" viewBox="0 0 120 120">`
  +`<circle class="track" cx="60" cy="60" r="52"/>`
@@ -834,18 +870,24 @@ const GRID_SKELETON=`<div class="ov"><div class="ov-hero">`
  +`<div class="donut-legend">`
  +["healthy","warn","down","stale"].map(k=>`<div class="lg ${k}"><span class="dot s-${k}"></span><span class="lg-label">${k}</span><span class="lg-count" data-k="${k}">0</span></div>`).join("")
  +`</div></div></div>`
- +`<div class="card ingest-card"><div class="card-h">hub ingest<span class="card-sub">realtime throughput</span></div>`
+ +`<div class="card ingest-card"><div class="card-h">hub ingest<span class="card-sub">realtime</span></div>`
  +`<div class="gauge-row"><span class="gval" id="ig-rate">--</span><span class="gunit">KB/s</span></div>`
  +`<svg class="igspark" id="ig-spark" viewBox="0 0 100 36" preserveAspectRatio="none">`
  +`<path id="ig-area" fill="url(#gIngest)"/>`
  +`<polyline id="ig-poly" fill="none" stroke="#7c83ff" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`
  +`<circle id="ig-dot" r="0" fill="#9ea4ff"/></svg>`
  +`<span class="gsub" id="ig-sub">waiting for ingest…</span></div>`
- +`</div><div class="kpis" id="agg-tiles"></div></div>`;
+ +`<div class="kpis" id="agg-tiles"></div></div>`
+ +`<div class="hg-bar"><div class="seg-ctl" id="hg-dens"><button data-d="full" class="on">cards</button><button data-d="dense">dense</button></div>`
+ +`<div class="seg-ctl" id="hg-sort"><button data-s="state" class="on">by health</button><button data-s="node">by name</button><button data-s="cpu">by cpu</button><button data-s="rtt">by rtt</button></div>`
+ +`<span class="cnt" id="hg-cnt"></span></div>`
+ +`<div class="hostgrid" id="hostgrid"></div></div>`;
 const GRID_TILES=[["nodes","nodes"],["rtt","avg rtt"],["loss","avg loss"],["cpu","avg cpu"],
  ["mem","avg mem"],["temp","max temp"],["ship","ship / day"],["rows","rows / day"]];
 const DONUT_C=2*Math.PI*52;  // donut ring circumference (r=52)
-let gridBuilt=false,igRate,igSub,igArea,igPoly,igDot,tileVals={},meterFills={},donutSegs={},donutTotal,legendCounts={};
+let gridBuilt=false,igRate,igSub,igArea,igPoly,igDot,tileVals={},meterFills={},donutSegs={},donutTotal,legendCounts={},hostgrid;
+// host-grid view options: density (full cards vs dense) + sort key. persisted in the closure.
+let hgDensity="full",hgSort="state";
 function buildGrid(){
  grid.innerHTML=GRID_SKELETON;
  igRate=document.getElementById("ig-rate");igSub=document.getElementById("ig-sub");
@@ -863,6 +905,13 @@ function buildGrid(){
    const f=document.createElement("div");f.className="meter-fill";m.appendChild(f);card.appendChild(m);meterFills[k]=f;}
   tc.appendChild(card);tileVals[k]=v;
  });
+ hostgrid=document.getElementById("hostgrid");
+ // toolbar: density + sort segmented controls re-render the host cards in place.
+ grid.querySelector("#hg-dens").addEventListener("click",e=>{const b=e.target.closest("[data-d]");
+  if(!b)return;hgDensity=b.dataset.d;grid.querySelectorAll("#hg-dens button").forEach(x=>x.classList.toggle("on",x===b));renderHosts();});
+ grid.querySelector("#hg-sort").addEventListener("click",e=>{const b=e.target.closest("[data-s]");
+  if(!b)return;hgSort=b.dataset.s;grid.querySelectorAll("#hg-sort button").forEach(x=>x.classList.toggle("on",x===b));renderHosts();});
+ nodeClick(hostgrid);
  gridBuilt=true;
 }
 function kpiTone(v,warn,bad){return v==null?"":v>=bad?"bad":v>=warn?"warn":"ok";}
@@ -896,7 +945,77 @@ function renderGrid(){
   const rd=fv.reduce((s,x)=>s+(x.rows_per_day!=null?x.rows_per_day:(x.rows||0)),0);
   tileVals.ship.textContent=fmtKB(sd);tileVals.rows.textContent=fmtK(Math.round(rd));
  }else{tileVals.ship.textContent="--";tileVals.rows.textContent="--";}
+ renderHosts();
  renderIngest();
+}
+// ---- per-host consolidated cards: one card rolls up a host's network + system + every
+// service it runs (docker / redis / watched procs / stream probes). joins fleet-status with
+// the /api/services cache (svc) + the spark + cost caches. all node-controlled strings go
+// through esc() before innerHTML. ----------------------------------------------------------
+function hostCard(n){
+ const s=svc[n.node]||{},rc=n.rtt_ms==null?"":n.rtt_ms>250?"bad":n.rtt_ms>120?"warnv":"";
+ const lc=n.loss_pct!=null&&n.loss_pct>0?"bad":"",tc=n.temp==null?"":n.temp>=80?"bad":n.temp>=70?"warnv":"";
+ const cc=n.cpu==null?"":n.cpu>=90?"bad":n.cpu>=70?"warnv":"",mc=n.mem==null?"":n.mem>=90?"bad":n.mem>=75?"warnv":"";
+ const m=(l,v,cls)=>`<div class="hc-m"><span class="ml">${l}</span><span class="mv ${cls||(v==="--"?"dim":"")}">${v}</span></div>`;
+ const metrics=m("rtt",fmtRtt(n.rtt_ms),rc)+m("loss",n.loss_pct==null?"--":Math.round(n.loss_pct)+"%",lc)
+  +m("cpu",n.cpu==null?"--":Math.round(n.cpu)+"%",cc)+m("mem",n.mem==null?"--":Math.round(n.mem)+"%",mc)
+  +m("temp",n.temp==null?"--":Math.round(n.temp)+"°",tc)+m("seen",fmtAge(n.age_s));
+ // services row: a badge per service kind, coloured by worst member. only what the host runs.
+ let svcb="";
+ const dk=s.docker||[];
+ if(dk.length||(s.docker_down)){const bad=dk.filter(c=>c.bad).length,up=dk.filter(c=>c.running).length;
+  const cls=s.docker_down?"bad":bad?"bad":up<dk.length?"warn":"ok";
+  svcb+=`<span class="svcb ${cls}"><span class="sk">dkr</span><span class="sv">${s.docker_down?"daemon down":up+"/"+dk.length+(bad?" "+bad+"!":"")}</span></span>`;}
+ (s.redis||[]).forEach(r=>{const up=(r.connected||0)>=1;const cls=!up?"bad":(r.blocked_clients?"warn":"ok");
+  svcb+=`<span class="svcb ${cls}"><span class="sk">redis</span><span class="sv">${up?(r.used_memory_mb!=null?Math.round(r.used_memory_mb)+"M":"up")+(r.ops_per_sec!=null?" "+Math.round(r.ops_per_sec)+"o/s":""):"down"}</span></span>`;});
+ (s.procs||[]).forEach(p=>{const up=(p.count||0)>0;const cls=up?(p.restarts?"warn":"ok"):"bad";
+  svcb+=`<span class="svcb ${cls}"><span class="sk">${esc(p.label)}</span><span class="sv">${up?"x"+p.count:"down"}${p.cpu_pct!=null&&up?" "+Math.round(p.cpu_pct)+"%":""}</span></span>`;});
+ const st=s.streams||[];
+ if(st.length){const ok=st.filter(x=>x.ok).length;const cls=ok<st.length?"bad":"ok";
+  svcb+=`<span class="svcb ${cls}"><span class="sk">strm</span><span class="sv">${ok}/${st.length}</span></span>`;}
+ return `<div class="hcard ${n.state}" data-node="${esc(n.node)}">`
+  +`<div class="hc-top"><span class="st s-${n.state}"></span>`
+  +`<span class="hc-name">${esc(n.node)}</span>`
+  +(sparkArea(n.node,"hc-spark")||"")
+  +`<span class="hc-chip ${n.state}">${esc(n.state)}</span></div>`
+  +`<div class="hc-metrics">${metrics}</div>`
+  +`<div class="hc-svc">${svcb}</div></div>`;
+}
+function hostSortVal(n,k){
+ if(k==="node")return n.node.toLowerCase();
+ if(k==="state")return ({down:0,warn:1,stale:2,healthy:3})[n.state];
+ if(k==="cpu")return n.cpu==null?-1:n.cpu;
+ if(k==="rtt")return n.rtt_ms==null?-1:n.rtt_ms;
+ return 0;
+}
+function renderHosts(){
+ if(!gridBuilt||!hostgrid)return;
+ const term=q.value.trim().toLowerCase();
+ const ns=(last.nodes||[]).filter(n=>!term||n.node.toLowerCase().includes(term));
+ // state + node sort ascending (state already encodes worst-first as low values);
+ // cpu + rtt sort descending (hottest / slowest first). node breaks every tie.
+ const dir=(hgSort==="cpu"||hgSort==="rtt")?-1:1;
+ ns.sort((a,b)=>{const va=hostSortVal(a,hgSort),vb=hostSortVal(b,hgSort);
+  if(va!==vb)return (va<vb?-1:1)*dir;
+  return a.node.toLowerCase()<b.node.toLowerCase()?-1:1;});
+ hostgrid.className="hostgrid"+(hgDensity==="dense"?" dense":"");
+ hostgrid.innerHTML=ns.length?ns.map(hostCard).join(""):`<div class="empty">no nodes reporting yet</div>`;
+ const cnt=document.getElementById("hg-cnt");if(cnt)cnt.textContent=ns.length+" host"+(ns.length===1?"":"s");
+}
+// services cache (/api/services) rolled up per node for the host cards. shared, cached ~20s.
+let svc={},svcTs=0;
+async function loadSvc(force){
+ if(!force&&Object.keys(svc).length&&Date.now()-svcTs<20000)return;
+ try{const r=await fetch("/api/services",{cache:"no-store"});if(!r.ok)return;
+  const d=await r.json(),by={};
+  const ensure=n=>by[n]||(by[n]={docker:[],redis:[],procs:[],streams:[],docker_down:false});
+  (d.docker||[]).forEach(c=>ensure(c.node).docker.push(c));
+  (d.docker_down||[]).forEach(n=>ensure(n).docker_down=true);
+  (d.redis||[]).forEach(r=>ensure(r.node).redis.push(r));
+  (d.procs||[]).forEach(p=>ensure(p.node).procs.push(p));
+  (d.streams||[]).forEach(s=>ensure(s.node).streams.push(s));
+  svc=by;svcTs=Date.now();
+ }catch(e){}
 }
 // live ingest gauge: current KB/s + a 15-min wire-bytes area chart from /api/ingest-rate.
 let ingest=null;
@@ -1018,11 +1137,13 @@ tabs.innerHTML=VIEWS.map(([id,l])=>`<div class="tab" data-v="${id}">${l}</div>`)
 function setView(v){view=v;
  VIEWS.forEach(([id])=>viewEl(id).hidden=(id!==v));
  tabs.querySelectorAll(".tab").forEach(t=>t.classList.toggle("on",t.dataset.v===v));
- q.style.display=(v==="table")?"":"none";  // filter only applies to the per-node table now
+ q.style.display=(v==="table"||v==="grid")?"":"none";  // filter applies to the grid + per-node table
  refreshView();}
 function refreshView(){if(view==="rank")loadRank();else if(view==="heat")loadHeat();else if(view==="risk")loadRisk();else if(view==="cost")loadCost();else if(view==="svc")loadServices();
  else if(view==="table"){render();loadFoot().then(render);}
- else if(view==="grid"){render();ingestTick();loadFoot().then(()=>{if(view==="grid")renderGrid();});}}
+ else if(view==="grid"){render();ingestTick();sparkTick();
+  loadFoot().then(()=>{if(view==="grid")renderGrid();});
+  loadSvc().then(()=>{if(view==="grid")renderHosts();});}}
 tabs.addEventListener("click",e=>{if(e.target.dataset.v)setView(e.target.dataset.v);});
 
 // open a node's graph modal from any view's [data-node] row
@@ -1296,7 +1417,6 @@ function openDetail(node){dNode=node;detail.hidden=false;
  dfoot.textContent="";loadFoot().then(renderFoot);  // footprint stat line under the graphs
  dmsg.hidden=true;setMode(dMode);clearInterval(dTimer);dTimer=setInterval(paintActive,15000);}
 function closeDetail(){detail.hidden=true;dNode=null;clearInterval(dTimer);dover.innerHTML="";freeBlob();dgraph.removeAttribute("src");}
-grid.addEventListener("click",e=>{const n=e.target.closest(".node");if(n&&n.dataset.node)openDetail(n.dataset.node);});
 dmode.addEventListener("click",e=>{if(e.target.dataset.m2)setMode(e.target.dataset.m2);});
 dhours.addEventListener("click",e=>{if(e.target.dataset.h){dH=+e.target.dataset.h;paintActive();}});
 dcols.addEventListener("click",e=>{if(e.target.dataset.c){dC=+e.target.dataset.c;paintActive();}});
@@ -1308,10 +1428,11 @@ document.getElementById("dclose").onclick=closeDetail;
 detail.addEventListener("click",e=>{if(e.target===detail)closeDetail();});
 addEventListener("keydown",e=>{if(e.key==="Escape")closeDetail();});
 
-async function sparkTick(){try{const r=await fetch("/api/spark?hours=2",{cache:"no-store"});if(r.ok){sparks=(await r.json()).spark||{};if(view==="table")render();}}catch(e){}}
+async function sparkTick(){try{const r=await fetch("/api/spark?hours=2",{cache:"no-store"});if(r.ok){sparks=(await r.json()).spark||{};if(view==="table")render();else if(view==="grid")renderHosts();}}catch(e){}}
 tick();setInterval(tick,REFRESH);
-sparkTick();setInterval(sparkTick,30000);                 // sparklines: slow 2h trend (table)
+sparkTick();setInterval(sparkTick,30000);                 // sparklines: slow 2h trend (grid + table)
 ingestTick();setInterval(ingestTick,REFRESH);             // live ingest gauge (grid)
+setInterval(()=>{if(view==="grid")loadSvc().then(()=>{if(view==="grid")renderHosts();});},20000); // service badges (grid)
 setInterval(()=>{if(view!=="grid")refreshView();},15000); // active non-grid view auto-refresh
 setView("grid");
 </script>
