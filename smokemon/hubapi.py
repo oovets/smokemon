@@ -110,7 +110,8 @@ def fleet(conn, hours: float = 24.0, until: float | None = None) -> list[dict]:
                 meds += [m for m in ping[name]["med"] if m is not None]
             if losses:
                 up_pct = round(100.0 * sum(1 for x in losses if (x or 0) < 100.0) / len(losses), 2)
-            rtt_med = round(analyze._median(meds), 1) if meds else None
+            _m = analyze._median(meds) if meds else None
+            rtt_med = round(_m, 1) if _m is not None else None
         hard = analyze.merge_spans([(i["start"], i["end"]) for i in incidents
                                     if i["klass"] in ("isp-outage", "link-down")])
         out.append({
@@ -236,14 +237,18 @@ def sparklines(conn, hours: float = 2.0, buckets: int = 30, now: float | None = 
 
 
 def risks(conn, hours: float = 24.0, now: float | None = None) -> dict:
-    """Fleet-wide 'what's failing / about to fail': death-clock ETAs (disk-full, SD wear,
-    thermal headroom) sorted soonest-first, plus the recent incident feed. Reuses the same
-    detectors + ETA projections as `smoke incidents` / the PNG titles. On-demand (the risks
-    tab fetches it), so the per-node loads stay off the 5s status path."""
+    """Fleet-wide 'what's failing / about to fail', in three tiers:
+      clocks    - predictive death-clock ETAs: disk-full, SD wear, memory exhaustion, thermal
+      alerts    - current service/host degradations (see _service_alerts)
+      incidents - recent network/HTTP incident feed (loss/latency/dns/http-error)
+    Reuses the same detectors + ETA projections as `smoke incidents` / the PNG titles and the
+    services view. On-demand (the risks tab fetches it), so per-node loads stay off the 5s path."""
     now = time.time() if now is None else now
     since = now - hours * 3600
     # Only surface clocks that are actually actionable: a far-future projection (flat usage ->
-    # huge ETA) is noise, not a death clock. Disk-full within a year, SD wear within five.
+    # huge ETA) is noise, not a death clock. Disk within a year, SD wear within five. Memory is
+    # deliberately NOT a predictive clock (mem% hovers near 100 with cache -> too many false ETAs);
+    # real memory trouble shows up as factual alerts instead (OOM kills / swap / PSI, see below).
     disk_horizon, wear_horizon = 365 * 86400, 5 * 365 * 86400
     clocks: list[dict] = []
     incidents: list[dict] = []
@@ -257,23 +262,125 @@ def risks(conn, hours: float = 24.0, now: float | None = None) -> dict:
                 if not (m.startswith("/snap") or m.startswith("/var/snap") or "/snapd/" in m)}
         full = query.disk_full_eta(disk)
         if full and full[1] <= disk_horizon:
-            clocks.append({"node": node, "kind": "disk", "eta_s": round(full[1]),
-                           "detail": f"{full[0]} full {query.human_eta(full[1])}"})
+            eta = full[1]
+            clocks.append({"node": node, "kind": "disk", "eta_s": round(eta),
+                           "severity": 3 if eta <= 7 * 86400 else 2 if eta <= 30 * 86400 else 1,
+                           "detail": f"{full[0]} full {query.human_eta(eta)}"})
         wear = query.wear_eta(query.load_disk_health(conn, since, now, node))
         if wear and wear[1] <= wear_horizon:
-            clocks.append({"node": node, "kind": "sd-wear", "eta_s": round(wear[1]),
-                           "detail": f"{wear[0]} wear {query.human_eta(wear[1])}"})
+            eta = wear[1]
+            clocks.append({"node": node, "kind": "sd-wear", "eta_s": round(eta),
+                           "severity": 3 if eta <= 90 * 86400 else 2 if eta <= 365 * 86400 else 1,
+                           "detail": f"{wear[0]} wear {query.human_eta(eta)}"})
         host = query.load_host(conn, since, now, node)
-        temp = query.last_value(host.get("temp", [])) if host else None
-        if temp is not None:
-            head = config.THROTTLE_TEMP_C - temp
-            if head <= 10.0:  # only surface when near the throttle ceiling
-                clocks.append({"node": node, "kind": "throttle", "eta_s": None,
-                               "detail": f"{temp:.0f}C ({head:.0f}C to throttle)" if head > 0
-                               else f"{temp:.0f}C THROTTLING"})
+        if host:
+            temp = query.last_value(host.get("temp", []))
+            if temp is not None:
+                head = config.THROTTLE_TEMP_C - temp
+                if head <= 10.0:  # only surface when near the throttle ceiling
+                    clocks.append({"node": node, "kind": "throttle", "eta_s": None,
+                                   "severity": 3 if head <= 0 else 2 if head <= 5 else 1,
+                                   "detail": f"{temp:.0f}C ({head:.0f}C to throttle)" if head > 0
+                                   else f"{temp:.0f}C THROTTLING"})
     clocks.sort(key=lambda c: (c["eta_s"] is None, c["eta_s"] or 0))
+    incidents += _http_error_incidents(conn, since, now)
     incidents.sort(key=lambda i: -i["start"])
-    return {"now": now, "hours": hours, "clocks": clocks, "incidents": incidents[:50]}
+    return {"now": now, "hours": hours, "clocks": clocks,
+            "alerts": _service_alerts(conn, hours, now), "incidents": incidents[:50]}
+
+
+def _service_alerts(conn, hours: float, now: float) -> list[dict]:
+    """Current service/host degradations across the fleet (newest state per entity). Reuses
+    services() for docker/redis/watched-procs/stream-probes, plus host-level OOM kills, swap /
+    memory-pressure, CPU throttling and conntrack saturation. Each alert is
+    {node, kind, severity 1-3, label, detail}; sorted most-severe first."""
+    since = now - hours * 3600
+    out: list[dict] = []
+    svc = services(conn, hours, now)
+    for n in svc.get("docker_down", []):
+        out.append({"node": n, "kind": "docker", "severity": 3, "label": "daemon", "detail": "docker daemon unreachable"})
+    for c in svc.get("docker", []):
+        # Only alert on containers that are SUPPOSED to be up but aren't working. A container that
+        # has simply exited / been stopped (watchtower & other periodic jobs, portainer agents,
+        # anything intentionally down) is NOT an alert -> this kills the false positives. We flag
+        # crash loops (restarting), the stuck 'dead' state, live-but-failing healthchecks
+        # (running+unhealthy), a live container that was OOM-killed, and heavy restart flapping.
+        state, running = c.get("state"), c.get("running")
+        rc = c.get("restart_count") or 0
+        if state == "restarting":
+            out.append({"node": c["node"], "kind": "docker", "severity": 3, "label": c["name"],
+                        "detail": "restart loop" + (f" ({rc}x)" if rc else "")})
+        elif state == "dead":
+            out.append({"node": c["node"], "kind": "docker", "severity": 2, "label": c["name"], "detail": "dead (stuck)"})
+        elif running and c.get("health") == "unhealthy":
+            out.append({"node": c["node"], "kind": "docker", "severity": 2, "label": c["name"], "detail": "unhealthy"})
+        elif running and c.get("oom_killed"):
+            out.append({"node": c["node"], "kind": "docker", "severity": 2, "label": c["name"], "detail": "OOM-killed (restarted)"})
+        elif running and rc >= 10:
+            out.append({"node": c["node"], "kind": "docker", "severity": 1, "label": c["name"],
+                        "detail": f"{rc} restarts (flapping)"})
+    for r in svc.get("redis", []):
+        inst = r.get("instance") or "redis"
+        if (r.get("connected") or 0) < 1:
+            out.append({"node": r["node"], "kind": "redis", "severity": 3, "label": inst, "detail": "instance down"})
+            continue
+        # NB: blocked_clients>0 is normal (BLPOP/XREAD BLOCK consumers idle-wait) -> not an alert.
+        if r.get("rejected_connections"):
+            out.append({"node": r["node"], "kind": "redis", "severity": 2, "label": inst,
+                        "detail": f"{r['rejected_connections']} rejected connections"})
+        for s in r.get("streams", []):
+            if (s.get("pending") or 0) >= 1000:
+                out.append({"node": r["node"], "kind": "stream", "severity": 2,
+                            "label": str(s["stream"]).split(":")[-1],
+                            "detail": f"{s['pending']} pending (xlen {s.get('xlen')})"})
+    for p in svc.get("procs", []):
+        if not p.get("count"):
+            out.append({"node": p["node"], "kind": "proc", "severity": 3, "label": p["label"], "detail": "process missing"})
+    for s in svc.get("streams", []):
+        if not s.get("ok"):
+            out.append({"node": s["node"], "kind": "stream", "severity": 2, "label": query.host_label(s["url"]),
+                        "detail": f"probe failing (status {s.get('status')})"})
+    # host-level gauges: latest row per node (MAX(ts) bare-column trick, like services())
+    for node, oom, swap, psi_mem, thr_bits, thr_cnt, _ts in _rows(
+            conn, "SELECT node, oom_kill_count, swap_used_pct, psi_mem, pi_throttle_bits, "
+            "cpu_throttle_count, MAX(ts) FROM host_samples WHERE ts >= ? GROUP BY node", (since,)):
+        if node is None:
+            continue
+        if oom:
+            out.append({"node": node, "kind": "memory", "severity": 3, "label": "oom-killer", "detail": f"{oom} OOM kills"})
+        if swap is not None and swap >= 80:
+            out.append({"node": node, "kind": "memory", "severity": 2, "label": "swap", "detail": f"swap {swap:.0f}% used"})
+        if psi_mem is not None and psi_mem >= 20:
+            out.append({"node": node, "kind": "memory", "severity": 2, "label": "pressure", "detail": f"PSI mem {psi_mem:.0f}%"})
+        if thr_bits or (thr_cnt or 0) > 0:
+            out.append({"node": node, "kind": "throttle", "severity": 2, "label": "cpu",
+                        "detail": "throttling" + (f" ({thr_cnt}x)" if thr_cnt else "")})
+    for node, used, mx, _ts in _rows(
+            conn, "SELECT node, conntrack_used, conntrack_max, MAX(ts) FROM tcp_samples "
+            "WHERE ts >= ? GROUP BY node", (since,)):
+        if node is None or not used or not mx:
+            continue
+        frac = used / mx
+        if frac >= 0.8:
+            out.append({"node": node, "kind": "tcp", "severity": 3 if frac >= 0.95 else 2,
+                        "label": "conntrack", "detail": f"{used}/{mx} ({frac * 100:.0f}%)"})
+    out.sort(key=lambda a: (-a["severity"], a["kind"], a["node"]))
+    return out
+
+
+def _http_error_incidents(conn, since: float, now: float) -> list[dict]:
+    """Recent HTTP failures (status >= 500, or 0 = request failed) folded into the incident
+    feed, one entry per (node, url) at its latest occurrence in the window."""
+    out: list[dict] = []
+    for node, url, code, cnt, last_ts in _rows(
+            conn, "SELECT node, url, http_code, COUNT(*), MAX(ts) FROM http_samples "
+            "WHERE ts >= ? AND (http_code >= 500 OR http_code = 0) GROUP BY node, url", (since,)):
+        if node is None or last_ts is None:
+            continue
+        out.append({"node": node, "klass": "http-error", "scope": query.host_label(url),
+                    "detail": f"HTTP {code} x{cnt}", "severity": 3,
+                    "start": last_ts, "end": last_ts, "duration_s": 0})
+    return out
 
 
 def ship_volume(conn, hours: float = 24.0, now: float | None = None) -> dict:
@@ -312,6 +419,26 @@ def ship_volume(conn, hours: float = 24.0, now: float | None = None) -> dict:
     for node, d in agg.items():
         top = sorted(tabrows.get(node, {}).items(), key=lambda kv: -kv[1])[:3]
         d["top"] = [{"t": t, "n": c} for t, c in top]
+    # smokemon's OWN compute footprint per node: collect-fast/slow + shipper each self-measure a
+    # proc_samples row named 'smokemon'. Sum the latest sample per pid over a short recent window
+    # (not the full `hours`, else a restarted collector's dead pid would double-count). cpu_pct is
+    # per-core-% (can exceed 100 across processes); rss_mb is resident memory.
+    recent = now - 300.0
+    smoke: dict[str, dict] = {}
+    for node, _pid, cpu, rss, _ts in _rows(
+            conn, "SELECT node, pid, cpu_pct, rss_mb, MAX(ts) FROM proc_samples "
+            "WHERE name = 'smokemon' AND ts >= ? GROUP BY node, pid", (recent,)):
+        if node is None:
+            continue
+        s = smoke.setdefault(node, {"cpu": 0.0, "rss": 0.0})
+        s["cpu"] += cpu or 0.0
+        s["rss"] += rss or 0.0
+    for node, s in smoke.items():
+        d = agg.setdefault(node, {"node": node, "wire_bytes": 0, "raw_bytes": 0, "rows": 0,
+                                  "posts": 0, "observed_s": 0, "wire_bytes_per_day": None,
+                                  "rows_per_day": None, "ratio": None, "top": []})
+        d["smoke_cpu_pct"] = round(s["cpu"], 1)
+        d["smoke_rss_mb"] = round(s["rss"], 1)
     out = sorted(agg.values(), key=lambda r: -(r["wire_bytes"] or 0))
     return {"now": now, "hours": hours, "nodes": out}
 
@@ -675,8 +802,27 @@ _DASHBOARD_HTML = """<!doctype html>
  .hcell:hover{transform:scale(1.5);outline:1px solid var(--fg);position:relative;z-index:2}
  .haxis{display:flex;gap:2px;margin:7px 0 0 150px;color:var(--dim);font-size:10px;font-family:var(--mono)}
  .haxis span{flex:0 0 auto;width:15px;text-align:center;overflow:visible}
- /* ---- risks ---- */
- #risk{max-width:1120px}
+ /* ---- risks: overview-style summary rail + per-node problem cards ---- */
+ #risk{max-width:none}
+ .risk-sum{margin-bottom:16px;grid-template-columns:repeat(auto-fit,minmax(120px,1fr))}
+ .pnodes{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:9px}
+ .pnode{background:var(--card);border-radius:var(--r);padding:10px 12px;cursor:pointer;transition:background .1s}
+ .pnode:hover{background:var(--card2)}
+ .pnode-h{display:flex;align-items:center;gap:8px;margin-bottom:9px}
+ .pdot{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
+ .pdot.sev3{background:var(--downf)}.pdot.sev2{background:var(--warnf)}.pdot.sev1{background:var(--accent)}
+ .pnode-h .pn{font:600 12.5px var(--mono);flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ .pnode-h .pc{font-size:10.5px;color:var(--dim);font-family:var(--mono);flex:0 0 auto}
+ .pissues{display:flex;flex-direction:column;gap:5px}
+ .pi{display:flex;align-items:center;gap:8px;font-size:11.5px;min-width:0}
+ .pi-k{font:600 9px var(--mono);text-transform:uppercase;letter-spacing:.3px;padding:2px 6px;border-radius:4px;
+   flex:0 0 auto;width:72px;text-align:center}
+ .pi-d{color:var(--fg);font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto}
+ .pi-e{color:var(--dim);font:700 10.5px var(--mono);flex:0 0 auto}
+ .pi.s3 .pi-k{background:var(--down-bg);color:var(--downf)}.pi.s3 .pi-e{color:var(--downf)}
+ .pi.s2 .pi-k{background:var(--warn-bg);color:var(--warnf)}
+ .pi.s1 .pi-k{background:var(--accent-bg);color:var(--accent)}
+ .risk-legacy{max-width:1120px}
  .risk{display:flex;gap:12px;align-items:center;padding:10px 14px;border-radius:10px;cursor:pointer;
    background:var(--card);border:1px solid var(--line);border-left:3px solid var(--line2);
    margin-bottom:7px;transition:.12s}
@@ -687,8 +833,8 @@ _DASHBOARD_HTML = """<!doctype html>
  .risk .rn{flex:0 0 auto;width:150px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
  .risk .rd{color:var(--mut);font-size:12.5px;font-family:var(--mono);flex:1 1 auto}
  .risk .reta{flex:0 0 auto;font-family:var(--mono);font-weight:700;font-size:13px;margin-left:auto;color:var(--fg)}
- .risk.disk,.risk.throttle,.risk.sev3{border-left-color:var(--down)}
- .risk.disk .rk,.risk.throttle .rk,.risk.sev3 .rk,.risk.disk .ic,.risk.throttle .ic,.risk.sev3 .ic{color:var(--downf)}
+ .risk.disk,.risk.throttle,.risk.memory,.risk.sev3{border-left-color:var(--down)}
+ .risk.disk .rk,.risk.throttle .rk,.risk.memory .rk,.risk.sev3 .rk,.risk.disk .ic,.risk.throttle .ic,.risk.memory .ic,.risk.sev3 .ic{color:var(--downf)}
  .risk.sd-wear,.risk.sev2{border-left-color:var(--warn)}
  .risk.sd-wear .rk,.risk.sev2 .rk,.risk.sd-wear .ic,.risk.sev2 .ic{color:var(--warnf)}
  .risk.sev1{border-left-color:var(--accent)}.risk.sev1 .rk{color:var(--accent)}
@@ -750,12 +896,39 @@ _DASHBOARD_HTML = """<!doctype html>
  #dplot{margin:0;padding:10px 12px;background:var(--bg);color:var(--fg);overflow-y:auto;overflow-x:hidden;
         height:80vh;font:12px/1.05 var(--mono);white-space:pre}
  #dplot[hidden]{display:none}
+ /* risks tab inside the detail modal: detailed per-node risk list */
+ #drisk{margin:0;padding:12px 14px;background:var(--bg);overflow-y:auto;height:80vh}
+ #drisk[hidden]{display:none}
+ .rd-sec{font:600 10.5px var(--mono);text-transform:uppercase;letter-spacing:.6px;color:var(--mut);
+   margin:18px 2px 9px;display:flex;gap:8px;align-items:center}
+ .rd-sec:first-child{margin-top:2px}
+ .rd-sec span{color:var(--dim);font-weight:400}
+ .rd-row{display:flex;align-items:center;gap:12px;padding:9px 12px;border-radius:8px;background:var(--card);margin-bottom:6px}
+ .rd-sev{flex:0 0 auto;width:62px;text-align:center;font:600 9px var(--mono);text-transform:uppercase;
+   letter-spacing:.4px;padding:3px 0;border-radius:4px}
+ .rd-row.s3 .rd-sev{background:var(--down-bg);color:var(--downf)}
+ .rd-row.s2 .rd-sev{background:var(--warn-bg);color:var(--warnf)}
+ .rd-row.s1 .rd-sev{background:var(--accent-bg);color:var(--accent)}
+ .rd-kind{flex:0 0 auto;width:88px;font:600 11px var(--mono);text-transform:uppercase;letter-spacing:.3px;color:var(--fg)}
+ .rd-detail{flex:1 1 auto;font-family:var(--mono);font-size:12.5px;color:var(--fg);min-width:0}
+ .rd-tail{flex:0 0 auto;font:700 11.5px var(--mono);color:var(--dim)}
+ .rd-row.s3 .rd-tail{color:var(--downf)}
+ .rd-load{color:var(--dim);padding:14px;font-style:italic}
  /* braille glyphs (plotext markers) come from a fallback font that is wider than the mono
     cell, which drifts every data row out of line with the ascii axes. --brls is measured at
     render time (mono cell minus braille cell, so negative) to pull each braille char back to
     exactly one cell -> the curve lines up again. */
  #dplot .br{letter-spacing:var(--brls,0px)}
  .dfoot{padding:9px 14px;border-top:1px solid var(--line);color:var(--dim);font-size:11.5px;font-family:var(--mono)}
+ /* ===== flat look (user request): no frames, no coloured left accents, no shadows/strips.
+    !important + a global box-shadow reset so nothing in the base sheet can win. ===== */
+ .card,h1 b,.tab,.tab.on,input#q,.hb-track,.pill,.btn-grp,.kpis,.kpi,
+ .hcard,.ntile,.risk,.svcb,.seg-ctl,.heat-legend .bar,.fbar,.svc-tbl,
+ .dwin,.dh button,#dclose,header,#err,.dbar,.dfoot,.hc-svc,.dh.sep{border:none !important}
+ .hcard,.ntile,.risk,.kpi{border-left:none !important}      /* coloured left strips */
+ .kpi::after{display:none !important}                        /* coloured left bar (::after) */
+ .grid-t th,.grid-t td,.svc-tbl th,.svc-tbl td{border-bottom:none !important}  /* line-less tables */
+ *{box-shadow:none !important}   /* drop ALL shadows incl. active tab/button accent strips + modal */
 </style></head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
@@ -807,6 +980,7 @@ _DASHBOARD_HTML = """<!doctype html>
   </div>
   <div class="dimg" id="dimg"><div id="dwrap"><img id="dgraph" alt=""><div id="dover"></div></div><div id="dmsg" hidden>no data in this window</div></div>
   <pre id="dplot" hidden></pre>
+  <div id="drisk" hidden></div>
   <div class="dfoot" id="dfoot"></div>
  </div>
 </div>
@@ -883,7 +1057,8 @@ const GRID_SKELETON=`<div class="ov"><div class="ov-strip">`
  +`<span class="cnt" id="hg-cnt"></span></div>`
  +`<div class="hostgrid" id="hostgrid"></div></div>`;
 const GRID_TILES=[["nodes","nodes"],["rtt","avg rtt"],["loss","avg loss"],["cpu","avg cpu"],
- ["mem","avg mem"],["temp","max temp"],["ship","ship / day"],["rows","rows / day"]];
+ ["mem","avg mem"],["temp","max temp"],["ship","ship / day"],["avgfoot","avg footprint"],["rows","rows / day"],
+ ["smokecpu","smoke cpu"]];
 const DONUT_C=2*Math.PI*52;  // donut ring circumference (r=52)
 let gridBuilt=false,igRate,igSub,igArea,igPoly,igDot,tileVals={},meterFills={},donutSegs={},donutTotal,legendCounts={},hostgrid;
 // host-grid view options: density (full cards vs dense) + sort key. persisted in the closure.
@@ -944,7 +1119,10 @@ function renderGrid(){
   const sd=fv.reduce((s,x)=>s+(x.wire_bytes_per_day!=null?x.wire_bytes_per_day:(x.wire_bytes||0)),0);
   const rd=fv.reduce((s,x)=>s+(x.rows_per_day!=null?x.rows_per_day:(x.rows||0)),0);
   tileVals.ship.textContent=fmtKB(sd);tileVals.rows.textContent=fmtK(Math.round(rd));
- }else{tileVals.ship.textContent="--";tileVals.rows.textContent="--";}
+  tileVals.avgfoot.textContent=fv.length?fmtKB(sd/fv.length)+"/d":"--";  // avg measured footprint per node
+  const sv=fv.filter(x=>x.smoke_cpu_pct!=null);  // smokemon's own avg cpu across reporting nodes
+  tileVals.smokecpu.textContent=sv.length?(sv.reduce((s,x)=>s+x.smoke_cpu_pct,0)/sv.length).toFixed(1)+"%":"--";
+ }else{tileVals.ship.textContent="--";tileVals.rows.textContent="--";tileVals.avgfoot.textContent="--";tileVals.smokecpu.textContent="--";}
  renderHosts();
  renderIngest();
 }
@@ -1049,6 +1227,7 @@ function sortVal(n,k){
  if(k==="state")return ({down:0,stale:1,warn:2,healthy:3})[n.state];
  if(k==="ship"){const f=foot[n.node]||{};return f.wire_bytes_per_day!=null?f.wire_bytes_per_day:(f.wire_bytes||0);}
  if(k==="rows"){const f=foot[n.node]||{};return f.rows_per_day!=null?f.rows_per_day:(f.rows||0);}
+ if(k==="smoke"){return (foot[n.node]||{}).smoke_cpu_pct||0;}
  return n[k];
 }
 function meterCell(v,warn,bad){if(v==null)return "--";
@@ -1057,7 +1236,7 @@ function meterCell(v,warn,bad){if(v==null)return "--";
 function tableHtml(nodes){
  const tcls=(v,warn,bad)=>v==null?"":v>=bad?"bad":v>=warn?"warnv":"";
  const cols=[["state",""],["node","node"],["rtt_ms","rtt"],["loss_pct","loss"],["cpu","cpu"],["mem","mem"],
-  ["temp","temp"],["_trend","trend"],["age_s","seen"],["rows","rows/d"],["ship","ship/d"]];
+  ["temp","temp"],["_trend","trend"],["age_s","seen"],["rows","rows/d"],["ship","ship/d"],["smoke","smoke"]];
  const head=cols.map(([k,l])=>{const sortable=k!=="_trend"&&k!=="state";
   const ar=tableSort.key===k?`<span class="ar">${tableSort.dir>0?"▲":"▼"}</span>`:"";
   return `<th${sortable?` data-sort="${k}"`:""}>${esc(l)} ${ar}</th>`;}).join("");
@@ -1074,7 +1253,8 @@ function tableHtml(nodes){
    +`<td>${sparkArea(n.node)||"<span style='color:var(--dim)'>--</span>"}</td>`
    +`<td>${fmtAge(n.age_s)}</td>`
    +`<td>${fmtK(f.rows_per_day!=null?f.rows_per_day:f.rows)}</td>`
-   +`<td>${sd==null?"--":fmtKB(sd)+(f.wire_bytes_per_day!=null?"/d":"")}</td></tr>`;
+   +`<td>${sd==null?"--":fmtKB(sd)+(f.wire_bytes_per_day!=null?"/d":"")}</td>`
+   +`<td title="smokemon's own cpu/mem">${f.smoke_cpu_pct==null?"--":Math.round(f.smoke_cpu_pct)+"% · "+(f.smoke_rss_mb==null?"?":Math.round(f.smoke_rss_mb)+"MB")}</td></tr>`;
  }).join("");
  return `<table class="grid-t"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
 }
@@ -1217,19 +1397,46 @@ viewEl("heat").addEventListener("click",e=>{const t=e.target;
 const RISK_ICON={
  disk:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>`,
  "sd-wear":`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h9l4 4v14H6z"/><path d="M10 3v4M13 3v4M16 7v3"/></svg>`,
- throttle:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13V5a2 2 0 0 1 4 0v8a4 4 0 1 1-4 0z"/></svg>`};
+ throttle:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13V5a2 2 0 0 1 4 0v8a4 4 0 1 1-4 0z"/></svg>`,
+ memory:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="7" width="18" height="11" rx="1"/><path d="M7 7V4M12 7V4M17 7V4M7 18v2M12 18v2M17 18v2"/></svg>`,
+ docker:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="10" width="4" height="4"/><rect x="8" y="10" width="4" height="4"/><rect x="13" y="10" width="4" height="4"/><path d="M3 18h16a4 4 0 0 0 4-4"/></svg>`,
+ redis:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>`,
+ proc:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 9l3 3-3 3M13 15h3"/></svg>`,
+ stream:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l3 7 4-14 3 7h4"/></svg>`,
+ tcp:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M7.7 7.7l3 8M16.3 7.7l-3 8"/></svg>`};
 function riskIcon(k){return RISK_ICON[k]||RISK_ICON.disk;}
 async function loadRisk(){try{const r=await fetch("/api/risks?hours=24",{cache:"no-store"});if(!r.ok)return;
- const d=await r.json(),cl=d.clocks||[],inc=d.incidents||[];
- const clh=cl.length?cl.map(c=>{const eta=c.eta_s==null?"":fmtDur(c.eta_s);
-  return `<div class="risk ${esc(c.kind)}" data-node="${esc(c.node)}"><span class="ic">${riskIcon(c.kind)}</span>`
-   +`<span class="rk">${esc(c.kind)}</span><span class="rn">${esc(c.node)}</span>`
-   +`<span class="rd">${esc(c.detail)}</span>${eta?`<span class="reta">${esc(eta)}</span>`:""}</div>`;}).join(""):`<div class="empty">nothing projected to fail soon</div>`;
- const ih=inc.length?inc.map(i=>`<div class="risk sev${i.severity}" data-node="${esc(i.node)}">`
-  +`<span class="rk">${esc(i.klass)}</span><span class="rn">${esc(i.node)}</span>`
-  +`<span class="rd">${esc(i.scope)} · ${esc(i.detail)}</span><span class="reta">${esc(tago(i.start))}</span></div>`).join(""):`<div class="empty">no incidents in window</div>`;
- viewEl("risk").innerHTML=`<h2>death clocks <span class="cnt">${cl.length}</span></h2>${clh}<h2>recent incidents <span class="cnt">${inc.length}</span></h2>${ih}`;
-}catch(e){}}
+ renderRisk(await r.json());}catch(e){}}
+// Overview-style risks: every clock/alert/incident is folded into ONE issue list per node, so
+// the page is a scannable grid of "problem nodes" (worst-first) + a summary rail — same mental
+// model as the grid tab. Each issue: {sev 1-3, kind, detail, eta?|ago?}. Click a card -> modal.
+function renderRisk(d){
+ const clocks=d.clocks||[],alerts=d.alerts||[],incidents=d.incidents||[];
+ const byNode={};
+ const push=(node,sev,kind,detail,extra)=>{(byNode[node]=byNode[node]||[]).push({sev,kind,detail,...(extra||{})});};
+ clocks.forEach(c=>push(c.node,c.severity||1,c.kind,c.detail,{eta:c.eta_s}));
+ alerts.forEach(a=>push(a.node,a.severity,a.kind,`${a.label} · ${a.detail}`));
+ incidents.forEach(i=>push(i.node,i.severity,i.klass,`${i.scope} · ${i.detail}`,{ago:i.start}));
+ const nodes=Object.keys(byNode).map(n=>{const list=byNode[n].sort((a,b)=>b.sev-a.sev);
+  return {node:n,list,worst:Math.max(...list.map(x=>x.sev)),cnt:list.length};})
+  .sort((a,b)=>b.worst-a.worst||b.cnt-a.cnt||a.node.localeCompare(b.node));
+ const all=[].concat(...Object.values(byNode));
+ const crit=all.filter(x=>x.sev===3).length,warn=all.filter(x=>x.sev===2).length,watch=all.filter(x=>x.sev===1).length;
+ const soon=clocks.filter(c=>c.eta_s!=null).sort((a,b)=>a.eta_s-b.eta_s)[0];
+ const tile=(cls,val,label)=>`<div class="kpi ${cls}"><div class="tv">${val}</div><div class="tl">${label}</div></div>`;
+ const strip=`<div class="kpis risk-sum">`
+  +tile(crit?"bad":"",crit,"critical")+tile(warn?"warn":"",warn,"warnings")
+  +tile("",watch,"watch")+tile(crit||warn?"warn":"",nodes.length,"nodes affected")
+  +tile("",soon?fmtDur(soon.eta_s):"—",soon?"soonest · "+soon.kind:"death clock")+`</div>`;
+ const cards=nodes.length?nodes.map(N=>{
+  const chips=N.list.map(x=>{const tail=x.eta!=null?`<span class="pi-e">${esc(fmtDur(x.eta))}</span>`
+    :(x.ago?`<span class="pi-e">${esc(tago(x.ago))}</span>`:"");
+   return `<div class="pi s${x.sev}"><span class="pi-k">${esc(x.kind)}</span><span class="pi-d">${esc(x.detail)}</span>${tail}</div>`;}).join("");
+  return `<div class="pnode" data-node="${esc(N.node)}"><div class="pnode-h"><span class="pdot sev${N.worst}"></span>`
+   +`<span class="pn">${esc(N.node)}</span><span class="pc">${N.cnt} issue${N.cnt>1?"s":""}</span></div>`
+   +`<div class="pissues">${chips}</div></div>`;}).join(""):`<div class="empty">no problems detected — fleet healthy</div>`;
+ viewEl("risk").innerHTML=strip+`<div class="pnodes">${cards}</div>`;
+}
 // services (/api/services): fleet-wide latest docker / redis / pipeline telemetry as tables.
 // rows are click-through to the node graph modal (which has the matching time-series panels).
 async function loadServices(){try{const r=await fetch("/api/services",{cache:"no-store"});if(!r.ok)return;
@@ -1297,11 +1504,12 @@ const detail=document.getElementById("detail"),dgraph=document.getElementById("d
  dcols=document.getElementById("dcols"),dpanels=document.getElementById("dpanels"),
  dover=document.getElementById("dover"),dmsg=document.getElementById("dmsg"),
  dfoot=document.getElementById("dfoot"),dplot=document.getElementById("dplot"),
- dimg=document.getElementById("dimg"),dmode=document.getElementById("dmode");
-// render mode: png (matplotlib image) or plot (the TUI's plotext braille graphs as ANSI text).
-// plot (braille) is the default — the granular terminal-style graphs open first; png is opt-in.
+ dimg=document.getElementById("dimg"),dmode=document.getElementById("dmode"),
+ drisk=document.getElementById("drisk");
+// render mode: png (matplotlib image), plot (TUI plotext braille graphs as ANSI text), or risks
+// (detailed per-node risk list). plot (braille) is the default; png + risks are opt-in / contextual.
 let dMode="plot";
-dmode.innerHTML=[["png","png"],["plot","plot"]].map(([m,l])=>`<button data-m2="${m}">${l}</button>`).join("");
+dmode.innerHTML=[["png","png"],["plot","plot"],["risks","risks"]].map(([m,l])=>`<button data-m2="${m}">${l}</button>`).join("");
 // xterm 256-colour index -> rgb, for converting plotext's ANSI (only 0 + 38;5;N appear).
 function xterm256(n){
  const base=[[0,0,0],[205,0,0],[0,205,0],[205,205,0],[0,0,238],[205,0,205],[0,205,205],[229,229,229],
@@ -1348,7 +1556,8 @@ function charMetrics(){
 function renderFoot(){if(!dNode){dfoot.textContent="";return;}const f=foot[dNode];
  if(!f){dfoot.textContent="shipped: no measured traffic yet";return;}
  const sd=f.wire_bytes_per_day!=null?f.wire_bytes_per_day:f.wire_bytes,pd=f.wire_bytes_per_day!=null;
- dfoot.textContent=`shipped (measured ~24h): ${fmtKB(sd)}${pd?"/day":""} gzip · ${fmtK(f.rows_per_day!=null?f.rows_per_day:f.rows)} rows${pd?"/day":""}${f.ratio?" · "+f.ratio+":1 gzip":""}${f.top&&f.top.length?" · top: "+f.top.map(t=>t.t).join(", "):""}`;}
+ const smoke=f.smoke_cpu_pct!=null?` · smoke ${Math.round(f.smoke_cpu_pct)}% cpu, ${Math.round(f.smoke_rss_mb||0)} MB`:"";
+ dfoot.textContent=`shipped (measured ~24h): ${fmtKB(sd)}${pd?"/day":""} gzip · ${fmtK(f.rows_per_day!=null?f.rows_per_day:f.rows)} rows${pd?"/day":""}${f.ratio?" · "+f.ratio+":1 gzip":""}${smoke}${f.top&&f.top.length?" · top: "+f.top.map(t=>t.t).join(", "):""}`;}
 const HOURS=[[0.25,"15m"],[1,"1h"],[6,"6h"],[24,"24h"],[168,"7d"]],COLS=[[1,"1 col"],[2,"2 cols"],[3,"3 cols"]];
 // dSel: Set of enabled panel keys, or null = "all". dAvail: keys that actually have data
 // for this node (learned from the meta of the last full render), in render order.
@@ -1370,7 +1579,34 @@ function syncCtl(){
  dhours.querySelectorAll("button").forEach(b=>b.classList.toggle("on",+b.dataset.h===dH));
  dcols.querySelectorAll("button").forEach(b=>b.classList.toggle("on",+b.dataset.c===dC));
  dmode.querySelectorAll("button").forEach(b=>b.classList.toggle("on",b.dataset.m2===dMode));}
-function paintActive(){return dMode==="plot"?paintPlot():paintGraph();}
+function paintActive(){return dMode==="risks"?paintRisks():dMode==="plot"?paintPlot():paintGraph();}
+// risks tab: detailed per-node list of every death-clock / service alert / incident. Reuses the
+// fleet /api/risks payload (cached ~15s) and filters to this node, so opening the tab is cheap.
+let riskAll=null,riskTs=0;
+async function loadRisksData(){
+ if(riskAll&&Date.now()-riskTs<15000)return riskAll;
+ try{const r=await fetch("/api/risks?hours=24",{cache:"no-store"});if(r.ok){riskAll=await r.json();riskTs=Date.now();}}catch(e){}
+ return riskAll;}
+async function paintRisks(){
+ if(!dNode)return;
+ drisk.innerHTML='<div class="rd-load">loading risks…</div>';
+ const d=await loadRisksData();
+ if(!d){drisk.innerHTML='<div class="empty">failed to load risks</div>';return;}
+ const sev=s=>s===3?"critical":s===2?"warning":"watch";
+ const row=(s,kind,detail,tail)=>`<div class="rd-row s${s}"><span class="rd-sev">${sev(s)}</span>`
+  +`<span class="rd-kind">${esc(kind)}</span><span class="rd-detail">${esc(detail)}</span>`
+  +`<span class="rd-tail">${tail?esc(tail):""}</span></div>`;
+ const cl=(d.clocks||[]).filter(x=>x.node===dNode).sort((a,b)=>(b.severity||1)-(a.severity||1));
+ const al=(d.alerts||[]).filter(x=>x.node===dNode).sort((a,b)=>b.severity-a.severity);
+ const inc=(d.incidents||[]).filter(x=>x.node===dNode).sort((a,b)=>b.start-a.start);
+ let h="";
+ if(cl.length)h+='<div class="rd-sec">death clocks <span>'+cl.length+'</span></div>'
+  +cl.map(c=>row(c.severity||1,c.kind,c.detail,c.eta_s!=null?"in "+fmtDur(c.eta_s):"")).join("");
+ if(al.length)h+='<div class="rd-sec">service alerts <span>'+al.length+'</span></div>'
+  +al.map(a=>row(a.severity,a.kind,a.label+" · "+a.detail,"")).join("");
+ if(inc.length)h+='<div class="rd-sec">recent incidents <span>'+inc.length+'</span></div>'
+  +inc.map(i=>row(i.severity,i.klass,i.scope+" · "+i.detail,tago(i.start))).join("");
+ drisk.innerHTML=h||'<div class="empty">no risks for this node — healthy</div>';}
 async function paintGraph(){
  if(!dNode)return;
  syncCtl();
@@ -1407,7 +1643,11 @@ async function paintPlot(){
   dplot.innerHTML=ansiToHtml(await r.text());
  }catch(e){dplot.textContent="fetch error";}
 }
-function setMode(m){dMode=m;dimg.hidden=(m!=="png");dplot.hidden=(m!=="plot");syncCtl();paintActive();}
+function setMode(m){dMode=m;const isR=(m==="risks");
+ dimg.hidden=(m!=="png");dplot.hidden=(m!=="plot");drisk.hidden=!isR;
+ // hours/cols/panels are graph-only -> hide them on the risks tab
+ [dhours,dcols,dpanels].forEach(el=>el.style.display=isR?"none":"");
+ syncCtl();paintActive();}
 function openDetail(node){dNode=node;detail.hidden=false;
  // name + a status dot looked up from the latest fleet-status, built via safe DOM (no innerHTML)
  dname.textContent="";const fn=(last.nodes||[]).find(x=>x.node===node);
@@ -1415,7 +1655,10 @@ function openDetail(node){dNode=node;detail.hidden=false;
  dname.appendChild(document.createTextNode(node));
  dSel=null;dAvail=[];dpanels.innerHTML="";  // reset filter; the first (all) render relearns this node's panels
  dfoot.textContent="";loadFoot().then(renderFoot);  // footprint stat line under the graphs
- dmsg.hidden=true;setMode(dMode);clearInterval(dTimer);dTimer=setInterval(paintActive,15000);}
+ // opening from the risks tab -> start on the risks list; otherwise the graph (never auto-open
+ // risks from a graph view, so fall back to plot if that was the last sticky mode).
+ const startMode=(view==="risk")?"risks":(dMode==="risks"?"plot":dMode);
+ dmsg.hidden=true;setMode(startMode);clearInterval(dTimer);dTimer=setInterval(paintActive,15000);}
 function closeDetail(){detail.hidden=true;dNode=null;clearInterval(dTimer);dover.innerHTML="";freeBlob();dgraph.removeAttribute("src");}
 dmode.addEventListener("click",e=>{if(e.target.dataset.m2)setMode(e.target.dataset.m2);});
 dhours.addEventListener("click",e=>{if(e.target.dataset.h){dH=+e.target.dataset.h;paintActive();}});
