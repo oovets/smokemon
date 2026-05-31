@@ -15,13 +15,11 @@ import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from . import alerts, config, core, duckio, hubapi, notify, rollup, schema
+from . import alerts, config, core, hubapi, notify, rollup, schema
 
 _conn = None              # writer connection: ingest + housekeeping, guarded by _lock
 _lock = threading.Lock()  # serialize writes to the single sqlite connection
 _ro_conn = None           # read-only connection: dashboard/API GETs, guarded by _read_lock
-_duck = None              # optional DuckDB read accelerator (attaches the SQLite file RO); None
-                          # when the duckdb extra is absent -> heavy aggregates fall back to sqlite
 _read_lock = threading.Lock()  # serialize reads among themselves; WAL lets them run beside ingest
 _render_lock = threading.Lock()  # serialize the (heavy) PNG subprocess renders
 # Short-TTL memoization for the expensive aggregate endpoints. Keyed by path+params; a per-key
@@ -325,10 +323,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, data)
             if u.path == "/api/heatmap":
                 metric = qs.get("metric", ["loss"])[0]
-                # _duck (when present) is used under the same _read_lock as _ro_conn, so the single
-                # shared DuckDB connection is never touched concurrently. Falls back inside heatmap.
                 data = _cached(f"heatmap:{metric}:{hours}",
-                               lambda: _ro_call(lambda c: hubapi.heatmap(c, metric, hours, duck=_duck)))
+                               lambda: _ro_call(lambda c: hubapi.heatmap(c, metric, hours)))
                 return self._send(200, data)
             if u.path == "/api/spark":
                 spark_hours = _clamp_hours(qs, default=2.0)
@@ -468,7 +464,7 @@ def _alert_loop() -> None:
 
 
 def main() -> int:
-    global _conn, _ro_conn, _duck
+    global _conn, _ro_conn
     if config.HUB_SECRET == "changeme":
         core.log("WARNING: SMOKEMON_HUB_SECRET is default 'changeme' - set a real secret.")
     _conn = core.connect(config.HUB_DB, check_same_thread=False)
@@ -476,11 +472,6 @@ def main() -> int:
     # Dashboard/API reads use a separate read-only connection (opened after the schema exists)
     # so GETs read under WAL without contending on the writer's lock.
     _ro_conn = core.connect_ro(config.HUB_DB)
-    # Optional columnar read accelerator for the heavy aggregate endpoints. None when the duckdb
-    # extra is not installed; every caller falls back to _ro_conn, so this never gates startup.
-    _duck = duckio.connect_ro(config.HUB_DB)
-    if _duck is not None:
-        core.log("hub: DuckDB read acceleration enabled (heatmap)")
     _hub_cols.update({t: {r[1] for r in _conn.execute(f"PRAGMA table_info({t})").fetchall()}
                       for t in schema.STD_TABLES})
     if config.ALERT_TRACK or config.NOTIFY_URL:  # background alert pass (track always, page if URL)

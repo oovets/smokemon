@@ -12,22 +12,18 @@ tagged; dated entries begin at the first release, 0.11.0.)
 
 added:
 
-- hub storage: downsampling/rollups (smokemon/rollup.py, hub-side, pure stdlib). the hub now
-  aggregates the heavy time-series tables (ping_runs/host_samples/net_samples/tcp_samples/
-  wifi_samples) into additive <table>_1m and <table>_1h tables, driven by a rollup_state cursor
-  and run incrementally from the hub's hourly housekeeping pass (only fully-closed buckets; the
-  open bucket is left until it closes; idempotent via UNIQUE(node,entity,bucket_ts)). query gains
-  _resolution()/res= so the heavy aggregate read paths can opt into a coarser resolution by span,
-  falling back to raw when a rollup has no rows in range. the node is untouched (still ships raw);
-  incident detection, the analysis frame and the renderers keep full raw fidelity by default.
-
-- hub storage: optional DuckDB read acceleration (smokemon/duckio.py, new `duckdb` extra, hub
-  only). when installed, the hub ATTACHes its existing SQLite file READ_ONLY and runs the heavy
-  cross-node aggregate (heatmap) on the columnar engine; SQLite stays the master store and sole
-  writer. strictly opt-in and lazily imported - absent duckdb, the hub imports and runs exactly as
-  before and every accelerated path falls back to sqlite, so it is never a requirement.
-
-- analysis: multivariate anomaly detection (smokemon/mlanomaly.py, hub-side, read-only). scores
+- hub storage: downsampling/rollups (smokemon/rollup.py, hub-side, pure stdlib) wired into the
+  heavy read paths. the hub aggregates the bulky time-series tables (ping_runs/host_samples/
+  net_samples/tcp_samples/wifi_samples) into additive <table>_1m and <table>_1h tables, driven by
+  a rollup_state cursor and run incrementally from the hub's hourly housekeeping pass (only
+  fully-closed buckets; the open bucket is left until it closes; idempotent via
+  UNIQUE(node,entity,bucket_ts)). query._resolution() picks raw/1m/1h by window span; fleet(),
+  risks() and heatmap() read rollups for long windows (>6h) and raw for short ones, falling back
+  to raw when a rollup has no rows in range. measured on a 30-day / 15-node synthetic hub over a
+  7-day window: risks() 3.6s -> 0.67s, fleet() 1.27s -> 0.28s, heatmap() 0.47s -> 0.07s. the node
+  is untouched (still ships raw 10s data); short-window views and node-local use keep full
+  fidelity. a scripts/bench_hub_reads.py harness reproduces the numbers (and runs against a real
+  hub DB via --db). scores
   each time bucket on how jointly anomalous its signals are, so a cluster of mild co-deviations
   (moderate cpu + temp + a little rtt drift = an emerging thermal issue) surfaces even when no
   single signal trips an incident - the payoff of the synchronized timeline. uses a numpy

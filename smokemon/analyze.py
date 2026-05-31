@@ -339,14 +339,16 @@ def new_processes(conn, start: float, end: float, node=None, baseline_s: float =
 DEFAULT_BUCKET = 60.0
 
 
-def build_frame(conn, since, until, node=None, bucket=DEFAULT_BUCKET) -> dict:
+def build_frame(conn, since, until, node=None, bucket=DEFAULT_BUCKET, res="") -> dict:
     """Resample every signal smokemon collects onto one common `bucket` grid so the
     correlation/anomaly code can treat them as index-aligned columns. Returns
     {'t', 'bucket', 'series': {name: [...]}, 'ping': raw, 'http': raw, 'mtr': raw}.
-    All loads are read-only; missing tables simply yield empty series."""
-    ping = query.load_ping_agg(conn, since, until, None, node)
+    All loads are read-only; missing tables simply yield empty series. `res` opts the two heavy
+    loaders (ping/host) into a hub rollup resolution for long windows; default '' is raw, so
+    short-window callers (and any node-local use) keep full fidelity."""
+    ping = query.load_ping_agg(conn, since, until, None, node, res=res)
     http = query.load_http(conn, since, until, node)
-    host = query.load_host(conn, since, until, node)
+    host = query.load_host(conn, since, until, node, res=res)
     psi = query.load_psi(conn, since, until, node)
     wifi = query.load_wifi(conn, since, until, node)
     net = query.load_net(conn, since, until, node)

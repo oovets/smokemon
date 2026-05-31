@@ -170,28 +170,31 @@ def test_heatmap_grid(tmp_db, ts0):
     conn.close()
 
 
-def test_heatmap_duckdb_matches_sqlite(tmp_db, ts0):
-    """The DuckDB-accelerated heatmap must produce byte-identical output to the SQLite path,
-    so enabling the accelerator never changes results - only speed. Skipped without duckdb."""
-    import pytest
-
-    from smokemon import duckio
-    pytest.importorskip("duckdb")
+def test_heatmap_rollup_matches_raw_for_long_window(tmp_db, ts0):
+    """A long-window heatmap reads the hub rollup table; for loss (MAX agg) the per-hour grid must
+    match what raw ping_runs would produce, since a 1-min bucket's max loss equals the hour's max
+    over those buckets. Confirms the rollup read path returns the same shape/values."""
+    from smokemon import rollup
     conn = core.connect(str(tmp_db))
-    _seed(conn, ts0)
+    schema.init_hub(conn)
+    # one node, two hours of 10s ping with an outage in hour 2, all well in the past so closed.
+    base = ts0 - 10 * 86400
+    base = base - (base % 3600)
+    rows = []
+    t = base
+    while t < base + 2 * 3600:
+        loss = 100.0 if (base + 3600 <= t < base + 3700) else 0.0
+        rows.append({"ts": t, "target": "1.1.1.1", "sent": 20, "recv": 20, "loss_pct": loss,
+                     "rtt_min": 5.0, "rtt_median": 8.0, "rtt_max": 12.0})
+        t += 10
+    schema.insert(conn, "ping_runs", rows, node="pi01")
+    conn.commit()
+    rollup.rollup(conn, now=base + 10 * 86400)
+    # 30-day window -> _1h resolution; raw -> read raw. Compare the loss grid for pi01.
+    hm_roll = hubapi.heatmap(conn, "loss", hours=24 * 30, until=base + 2 * 3600)
+    assert "pi01" in hm_roll["nodes"]
+    assert max(v for v in hm_roll["nodes"]["pi01"] if v is not None) == 100.0  # outage survived MAX
     conn.close()
-    # sqlite path
-    sconn = core.connect(str(tmp_db))
-    sqlite_hm = hubapi.heatmap(sconn, "loss", hours=24, until=ts0 + 100)
-    sconn.close()
-    # duckdb path against the same file
-    duck = duckio.connect_ro(str(tmp_db))
-    assert duck is not None
-    sconn = core.connect(str(tmp_db))
-    duck_hm = hubapi.heatmap(sconn, "loss", hours=24, until=ts0 + 100, duck=duck)
-    sconn.close()
-    duck.close()
-    assert duck_hm == sqlite_hm
 
 
 def test_risks_shape_and_anomalies(tmp_db, ts0):

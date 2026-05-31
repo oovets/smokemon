@@ -11,7 +11,7 @@ import fnmatch
 import sqlite3
 import time
 
-from . import analyze, config, core, duckio, mlanomaly, query, schema
+from . import analyze, config, mlanomaly, query, schema
 from .probes.logexcerpt import is_elevated
 
 
@@ -105,12 +105,16 @@ def prometheus(conn) -> str:
 
 def fleet(conn, hours: float = 24.0, until: float | None = None) -> list[dict]:
     """Per-node health over the last `hours`, ranked worst-first: internet uptime %,
-    median RTT, incident count. Uses the same detector as `smoke incidents`."""
+    median RTT, incident count. Uses the same detector as `smoke incidents`. For long windows
+    it reads hub rollups (query._resolution): a week/month ranking aggregates pre-downsampled
+    1-min/1-hour buckets instead of scanning millions of raw 10s samples, which is the bulk of
+    this endpoint's cost. Short windows (<=6h) stay on raw data for full fidelity."""
     until = time.time() if until is None else until
     since = until - hours * 3600
+    res = query._resolution(since, until)
     out = []
     for node in nodes(conn):
-        ping = query.load_ping_agg(conn, since, until, None, node)
+        ping = query.load_ping_agg(conn, since, until, None, node, res=res)
         http = query.load_http(conn, since, until, node)
         incidents = analyze.detect_incidents(ping, http)
         cls = analyze.classify_targets(ping)
@@ -138,30 +142,24 @@ def fleet(conn, hours: float = 24.0, until: float | None = None) -> list[dict]:
     return out
 
 
-def heatmap(conn, metric: str = "loss", hours: float = 24.0, until: float | None = None,
-            duck=None) -> dict:
+def heatmap(conn, metric: str = "loss", hours: float = 24.0, until: float | None = None) -> dict:
     """node × hour grid for 'loss' (max loss%) or 'rtt' (median RTT). Returns
-    {metric, hours:[epoch...], nodes:{node:[val per hour]}}. When `duck` is a DuckDB connection
-    (hub opt-in) the GROUP BY runs on the columnar engine for speed; otherwise it runs on the
-    sqlite3 connection. Both paths use the same SQL and produce an identical result."""
+    {metric, hours:[epoch...], nodes:{node:[val per hour]}}. For long windows it groups over the
+    hub rollup table (query._resolution) instead of raw ping_runs, so a week/month heatmap reads
+    pre-downsampled buckets; short windows stay on raw data. Falls back to raw when the rollup
+    table has no rows in range."""
     until = time.time() if until is None else until
     since = until - hours * 3600
     n_buckets = int(hours)
     hour0 = since - (since % 3600)
     col = "loss_pct" if metric == "loss" else "rtt_median"
     agg = "MAX" if metric == "loss" else "AVG"
+    res = query._resolution(since, until)
+    tbl, tcol = query._table_for(conn, "ping_runs", res, since, until, None)
     grid: dict[str, list] = {}
-    sql = (f"SELECT node, CAST((ts - ?) / 3600 AS INT) hr, {agg}({col}) "
-           "FROM ping_runs WHERE ts BETWEEN ? AND ? GROUP BY node, hr")
-    params = (hour0, since, until)
-    if duck is not None:
-        try:
-            rows = duckio.query_rows(duck, sql, params)
-        except Exception as e:  # noqa: BLE001 - any duckdb hiccup degrades to sqlite, never 500s
-            core.log(f"heatmap: duckdb query failed, using sqlite: {e!r}")
-            rows = _rows(conn, sql, params)
-    else:
-        rows = _rows(conn, sql, params)
+    sql = (f"SELECT node, CAST(({tcol} - ?) / 3600 AS INT) hr, {agg}({col}) "
+           f"FROM {tbl} WHERE {tcol} BETWEEN ? AND ? GROUP BY node, hr")
+    rows = _rows(conn, sql, (hour0, since, until))
     for node, hr, val in rows:
         if node is None or hr is None:
             continue
@@ -273,17 +271,21 @@ def risks(conn, hours: float = 24.0, now: float | None = None) -> dict:
     # deliberately NOT a predictive clock (mem% hovers near 100 with cache -> too many false ETAs);
     # real memory trouble shows up as factual alerts instead (OOM kills / swap / PSI, see below).
     disk_horizon, wear_horizon = 365 * 86400, 5 * 365 * 86400
+    # Long windows read hub rollups for the heavy per-node ping/host loads; short windows stay raw.
+    # The death-clock loaders (disk/wear) stay raw - they are small (hourly) and Theil-Sen wants
+    # the real points - so only the bulk ping/frame reads are downsampled.
+    res = query._resolution(since, now)
     clocks: list[dict] = []
     incidents: list[dict] = []
     anomalies: list[dict] = []
     for node in nodes(conn):
-        ping = query.load_ping_agg(conn, since, now, None, node)
+        ping = query.load_ping_agg(conn, since, now, None, node, res=res)
         http = query.load_http(conn, since, now, node)
         for inc in analyze.detect_incidents(ping, http):
             incidents.append({**inc, "node": node})
         # Multivariate anomalies: joint co-deviation across host/network signals that the
         # per-signal incident detectors miss. Reuses the analysis frame; numpy-optional.
-        frame = analyze.build_frame(conn, since, now, node)
+        frame = analyze.build_frame(conn, since, now, node, res=res)
         for a in mlanomaly.multivariate_anomalies(frame):
             sigs = ", ".join(f"{name} {z:.0f}sigma" for name, z in a["signals"])
             anomalies.append({

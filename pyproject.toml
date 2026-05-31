@@ -32,10 +32,7 @@ dependencies = []  # collectors / ship / hub are stdlib-only; renderers are extr
 [project.optional-dependencies]
 tui = ["plotext>=5.2"]
 png = ["matplotlib>=3.5", "numpy>=1.21"]
-# hub-only: columnar read acceleration for the heavy aggregate endpoints. Opt-in; the hub falls
-# back to plain sqlite when it is absent, so this is never required to run a hub.
-duckdb = ["duckdb>=1.0"]
-dev = ["pytest>=7", "ruff>=0.5", "duckdb>=1.0"]
+dev = ["pytest>=7", "ruff>=0.5"]
 docs = ["mkdocs-material>=9.5"]
 
 [project.scripts]
