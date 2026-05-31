@@ -224,6 +224,18 @@ def test_dashboard_links_favicon():
     assert hubapi.FAVICON_SVG.startswith(b"<svg")
 
 
+def test_dashboard_has_loading_warmup():
+    """The cache-backed tabs get a first-open warm-up screen (spinner + explanation) instead
+    of a grey blank while the server populates its cache."""
+    h = hubapi.dashboard_html()
+    assert 'class="loading"' in h and "function loadingHtml" in h
+    assert "warms the hub's cache" in h
+    assert "const WARMUP=" in h
+    # each heavy, cache-backed view names its warm-up
+    for hint in ("the 24-hour ranking", "the latency heatmap", "the measured ship-cost view"):
+        assert hint in h
+
+
 # --- security hardening: ingest auth fails closed, decompression is bounded, hours is clamped ---
 
 def _ingest_post(port, body, headers):

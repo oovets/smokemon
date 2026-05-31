@@ -263,13 +263,19 @@ def risks(conn, hours: float = 24.0, now: float | None = None) -> dict:
     disk_horizon, wear_horizon = 365 * 86400, 5 * 365 * 86400
     clocks: list[dict] = []
     incidents: list[dict] = []
+    # One fleet-wide query per signal instead of 5 per node (the N+1 that made this slow at scale).
+    ping_f = query.load_ping_agg_fleet(conn, since, now)
+    http_f = query.load_http_fleet(conn, since, now)
+    disk_f = query.load_disk_fleet(conn, since, now)
+    health_f = query.load_disk_health_fleet(conn, since, now)
+    host_f = query.load_host_fleet(conn, since, now)
     for node in nodes(conn):
-        ping = query.load_ping_agg(conn, since, now, None, node)
-        http = query.load_http(conn, since, now, node)
+        ping = ping_f.get(node, {})
+        http = http_f.get(node, {})
         for inc in analyze.detect_incidents(ping, http):
             incidents.append({**inc, "node": node})
         # drop read-only pseudo-mounts (snap/loop squashfs sit at 100% by design -> false "full")
-        disk = {m: v for m, v in query.load_disk(conn, since, now, node).items()
+        disk = {m: v for m, v in disk_f.get(node, {}).items()
                 if not (m.startswith("/snap") or m.startswith("/var/snap") or "/snapd/" in m)}
         full = query.disk_full_eta(disk)
         if full and full[1] <= disk_horizon:
@@ -277,13 +283,13 @@ def risks(conn, hours: float = 24.0, now: float | None = None) -> dict:
             clocks.append({"node": node, "kind": "disk", "eta_s": round(eta),
                            "severity": 3 if eta <= 7 * 86400 else 2 if eta <= 30 * 86400 else 1,
                            "detail": f"{full[0]} full {query.human_eta(eta)}"})
-        wear = query.wear_eta(query.load_disk_health(conn, since, now, node))
+        wear = query.wear_eta(health_f.get(node, {}))
         if wear and wear[1] <= wear_horizon:
             eta = wear[1]
             clocks.append({"node": node, "kind": "sd-wear", "eta_s": round(eta),
                            "severity": 3 if eta <= 90 * 86400 else 2 if eta <= 365 * 86400 else 1,
                            "detail": f"{wear[0]} wear {query.human_eta(eta)}"})
-        host = query.load_host(conn, since, now, node)
+        host = host_f.get(node, {})
         if host:
             temp = query.last_value(host.get("temp", []))
             if temp is not None:
@@ -723,6 +729,15 @@ _DASHBOARD_HTML = """<!doctype html>
    font-weight:400;font-family:var(--mono);font-size:11px}
  .view{padding:13px;animation:fade .18s ease}
  .view[hidden]{display:none}
+ /* first-open warm-up: explain the one-time cache build instead of a grey blank */
+ .loading{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:13px;padding:72px 20px;text-align:center}
+ .loading .spin{width:30px;height:30px;border-radius:50%;border:3px solid var(--line2);
+  border-top-color:var(--accent);animation:spin .8s linear infinite}
+ .loading .lt{font-size:13px;color:var(--fg);font-weight:600}
+ .loading .lh{font-size:12px;color:var(--dim);max-width:380px;line-height:1.55}
+ @keyframes spin{to{transform:rotate(360deg)}}
+ @media (prefers-reduced-motion:reduce){.loading .spin{animation-duration:2s}}
  @keyframes fade{from{opacity:0}to{opacity:1}}
  .empty{color:var(--dim);padding:30px 16px;text-align:center;font-style:italic}
  .view h2{font-size:11px;color:var(--mut);font-weight:600;letter-spacing:.9px;text-transform:uppercase;
@@ -1399,10 +1414,20 @@ async function loadFoot(force){
 }
 const tabs=document.getElementById("tabs"),viewEl=id=>document.getElementById(id);
 tabs.innerHTML=VIEWS.map(([id,l])=>`<div class="tab" data-v="${id}">${l}</div>`).join("");
+// these tabs are painted wholesale by an /api/* fetch that hits a server-side cache; the first
+// open is a cache miss (reads history) so it lags. Show why, instead of a grey blank, until the
+// loader overwrites innerHTML. Re-opens already hold content, so no spinner flash on return.
+const WARMUP={rank:"the 24-hour ranking",heat:"the latency heatmap",risk:"the risk death-clocks + incident feed",
+ cost:"the measured ship-cost view",svc:"the fleet service telemetry"};
+function loadingHtml(v){return `<div class="loading"><div class="spin"></div>`
+ +`<div class="lt">building ${WARMUP[v]}…</div>`
+ +`<div class="lh">first open reads each node's history and warms the hub's cache — this view stays instant on every later visit.</div></div>`;}
 function setView(v){view=v;
  VIEWS.forEach(([id])=>viewEl(id).hidden=(id!==v));
  tabs.querySelectorAll(".tab").forEach(t=>t.classList.toggle("on",t.dataset.v===v));
  q.style.display=(v==="table"||v==="grid")?"":"none";  // filter applies to the grid + per-node table
+ const el=viewEl(v);
+ if(WARMUP[v]&&!el.firstChild)el.innerHTML=loadingHtml(v);  // first visit only (empty view)
  refreshView();}
 function refreshView(){if(view==="rank")loadRank();else if(view==="heat")loadHeat();else if(view==="risk")loadRisk();else if(view==="cost")loadCost();else if(view==="svc")loadServices();
  else if(view==="table"){render();loadFoot().then(render);}
