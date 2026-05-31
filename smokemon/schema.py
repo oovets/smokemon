@@ -54,12 +54,14 @@ _BODY = {
     "proc_watch": "ts REAL NOT NULL, label TEXT NOT NULL, count INTEGER, cpu_pct REAL, rss_mb REAL, "
                   "uptime_s REAL, restarts INTEGER",
     "stream_probes": "ts REAL NOT NULL, url TEXT NOT NULL, ok INTEGER, latency_ms REAL, status TEXT",
+    "port_samples": "ts REAL NOT NULL, proto TEXT NOT NULL, dir TEXT NOT NULL, port INTEGER NOT NULL, "
+                    "conns INTEGER, peers INTEGER, listening INTEGER",
 }
 _IX = {"ping_runs": "target", "net_samples": "iface", "http_samples": "url", "mtr_hops": "target",
        "thermal_zones": "zone", "power_samples": "rail", "disk_health": "device",
        "synthetic_samples": "probe", "ext_metrics": "source", "ext_events": "source",
        "redis_samples": "instance", "gpu_samples": "gpu", "docker_samples": "name",
-       "proc_watch": "label", "stream_probes": "url"}
+       "proc_watch": "label", "stream_probes": "url", "port_samples": "port"}
 
 STD_TABLES = tuple(_BODY)  # generic append-only tables (id + body + node [+ src_id])
 

@@ -9,6 +9,9 @@
 #
 # When piped (no local checkout) it clones the repo to $SMOKEMON_DIR (default /opt/smokemon).
 set -euo pipefail
+# non-interactive apt: some deps (iperf3) have debconf prompts that otherwise hang a piped
+# `curl | sudo bash` install (no tty) and abort it before the env/units are written.
+export DEBIAN_FRONTEND=noninteractive
 
 MODE="node"; NODE_NAME="$(hostname)"; HUB_URL=""   # empty -> local-only node (ship no-ops)
 SECRET=""; TARGETS="1.1.1.1,gw"   # 'gw' auto-expands to each node's own default gateway

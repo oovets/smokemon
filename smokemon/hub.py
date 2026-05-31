@@ -281,6 +281,12 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/services":
                 with _lock:
                     return self._send(200, hubapi.services(_conn))
+            if u.path == "/api/ports":
+                node = qs.get("node", [""])[0]
+                if not node:
+                    return self._send(400, {"error": "node required"})
+                with _lock:
+                    return self._send(200, hubapi.ports(_conn, node))
             if u.path == "/api/ingest-rate":
                 # in-memory ring buffer, not the DB - no _lock needed (own buffer lock)
                 return self._send(200, hubapi.ingest_rate(_ingest_snapshot()))

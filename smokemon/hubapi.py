@@ -383,6 +383,27 @@ def _http_error_incidents(conn, since: float, now: float) -> list[dict]:
     return out
 
 
+def ports(conn, node: str, now: float | None = None) -> dict:
+    """Latest per-port connection snapshot for one node (from the ports probe): the most-recent
+    sample batch, split into inbound listening services and outbound remote-service ports, each
+    sorted busiest-first. Returns {now, node, ts, listen:[...], out:[...]}; empty when the node
+    has no port_samples (probe not deployed / no data yet)."""
+    now = time.time() if now is None else now
+    row = _rows(conn, "SELECT MAX(ts) FROM port_samples WHERE node = ?", (node,))
+    ts = row[0][0] if row else None
+    if ts is None:
+        return {"now": now, "node": node, "ts": None, "listen": [], "out": []}
+    listen, out = [], []
+    for proto, d, port, conns, peers in _rows(
+            conn, "SELECT proto, dir, port, conns, peers FROM port_samples "
+            "WHERE node = ? AND ts = ?", (node, ts)):
+        rec = {"proto": proto, "port": port, "conns": conns or 0, "peers": peers or 0}
+        (listen if d == "in" else out).append(rec)
+    listen.sort(key=lambda r: (-r["conns"], r["port"]))
+    out.sort(key=lambda r: (-r["conns"], r["port"]))
+    return {"now": now, "node": node, "ts": ts, "listen": listen, "out": out}
+
+
 def ship_volume(conn, hours: float = 24.0, now: float | None = None) -> dict:
     """Measured ship cost per node: the ACTUAL compressed bytes each node pushed over the wire
     (summed from ingest_log, which records every POST's Content-Length), not a from-the-DB
@@ -914,6 +935,20 @@ _DASHBOARD_HTML = """<!doctype html>
  .rd-tail{flex:0 0 auto;font:700 11.5px var(--mono);color:var(--dim)}
  .rd-row.s3 .rd-tail{color:var(--downf)}
  .rd-load{color:var(--dim);padding:14px;font-style:italic}
+ /* ports tab inside the detail modal: two columns of per-port connection counts */
+ #dports{margin:0;padding:12px 14px;background:var(--bg);overflow-y:auto;height:80vh}
+ #dports[hidden]{display:none}
+ .pt-cols{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+ @media(max-width:760px){.pt-cols{grid-template-columns:1fr}}
+ .pt-tbl{border-collapse:separate;border-spacing:0;width:100%;font:12px var(--mono);font-variant-numeric:tabular-nums}
+ .pt-tbl th{text-align:right;color:var(--mut);font-weight:600;text-transform:uppercase;font-size:9.5px;
+   letter-spacing:.4px;padding:4px 10px}
+ .pt-tbl th:first-child,.pt-tbl th:nth-child(2){text-align:left}
+ .pt-tbl td{text-align:right;padding:4px 10px;color:var(--fg)}
+ .pt-tbl td:first-child,.pt-tbl td.pt-port{text-align:left}
+ .pt-port{color:var(--accent);font-weight:600}
+ .pt-hot{color:var(--okf);font-weight:700}
+ .pt-tbl tbody tr:hover{background:var(--card)}
  /* braille glyphs (plotext markers) come from a fallback font that is wider than the mono
     cell, which drifts every data row out of line with the ascii axes. --brls is measured at
     render time (mono cell minus braille cell, so negative) to pull each braille char back to
@@ -981,6 +1016,7 @@ _DASHBOARD_HTML = """<!doctype html>
   <div class="dimg" id="dimg"><div id="dwrap"><img id="dgraph" alt=""><div id="dover"></div></div><div id="dmsg" hidden>no data in this window</div></div>
   <pre id="dplot" hidden></pre>
   <div id="drisk" hidden></div>
+  <div id="dports" hidden></div>
   <div class="dfoot" id="dfoot"></div>
  </div>
 </div>
@@ -1505,11 +1541,11 @@ const detail=document.getElementById("detail"),dgraph=document.getElementById("d
  dover=document.getElementById("dover"),dmsg=document.getElementById("dmsg"),
  dfoot=document.getElementById("dfoot"),dplot=document.getElementById("dplot"),
  dimg=document.getElementById("dimg"),dmode=document.getElementById("dmode"),
- drisk=document.getElementById("drisk");
-// render mode: png (matplotlib image), plot (TUI plotext braille graphs as ANSI text), or risks
-// (detailed per-node risk list). plot (braille) is the default; png + risks are opt-in / contextual.
+ drisk=document.getElementById("drisk"),dports=document.getElementById("dports");
+// render mode: png (matplotlib), plot (TUI plotext braille graphs), risks (per-node risk list)
+// or ports (per-node connection counts). plot is the default; the rest are opt-in / contextual.
 let dMode="plot";
-dmode.innerHTML=[["png","png"],["plot","plot"],["risks","risks"]].map(([m,l])=>`<button data-m2="${m}">${l}</button>`).join("");
+dmode.innerHTML=[["png","png"],["plot","plot"],["risks","risks"],["ports","ports"]].map(([m,l])=>`<button data-m2="${m}">${l}</button>`).join("");
 // xterm 256-colour index -> rgb, for converting plotext's ANSI (only 0 + 38;5;N appear).
 function xterm256(n){
  const base=[[0,0,0],[205,0,0],[0,205,0],[205,205,0],[0,0,238],[205,0,205],[0,205,205],[229,229,229],
@@ -1579,7 +1615,24 @@ function syncCtl(){
  dhours.querySelectorAll("button").forEach(b=>b.classList.toggle("on",+b.dataset.h===dH));
  dcols.querySelectorAll("button").forEach(b=>b.classList.toggle("on",+b.dataset.c===dC));
  dmode.querySelectorAll("button").forEach(b=>b.classList.toggle("on",b.dataset.m2===dMode));}
-function paintActive(){return dMode==="risks"?paintRisks():dMode==="plot"?paintPlot():paintGraph();}
+function paintActive(){return dMode==="risks"?paintRisks():dMode==="ports"?paintPorts():dMode==="plot"?paintPlot():paintGraph();}
+// ports tab: latest per-port connection counts for this node (/api/ports). Two columns:
+// listening/inbound services and outbound remote-service ports, busiest-first.
+async function paintPorts(){
+ if(!dNode)return;
+ dports.innerHTML='<div class="rd-load">loading ports…</div>';
+ try{
+  const r=await fetch("/api/ports?node="+encodeURIComponent(dNode),{cache:"no-store"});
+  if(!r.ok){dports.innerHTML='<div class="empty">no port data</div>';return;}
+  const d=await r.json();
+  if(!d.ts){dports.innerHTML='<div class="empty">no port data for this node yet (ports probe not deployed here)</div>';return;}
+  const tbl=rows=>rows.length?('<table class="pt-tbl"><thead><tr><th>proto</th><th>port</th><th>conns</th><th>peers</th></tr></thead><tbody>'
+   +rows.map(p=>`<tr><td>${esc(p.proto)}</td><td class="pt-port">${p.port}</td><td class="${p.conns?"pt-hot":""}">${p.conns}</td><td>${p.peers}</td></tr>`).join("")+'</tbody></table>'):'<div class="empty">none</div>';
+  dports.innerHTML=`<div class="pt-cols">`
+   +`<div><div class="rd-sec">listening / inbound <span>${d.listen.length}</span></div>${tbl(d.listen)}</div>`
+   +`<div><div class="rd-sec">outbound (remote service ports) <span>${d.out.length}</span></div>${tbl(d.out)}</div></div>`;
+ }catch(e){dports.innerHTML='<div class="empty">fetch error</div>';}
+}
 // risks tab: detailed per-node list of every death-clock / service alert / incident. Reuses the
 // fleet /api/risks payload (cached ~15s) and filters to this node, so opening the tab is cheap.
 let riskAll=null,riskTs=0;
@@ -1643,10 +1696,10 @@ async function paintPlot(){
   dplot.innerHTML=ansiToHtml(await r.text());
  }catch(e){dplot.textContent="fetch error";}
 }
-function setMode(m){dMode=m;const isR=(m==="risks");
- dimg.hidden=(m!=="png");dplot.hidden=(m!=="plot");drisk.hidden=!isR;
- // hours/cols/panels are graph-only -> hide them on the risks tab
- [dhours,dcols,dpanels].forEach(el=>el.style.display=isR?"none":"");
+function setMode(m){dMode=m;const graph=(m==="png"||m==="plot");
+ dimg.hidden=(m!=="png");dplot.hidden=(m!=="plot");drisk.hidden=(m!=="risks");dports.hidden=(m!=="ports");
+ // hours/cols/panels are graph-only -> hide them on the risks/ports tabs
+ [dhours,dcols,dpanels].forEach(el=>el.style.display=graph?"":"none");
  syncCtl();paintActive();}
 function openDetail(node){dNode=node;detail.hidden=false;
  // name + a status dot looked up from the latest fleet-status, built via safe DOM (no innerHTML)

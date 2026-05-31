@@ -5,13 +5,14 @@ Production runs `fast` and `slow` as two services so a slow probe never delays p
 import sys
 
 from . import adapters, config, core, schema
-from .probes import dockerps, ext, host, http, mtr, net, ping, pipeline, redisq, synthetic, wifi
+from .probes import dockerps, ext, host, http, mtr, net, ping, pipeline, ports, redisq, synthetic, wifi
 
 
 def _probes(group: str) -> list[tuple[float, object]]:
     fast = [(config.PING_INTERVAL, ping.collect), (config.PING_INTERVAL, net.collect)]
     slow = [(config.PROBE_INTERVAL, http.collect), (config.PROBE_INTERVAL, mtr.collect),
-            (config.PROBE_INTERVAL, wifi.collect), (config.HOST_INTERVAL, host.collect)]
+            (config.PROBE_INTERVAL, wifi.collect), (config.HOST_INTERVAL, host.collect),
+            (config.PROBE_INTERVAL, ports.collect)]  # per-port conn counts (stdlib /proc, cheap)
     if config.SYNTHETIC_ENABLED:  # X6: opt-in scripted checks on the slow tier
         slow.append((config.PROBE_INTERVAL, synthetic.collect))
     if config.EXT_HTTP:
