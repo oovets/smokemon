@@ -234,11 +234,13 @@ def test_dashboard_has_loading_warmup():
     # every tab names its warm-up, incl. grid (shown until the first fleet-status poll). the old
     # per-node / ranking / services tabs are now merged into one "nodes" tab.
     for hint in ("the fleet overview", "the per-node detail table",
-                 "the latency heatmap", "the measured ship-cost view"):
+                 "the network throughput + heatmap view", "the measured ship-cost view"):
         assert hint in h
     # the merged tab replaced the three old per-node warm-up hints
     for gone in ("the per-node table", "the 24-hour ranking", "the fleet service telemetry"):
         assert gone not in h
+    # the heatmap moved into the network tab, so it no longer has its own warm-up hint
+    assert "the latency heatmap" not in h
     assert "let gotData=false" in h  # grid gate
 
 
@@ -255,6 +257,20 @@ def test_dashboard_has_network_tab():
     h = hubapi.dashboard_html()
     assert '["net","network"]' in h and 'id="net" class="view"' in h
     assert "function loadNet(" in h and "function netSpark(" in h and "/api/network?hours=6" in h
+    # the network tab carries a fleet/per-node throughput toggle backed by the by_node breakdown
+    assert "data-netmode=" in h and "function netMultiSpark(" in h
+
+
+def test_dashboard_heatmap_lives_in_network_tab():
+    """The standalone heatmap tab is gone; the heatmap now renders inside the network tab with a
+    bandwidth metric option alongside loss/rtt."""
+    h = hubapi.dashboard_html()
+    # no standalone heat tab anymore
+    assert '["heat","heatmap"]' not in h and 'id="heat" class="view"' not in h
+    assert "function loadHeat(" not in h
+    # heatmap controls + render helpers live in the net tab, with the new bandwidth metric
+    assert "const HEAT_STOPS=" in h and "bw:[[0," in h
+    assert 'data-m="bw"' in h and "function heatSectionHtml(" in h
 
 
 def test_dashboard_has_merged_nodes_tab():
@@ -322,6 +338,15 @@ def test_api_network_route(hub_ready, monkeypatch):
             assert any(a["port"] == 443 and a["app"] == "https" for a in json.loads(r.read())["apps"])
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/network?node=pi9", timeout=5) as r:
             assert r.status == 200 and json.loads(r.read())["node"] == "pi9"
+        # by_node mode returns the per-node breakdown flag + apps carry a nodes list
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/network?by_node=1", timeout=5) as r:
+            assert r.status == 200
+            d = json.loads(r.read())
+            assert d["by_node"] is True
+            assert all("nodes" in a for a in d["apps"])
+        # bandwidth heatmap metric routes through and returns the bw grid shape
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/heatmap?metric=bw&hours=24", timeout=5) as r:
+            assert r.status == 200 and json.loads(r.read())["metric"] == "bw"
         # the previously-uncached /api/ports route still answers (now cached)
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/ports?node=pi9", timeout=5) as r:
             assert r.status == 200 and json.loads(r.read())["node"] == "pi9"

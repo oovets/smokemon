@@ -368,8 +368,10 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/network":
                 node = qs.get("node", [""])[0]
                 nhours = _clamp_hours(qs, default=6.0)
-                data = _cached(f"network:{node}:{nhours}",
-                               lambda: _ro_call(lambda c: hubapi.network(c, node or None, nhours)))
+                by_node = qs.get("by_node", ["0"])[0] not in ("0", "", "false")
+                data = _cached(f"network:{node}:{nhours}:{int(by_node)}",
+                               lambda: _ro_call(lambda c: hubapi.network(c, node or None, nhours,
+                                                                         by_node=by_node)))
                 return self._send(200, data)
             if u.path == "/api/inventory":
                 with _read_lock:

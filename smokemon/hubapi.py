@@ -187,21 +187,56 @@ def fleet(conn, hours: float = 24.0, until: float | None = None) -> list[dict]:
     return out
 
 
+def _heatmap_bw(conn, since, until, hour0, n_buckets) -> dict[str, list]:
+    """node x hour bandwidth (bytes/s) grid from net_samples. net_samples carries the cumulative
+    ibytes+obytes gauge per interface, so per-hour throughput is the positive hour-over-hour delta
+    of the per-(node,iface) hourly MAX gauge / 3600. Virtual/loopback ifaces are skipped (the same
+    prefix filter the per-iface loader uses) so the grid reflects real link traffic. None for hours
+    a node had no sample."""
+    rows = _rows(conn,
+                 "SELECT node, iface, CAST((ts - ?) / 3600 AS INT) hr, "
+                 "MAX(COALESCE(ibytes,0) + COALESCE(obytes,0)) "
+                 "FROM net_samples WHERE ts BETWEEN ? AND ? GROUP BY node, iface, hr",
+                 (hour0, since, until))
+    # per (node, iface): hour -> cumulative max; delta into bytes/s, then sum ifaces per node-hour
+    by_iface: dict[tuple, dict[int, float]] = {}
+    for node, iface, hr, g in rows:
+        if node is None or iface is None or hr is None:
+            continue
+        if iface.startswith(query.SKIP_IFACE_PREFIXES):
+            continue
+        by_iface.setdefault((node, iface), {})[int(hr)] = g or 0.0
+    grid: dict[str, list] = {}
+    for (node, _iface), gmap in by_iface.items():
+        series = grid.setdefault(node, [None] * (n_buckets + 1))
+        prev_hr = prev_g = None
+        for hr in sorted(gmap):
+            if prev_hr is not None and hr > prev_hr and 0 <= hr <= n_buckets:
+                rate = max(0.0, gmap[hr] - prev_g) / 3600.0
+                series[hr] = round((series[hr] or 0.0) + rate, 1)
+            prev_hr, prev_g = hr, gmap[hr]
+    return grid
+
+
 def heatmap(conn, metric: str = "loss", hours: float = 24.0, until: float | None = None) -> dict:
-    """node × hour grid for 'loss' (max loss%) or 'rtt' (median RTT). Returns
-    {metric, hours:[epoch...], nodes:{node:[val per hour]}}. For long windows it groups over the
-    hub rollup table (query._resolution) instead of raw ping_runs, so a week/month heatmap reads
-    pre-downsampled buckets; short windows stay on raw data. Falls back to raw when the rollup
-    table has no rows in range."""
+    """node × hour grid for 'loss' (max loss%), 'rtt' (median RTT) or 'bw' (bandwidth bytes/s).
+    Returns {metric, hours:[epoch...], nodes:{node:[val per hour]}}. For loss/rtt over long windows
+    it groups over the hub rollup table (query._resolution) instead of raw ping_runs; bw reads
+    net_samples (cumulative gauge -> hourly delta, see _heatmap_bw). Falls back to raw when a
+    rollup table has no rows in range."""
     until = time.time() if until is None else until
     since = until - hours * 3600
     n_buckets = int(hours)
     hour0 = since - (since % 3600)
+    if metric == "bw":
+        grid = _heatmap_bw(conn, since, until, hour0, n_buckets)
+        return {"metric": metric, "hours": [hour0 + i * 3600 for i in range(n_buckets + 1)],
+                "nodes": grid}
     col = "loss_pct" if metric == "loss" else "rtt_median"
     agg = "MAX" if metric == "loss" else "AVG"
     res = query._resolution(since, until)
     tbl, tcol = query._table_for(conn, "ping_runs", res, since, until, None)
-    grid: dict[str, list] = {}
+    grid = {}
     sql = (f"SELECT node, CAST(({tcol} - ?) / 3600 AS INT) hr, {agg}({col}) "
            f"FROM {tbl} WHERE {tcol} BETWEEN ? AND ? GROUP BY node, hr")
     rows = _rows(conn, sql, (hour0, since, until))
@@ -649,7 +684,9 @@ _WELLKNOWN = {
     5601: "kibana", 5672: "amqp", 6379: "redis", 6443: "k8s-api", 8000: "http-alt",
     8080: "http-proxy", 8086: "influxdb", 8443: "https-alt", 8765: "smokemon", 9000: "http-alt",
     9090: "prometheus", 9092: "kafka", 9200: "elasticsearch", 11211: "memcached",
-    15672: "rabbitmq", 25565: "minecraft", 27017: "mongodb", 51820: "wireguard"}
+    15672: "rabbitmq", 25565: "minecraft", 27017: "mongodb", 51820: "wireguard",
+    # deployment-specific media/monitoring services
+    554: "rtsp", 1935: "rtmp", 5000: "raw-video", 8554: "rtsp", 19999: "netdata"}
 
 
 def app_label(port: int) -> str:
@@ -657,12 +694,34 @@ def app_label(port: int) -> str:
     return _WELLKNOWN.get(port, f":{port}")
 
 
-def network(conn, node=None, hours: float = 6.0, buckets: int = 60, now: float | None = None) -> dict:
+def _gauge_rate(gmap: dict[int, float], buckets: int, width: float) -> list[float]:
+    """Turn a bucketed cumulative byte gauge into a bytes/s rate series. The positive delta
+    between consecutive populated buckets / bucket-width; a closed connection (negative delta)
+    clamps to 0. Returns a `buckets`-long list."""
+    arr = [0.0] * buckets
+    prev_b = prev_g = None
+    for b in sorted(gmap):
+        if prev_b is not None and b > prev_b:
+            arr[b] += max(0.0, gmap[b] - prev_g) / width
+        prev_b, prev_g = b, gmap[b]
+    return arr
+
+
+_NET_NODE_TOP = 8  # per-app node breakdown cap (busiest contributors; rest folded into "+N more")
+
+
+def network(conn, node=None, hours: float = 6.0, buckets: int = 60, by_node: bool = False,
+            now: float | None = None) -> dict:
     """Per-application throughput (bytes/s) over time from port_samples. Fleet-wide when node is
     None (each app summed across the fleet), or one node's ports when given. Throughput is the
     positive delta of the bucketed cumulative byte gauge / bucket-width (cumulative counters churn
     as connections come and go, so negative deltas - a closed connection - clamp to 0). Returns
-    busiest-first apps each with a bytes/s series, ready for an area chart."""
+    busiest-first apps each with a bytes/s series, ready for an area chart.
+
+    When `by_node` is set, each app also carries a `nodes` list: the same throughput broken down
+    per contributing node (busiest first, capped to _NET_NODE_TOP with the remainder summed into a
+    synthetic '+N more' entry), so the chart can show the fleet total AND who drives it. The fleet
+    `series` is always the sum across nodes, so fleet and per-node modes agree on the total."""
     now = time.time() if now is None else now
     since = now - hours * 3600
     width = max(1.0, (hours * 3600) / buckets)
@@ -676,20 +735,40 @@ def network(conn, node=None, hours: float = 6.0, buckets: int = 60, now: float |
         if port is None or b is None or not (0 <= b < buckets):
             continue
         gauges.setdefault((nd, port, d), {})[int(b)] = g or 0.0
-    apps: dict[int, list] = {}  # port -> [bytes/s per bucket], summed across node+dir
-    for (_nd, port, _d), gmap in gauges.items():
+    # per port: the fleet-summed rate, and (for by_node) the per-node rate. dir is folded into both
+    # (a port's in+out throughput) by summing the gauge-derived rates.
+    apps: dict[int, list] = {}                       # port -> fleet rate series
+    per_node: dict[int, dict[str, list]] = {}        # port -> {node -> rate series}
+    for (nd, port, _d), gmap in gauges.items():
+        rate = _gauge_rate(gmap, buckets, width)
         arr = apps.setdefault(port, [0.0] * buckets)
-        prev_b = prev_g = None
-        for b in sorted(gmap):
-            if prev_b is not None and b > prev_b:
-                arr[b] += max(0.0, gmap[b] - prev_g) / width
-            prev_b, prev_g = b, gmap[b]
-    items = [{"port": p, "app": app_label(p), "series": [round(x, 1) for x in arr],
-              "total": round(sum(arr), 1)} for p, arr in apps.items()]
+        narr = per_node.setdefault(port, {}).setdefault(nd, [0.0] * buckets)
+        for i in range(buckets):
+            arr[i] += rate[i]
+            narr[i] += rate[i]
+    items = []
+    for p, arr in apps.items():
+        item = {"port": p, "app": app_label(p), "series": [round(x, 1) for x in arr],
+                "total": round(sum(arr), 1)}
+        if by_node:
+            nodes = [{"node": n, "series": [round(x, 1) for x in s], "total": round(sum(s), 1)}
+                     for n, s in per_node.get(p, {}).items()]
+            nodes.sort(key=lambda x: (-x["total"], x["node"]))
+            if len(nodes) > _NET_NODE_TOP:
+                rest = nodes[_NET_NODE_TOP:]
+                merged = [0.0] * buckets
+                for r in rest:
+                    for i, v in enumerate(r["series"]):
+                        merged[i] += v
+                nodes = nodes[:_NET_NODE_TOP] + [{"node": f"+{len(rest)} more",
+                                                  "series": [round(x, 1) for x in merged],
+                                                  "total": round(sum(merged), 1)}]
+            item["nodes"] = nodes
+        items.append(item)
     items.sort(key=lambda x: (-x["total"], x["port"]))
     top = 12 if node else 16
     return {"now": now, "hours": hours, "node": node or "", "buckets": buckets,
-            "since": since, "width": width, "apps": items[:top]}
+            "since": since, "width": width, "by_node": by_node, "apps": items[:top]}
 
 
 def ship_volume(conn, hours: float = 24.0, now: float | None = None) -> dict:
@@ -1221,9 +1300,9 @@ _DASHBOARD_HTML = """<!doctype html>
    font:600 10px var(--sans);text-transform:uppercase;letter-spacing:.4px}
  .chip.healthy{background:var(--ok-bg);color:var(--okf)}.chip.warn{background:var(--warn-bg);color:var(--warnf)}
  .chip.down{background:var(--down-bg);color:var(--downf)}.chip.stale{background:var(--stale-bg);color:var(--stalef)}
- /* ---- heatmap ---- */
- #heat{overflow-x:auto}
- .heat-tools{display:flex;gap:14px;align-items:center;margin-bottom:16px;flex-wrap:wrap}
+/* ---- heatmap (lives inside the network tab) ---- */
+#net{overflow-x:auto}
+.heat-tools{display:flex;gap:14px;align-items:center;margin-bottom:16px;flex-wrap:wrap}
  .heat-legend{display:flex;align-items:center;gap:8px;margin-left:auto;font-size:11px;
    color:var(--dim);font-family:var(--mono)}
  .heat-legend .bar{width:130px;height:10px;border-radius:6px;border:1px solid var(--line)}
@@ -1392,8 +1471,15 @@ _DASHBOARD_HTML = """<!doctype html>
  .nc-h{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
  .nc-app{font:600 13px var(--mono);color:var(--fg)}
  .nc-rate{font:600 11px var(--mono);color:var(--accent);flex:0 0 auto}
- .ntspark{width:100%;height:42px;display:block;margin:6px 0 4px}
- .nc-sub{font:11px var(--mono);color:var(--dim)}
+.ntspark{width:100%;height:42px;display:block;margin:6px 0 4px}
+.nc-sub{font:11px var(--mono);color:var(--dim)}
+.net-sec{font:600 10.5px var(--mono);text-transform:uppercase;letter-spacing:.6px;color:var(--mut);
+  margin:22px 2px 11px;display:flex;gap:8px;align-items:center}
+#net .net-sec:first-child{margin-top:2px}
+.nc-legend{display:flex;flex-wrap:wrap;gap:4px 10px;margin-top:7px}
+.nc-leg{display:inline-flex;align-items:center;gap:5px;font:11px var(--mono);color:var(--dim)}
+.nc-leg .sw{width:9px;height:9px;border-radius:2px;flex:0 0 auto}
+.nc-leg b{color:var(--fg);font-weight:600}
  .rd-load{color:var(--dim);padding:14px;font-style:italic}
  /* ports tab inside the detail modal: two columns of per-port connection counts */
  #dports{margin:0;padding:12px 14px;background:var(--bg);overflow-y:auto;height:80vh}
@@ -1458,7 +1544,6 @@ _DASHBOARD_HTML = """<!doctype html>
 <div id="err"></div>
 <div id="grid" class="view"></div>
 <div id="nodes" class="view" hidden></div>
-<div id="heat" class="view" hidden></div>
 <div id="net" class="view" hidden></div>
 <div id="risk" class="view" hidden></div>
 <div id="logs" class="view" hidden></div>
@@ -1834,8 +1919,8 @@ q.addEventListener("input",()=>{render();if(view==="nodes")renderNodes();});
 
 // ---- view tabs: grid (live) · ranking · heatmap · risks. Only the active non-grid view
 // polls (slow, 15s); grid status + sparklines + header pills always refresh. -------------
-const VIEWS=[["grid","grid"],["nodes","nodes"],["heat","heatmap"],["net","network"],["risk","risks"],["logs","logs"],["cost","cost"]];
-let view="grid",heatMetric="loss",heatHours=24;
+const VIEWS=[["grid","grid"],["nodes","nodes"],["net","network"],["risk","risks"],["logs","logs"],["cost","cost"]];
+let view="grid",heatMetric="loss",heatHours=24,netMode="fleet";
 // measured ship-cost cache (/api/cost): actual compressed bytes each node pushed over the wire,
 // per node. shared by cost view, ranking columns and the modal stat line. cached ~25s.
 let foot={},footTs=0,costRate=0,costDayTotal=0;
@@ -1853,8 +1938,8 @@ tabs.innerHTML=VIEWS.map(([id,l])=>`<div class="tab" data-v="${id}">${l}</div>`)
 // open is a cache miss (reads history) so it lags. Show why, instead of a grey blank, until the
 // loader overwrites innerHTML. Re-opens already hold content, so no spinner flash on return.
 const WARMUP={grid:"the fleet overview",nodes:"the per-node detail table",
- heat:"the latency heatmap",risk:"the risk death-clocks + incident feed",
- logs:"the fleet event & log stream",net:"the per-application network view",
+ risk:"the risk death-clocks + incident feed",
+ logs:"the fleet event & log stream",net:"the network throughput + heatmap view",
  cost:"the measured ship-cost view"};
 function loadingHtml(v){return `<div class="loading"><div class="spin"></div>`
  +`<div class="lt">building ${WARMUP[v]}…</div>`
@@ -1866,7 +1951,7 @@ function setView(v){view=v;
  const el=viewEl(v);
  if(WARMUP[v]&&!el.firstChild)el.innerHTML=loadingHtml(v);  // first visit only (empty view)
  refreshView();}
-function refreshView(){if(view==="nodes")loadNodes();else if(view==="heat")loadHeat();else if(view==="risk")loadRisk();else if(view==="logs")loadLogs();else if(view==="net")loadNet();else if(view==="cost")loadCost();
+function refreshView(){if(view==="nodes")loadNodes();else if(view==="risk")loadRisk();else if(view==="logs")loadLogs();else if(view==="net")loadNet();else if(view==="cost")loadCost();
  else if(view==="grid"){render();ingestTick();sparkTick();
   loadFoot().then(()=>{if(view==="grid")renderGrid();});
   loadSvc().then(()=>{if(view==="grid")renderHosts();});}}
@@ -1895,7 +1980,8 @@ function renderCost(){const ns=Object.values(foot);
 // heatmap (/api/heatmap): node×hour grid, metric+window switchable. a smooth interpolated colour
 // scale (calmer = cooler) plus a legend gradient and an hour axis, all derived from real values.
 const HEAT_STOPS={loss:[[0,"#0e2a1a"],[1,"#1f6f3a"],[5,"#caa21a"],[25,"#d2691e"],[100,"#e5484d"]],
- rtt:[[0,"#0e2a1a"],[50,"#1f6f3a"],[120,"#caa21a"],[250,"#d2691e"],[600,"#e5484d"]]};
+ rtt:[[0,"#0e2a1a"],[50,"#1f6f3a"],[120,"#caa21a"],[250,"#d2691e"],[600,"#e5484d"]],
+ bw:[[0,"#0e2a1a"],[1024,"#1f6f3a"],[131072,"#caa21a"],[1048576,"#d2691e"],[10485760,"#e5484d"]]};
 function hexRgb(h){return [parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];}
 function heatColor(v){if(v==null)return "var(--card2)";
  const st=HEAT_STOPS[heatMetric]||HEAT_STOPS.loss;
@@ -1906,24 +1992,27 @@ function heatColor(v){if(v==null)return "var(--card2)";
  return st[st.length-1][1];}
 function heatGradientCss(){const st=HEAT_STOPS[heatMetric]||HEAT_STOPS.loss,mx=st[st.length-1][0];
  return "linear-gradient(90deg,"+st.map(s=>s[1]+" "+Math.round(s[0]/mx*100)+"%").join(",")+")";}
+function heatLegendLabels(){if(heatMetric==="rtt")return ["0ms","600ms+"];
+ if(heatMetric==="bw")return ["0",fmtKB(10485760)+"/s"];return ["0%","100%"];}
 function heatTip(n,ts,v){const t=new Date(ts*1000),hh=String(t.getHours()).padStart(2,"0");
- const val=v==null?"no data":(heatMetric==="loss"?v+"% loss":v+" ms");
+ const val=v==null?"no data":(heatMetric==="bw"?fmtKB(v)+"/s":heatMetric==="loss"?v+"% loss":v+" ms");
  return esc(n+"  "+hh+":00  "+val);}
-async function loadHeat(){try{const r=await fetch(`/api/heatmap?metric=${heatMetric}&hours=${heatHours}`,{cache:"no-store"});if(!r.ok)return;
- const d=await r.json(),ns=Object.keys(d.nodes).sort(),hrs=d.hours||[];
+// builds the heatmap section markup (metric+window switcher, legend, node×hour grid) from a
+// /api/heatmap payload. Lives inside the network tab; null/empty payloads degrade to a note.
+function heatSectionHtml(d){
+ const lab=heatLegendLabels();
  const tools=`<div class="heat-tools">`
-  +`<div class="btn-grp"><button data-m="loss" class="${heatMetric==="loss"?"on":""}">loss %</button><button data-m="rtt" class="${heatMetric==="rtt"?"on":""}">rtt</button></div>`
+  +`<div class="btn-grp"><button data-m="loss" class="${heatMetric==="loss"?"on":""}">loss %</button><button data-m="rtt" class="${heatMetric==="rtt"?"on":""}">rtt</button><button data-m="bw" class="${heatMetric==="bw"?"on":""}">bandwidth</button></div>`
   +`<div class="btn-grp">${[[6,"6h"],[24,"24h"],[168,"7d"]].map(([h,l])=>`<button data-hh="${h}" class="${heatHours===h?"on":""}">${l}</button>`).join("")}</div>`
-  +`<div class="heat-legend"><span>${heatMetric==="loss"?"0%":"0ms"}</span><span class="bar" style="background:${heatGradientCss()}"></span><span>${heatMetric==="loss"?"100%":"600ms+"}</span></div></div>`;
- if(!ns.length){viewEl("heat").innerHTML=tools+`<div class="empty">no ping history in this window</div>`;return;}
+  +`<div class="heat-legend"><span>${lab[0]}</span><span class="bar" style="background:${heatGradientCss()}"></span><span>${lab[1]}</span></div></div>`;
+ const ns=d&&d.nodes?Object.keys(d.nodes).sort():[],hrs=(d&&d.hours)||[];
+ if(!ns.length)return tools+`<div class="empty">no ping/throughput history in this window</div>`;
  const rows=ns.map(n=>`<div class="hrow"><span class="hname" data-node="${esc(n)}">${esc(n)}</span><div class="hcells">`
   +d.nodes[n].map((v,i)=>`<div class="hcell" style="background:${heatColor(v)}" title="${heatTip(n,hrs[i],v)}"></div>`).join("")
   +`</div></div>`).join("");
  const axis=`<div class="haxis">`+hrs.map((ts,i)=>`<span>${i%6===0?new Date(ts*1000).getHours():""}</span>`).join("")+`</div>`;
- viewEl("heat").innerHTML=tools+`<div class="heatgrid">`+rows+axis+`</div>`;
-}catch(e){}}
-viewEl("heat").addEventListener("click",e=>{const t=e.target;
- if(t.dataset.m){heatMetric=t.dataset.m;loadHeat();}else if(t.dataset.hh){heatHours=+t.dataset.hh;loadHeat();}});
+ return tools+`<div class="heatgrid">`+rows+axis+`</div>`;
+}
 
 // risks (/api/risks): death-clocks (disk-full / SD-wear / throttle) + recent incident feed,
 // as colour-coded cards with a per-kind glyph and the ETA / age emphasised on the right.
@@ -2071,6 +2160,7 @@ function drawLogs(){
 }
 // network tab (/api/network): per-application throughput (bytes/s) over ~6h. No node filter ->
 // fleet-wide (each app summed across nodes); type a node in #q to drill into that node's ports.
+const NET_COLORS=["#7c83ff","#3fb950","#e3b341","#f85149","#58a6ff","#db61a2","#56d4dd","#d29922"];
 function netSpark(s){
  const ys=s.map(v=>v||0),hi=Math.max(...ys)||1,xmax=Math.max(1,s.length-1);
  const X=i=>(i/xmax*100).toFixed(1),Y=v=>(38-(v/hi)*34).toFixed(1);
@@ -2079,24 +2169,65 @@ function netSpark(s){
   +`<path d="M0,40 L${pts.join(" L")} L100,40 Z" fill="url(#gIngest)"/>`
   +`<path d="M${pts.join(" L")}" fill="none" stroke="#7c83ff" stroke-width="1.5" vector-effect="non-scaling-stroke"/></svg>`;
 }
+// draws several per-node series as overlaid coloured area+line paths sharing one scale (normalized
+// to the max across all node series), so a node's contribution to the app total reads at a glance.
+function netMultiSpark(nodesArr){
+ const series=nodesArr.map(x=>x.series||[]);
+ const hi=Math.max(1,...series.map(s=>Math.max(0,...s.map(v=>v||0))));
+ const len=Math.max(1,...series.map(s=>s.length));
+ const xmax=Math.max(1,len-1),X=i=>(i/xmax*100).toFixed(1),Y=v=>(38-(v/hi)*34).toFixed(1);
+ const paths=series.map((s,k)=>{const c=NET_COLORS[k%NET_COLORS.length];
+  const pts=s.map((v,i)=>X(i)+" "+Y(v||0));if(!pts.length)return "";
+  return `<path d="M0,40 L${pts.join(" L")} L100,40 Z" fill="${c}" fill-opacity="0.12"/>`
+   +`<path d="M${pts.join(" L")}" fill="none" stroke="${c}" stroke-width="1.3" vector-effect="non-scaling-stroke"/>`;
+ }).join("");
+ return `<svg class="ntspark" viewBox="0 0 100 40" preserveAspectRatio="none">${paths}</svg>`;
+}
 async function loadNet(){
  const node=q.value.trim();
- try{const r=await fetch("/api/network?hours=6"+(node?"&node="+encodeURIComponent(node):""),{cache:"no-store"});
-  if(!r.ok)return;renderNet(await r.json());}catch(e){}}
-function renderNet(d){
- const apps=d.apps||[],node=d.node;
- const hdr=`<div class="logbar"><span class="fnote">throughput per application · `
-  +`${node?("node <b>"+esc(node)+"</b>"):"<b>fleet-wide</b>"} · last ${d.hours}h`
-  +`${node?"":" · type a node in the filter to drill into its ports"}</span></div>`;
- const body=apps.length?`<div class="netgrid">`+apps.map(a=>{
-  const peak=Math.max(0,...a.series),avg=d.buckets?a.total/d.buckets:0,dn=node?` data-node="${esc(node)}"`:"";
-  return `<div class="netcard"${dn}><div class="nc-h"><span class="nc-app">${esc(a.app)}</span>`
-   +`<span class="nc-rate">${fmtKB(peak)}/s peak</span></div>${netSpark(a.series)}`
-   +`<div class="nc-sub">:${a.port} · ${fmtKB(avg)}/s avg</div></div>`;
- }).join("")+`</div>`:`<div class="empty">no port traffic in this window (is the ports probe deployed?)</div>`;
- viewEl("net").innerHTML=hdr+body;
+ try{
+  const [hm,nw]=await Promise.all([
+   fetch(`/api/heatmap?metric=${heatMetric}&hours=${heatHours}`,{cache:"no-store"}).then(r=>r.ok?r.json():null),
+   fetch(`/api/network?hours=6&by_node=${netMode==="split"?1:0}`+(node?"&node="+encodeURIComponent(node):""),{cache:"no-store"}).then(r=>r.ok?r.json():null),
+  ]);
+  renderNet(hm,nw,node);
+ }catch(e){}
 }
-[viewEl("nodes"),viewEl("heat"),viewEl("net"),viewEl("risk"),viewEl("logs"),viewEl("cost")].forEach(nodeClick);
+// fleet mode: one area card per app (summed across nodes). split mode: each card also overlays a
+// per-node breakdown (capped + "+N more" by the backend) with a colour-swatch legend.
+function netCardHtml(a,buckets,node){
+ const peak=Math.max(0,...a.series),avg=buckets?a.total/buckets:0,dn=node?` data-node="${esc(node)}"`:"";
+ const hdr=`<div class="nc-h"><span class="nc-app">${esc(a.app)}</span>`
+  +`<span class="nc-rate">${fmtKB(peak)}/s peak</span></div>`;
+ const sub=`<div class="nc-sub">:${esc(String(a.port))} · ${fmtKB(avg)}/s avg</div>`;
+ if(netMode==="split"&&a.nodes&&a.nodes.length){
+  const leg=`<div class="nc-legend">`+a.nodes.map((x,k)=>{const c=NET_COLORS[k%NET_COLORS.length];
+   return `<span class="nc-leg"><span class="sw" style="background:${c}"></span>${esc(x.node)}`
+    +`<b>${fmtKB(x.total/(buckets||1))}/s</b></span>`;}).join("")+`</div>`;
+  return `<div class="netcard"${dn}>${hdr}${netMultiSpark(a.nodes)}${sub}${leg}</div>`;
+ }
+ return `<div class="netcard"${dn}>${hdr}${netSpark(a.series)}${sub}</div>`;
+}
+function renderNet(hm,nw,node){
+ const apps=(nw&&nw.apps)||[],buckets=nw&&nw.buckets,hours=(nw&&nw.hours)||6;
+ const heatSec=`<div class="net-sec">heatmap</div>`+heatSectionHtml(hm);
+ const segBtn=(m,l)=>`<button data-netmode="${m}" class="${netMode===m?"on":""}">${l}</button>`;
+ const toggle=`<div class="seg-ctl">${segBtn("fleet","fleet")}${segBtn("split","per-node")}</div>`;
+ const scope=`<span class="fnote">${node?("node <b>"+esc(node)+"</b>"):"<b>fleet-wide</b>"} · last ${hours}h`
+  +`${node?"":" · type a node in the filter to drill into its ports"}</span>`;
+ const tpHdr=`<div class="net-sec">throughput per application</div>`
+  +`<div class="logbar">${toggle}${scope}</div>`;
+ const tpBody=apps.length?`<div class="netgrid">`+apps.map(a=>netCardHtml(a,buckets,node)).join("")+`</div>`
+  :`<div class="empty">no port traffic in this window (is the ports probe deployed?)</div>`;
+ viewEl("net").innerHTML=heatSec+tpHdr+tpBody;
+}
+[viewEl("nodes"),viewEl("net"),viewEl("risk"),viewEl("logs"),viewEl("cost")].forEach(nodeClick);
+// net tab delegated controls: heatmap metric (data-m) / window (data-hh) + throughput fleet/split
+// toggle (data-netmode). Checks these first and returns; otherwise nodeClick handles data-node.
+viewEl("net").addEventListener("click",e=>{
+ const m=e.target.closest("[data-m]");if(m){heatMetric=m.dataset.m;loadNet();return;}
+ const hh=e.target.closest("[data-hh]");if(hh){heatHours=+hh.dataset.hh;loadNet();return;}
+ const nm=e.target.closest("[data-netmode]");if(nm){netMode=nm.dataset.netmode;loadNet();}});
 // logs: severity / kind / source filters + sortable headers (delegated, all client-side so they
 // survive innerHTML re-renders and never refetch). The #q node filter + #logq text both call drawLogs.
 viewEl("logs").addEventListener("click",e=>{

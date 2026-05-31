@@ -189,6 +189,69 @@ def test_fleet_stats_fast_uptime_outage_and_agrees_with_fleet(tmp_db, ts0):
     conn.close()
 
 
+def test_app_label_custom_ports():
+    assert hubapi.app_label(8554) == "rtsp"
+    assert hubapi.app_label(5000) == "raw-video"
+    assert hubapi.app_label(19999) == "netdata"
+    assert hubapi.app_label(443) == "https"      # existing entries unchanged
+    assert hubapi.app_label(12345) == ":12345"   # unknown -> bare port
+
+
+def test_network_by_node_breakdown(tmp_db, ts0):
+    """network(by_node=1): each app carries a per-node breakdown whose per-node series sum to the
+    fleet series, so fleet and per-node modes agree on the total."""
+    conn = core.connect(str(tmp_db))
+    schema.init_node(conn)
+    # two nodes each pushing a rising cumulative byte gauge on port 8554 (rtsp)
+    for ni, node in enumerate(["camA", "camB"]):
+        cum = 0
+        for i in range(8):
+            cum += (ni + 1) * 1_000_000  # camB moves twice camA's bytes
+            schema.insert(conn, "port_samples", [{
+                "ts": ts0 + i * 60, "proto": "tcp", "dir": "out", "port": 8554,
+                "conns": 1, "peers": 1, "listening": 0, "bytes_sent": cum, "bytes_recv": 0}],
+                node=node)
+    conn.commit()
+    d = hubapi.network(conn, hours=1, by_node=True, now=ts0 + 8 * 60)
+    rtsp = next(a for a in d["apps"] if a["port"] == 8554)
+    assert rtsp["app"] == "rtsp"
+    assert "nodes" in rtsp and {n["node"] for n in rtsp["nodes"]} == {"camA", "camB"}
+    # per-node series sum to the fleet series bucket-by-bucket (within rounding)
+    fleet = rtsp["series"]
+    summed = [0.0] * len(fleet)
+    for n in rtsp["nodes"]:
+        for i, v in enumerate(n["series"]):
+            summed[i] += v
+    assert all(abs(fleet[i] - round(summed[i], 1)) < 0.5 for i in range(len(fleet)))
+    # default mode (no by_node) carries no per-node breakdown
+    d0 = hubapi.network(conn, hours=1, now=ts0 + 8 * 60)
+    assert "nodes" not in next(a for a in d0["apps"] if a["port"] == 8554)
+    conn.close()
+
+
+def test_heatmap_bandwidth_metric(tmp_db, ts0):
+    """heatmap(metric='bw') returns a node x hour bytes/s grid from net_samples, skipping virtual
+    interfaces, while loss/rtt are unchanged."""
+    conn = core.connect(str(tmp_db))
+    schema.init_node(conn)
+    base = ts0 - (ts0 % 3600)
+    # one real iface rising 3600 bytes/hour -> 1 byte/s, plus a loopback that must be skipped
+    for i in range(3):
+        schema.insert(conn, "net_samples", [
+            {"ts": base + i * 3600 + 10, "iface": "eth0", "ibytes": i * 3600, "obytes": 0,
+             "ipkts": 0, "opkts": 0},
+            {"ts": base + i * 3600 + 10, "iface": "lo", "ibytes": i * 9_000_000, "obytes": 0,
+             "ipkts": 0, "opkts": 0}],
+            node="pi01")
+    conn.commit()
+    hm = hubapi.heatmap(conn, metric="bw", hours=3, until=base + 3 * 3600)
+    assert hm["metric"] == "bw" and "pi01" in hm["nodes"]
+    vals = [v for v in hm["nodes"]["pi01"] if v is not None]
+    assert vals  # at least one hour has a delta
+    assert max(vals) <= 2.0  # ~1 byte/s from eth0; lo excluded (would be ~2500 B/s)
+    conn.close()
+
+
 def test_services_rollup_counts():
     """services_rollup folds the flat services() lists into per-node counts using the same
     bad/down definitions services() already set."""
