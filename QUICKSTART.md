@@ -51,7 +51,7 @@ common flags: `--hours N` / `--minutes N`, `--panels ping,net,wifi,host,…`, `-
 
 the text surfaces are pure stdlib, so they run anywhere. example output (illustrative):
 
-```
+```console
 $ smoke status
 internet ▁▂▁▁▃▁ 4ms 0% · wifi ▆▆▅▆ -52dBm · cpu ▁▁▂▁ 45°C · healthy
 

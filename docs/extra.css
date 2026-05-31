@@ -81,6 +81,20 @@ body,
   color: #8ae234;
 }
 
+/* ```diff fences: colour-code +/- lines so "what we guarantee vs what we avoid" reads at a
+   glance. this is the one colouring that also works on GitHub (it renders ```diff natively),
+   so it's safe for the dual-target root .md. the green/red are tuned for the dark surface and
+   carry no background, keeping the flat terminal look. */
+.md-typeset .highlight .gi { color: #8ae234; }            /* + inserted / guaranteed (green) */
+.md-typeset .highlight .gd { color: #ff6b6b; }            /* - removed / avoided   (red)   */
+.md-typeset .highlight .gu,
+.md-typeset .highlight .gh { color: #6f7f6f; font-weight: 700; }  /* #/@@ caption: muted */
+
+/* ```console example output: brighten the `$ ` prompt and dim the printed output so the
+   commands stand out from their results (also highlighted natively on GitHub). */
+.md-typeset .highlight .gp { color: #5fd75f; font-weight: 700; }  /* $ shell prompt */
+.md-typeset .highlight .go { color: #9fb39f; }                    /* command output  */
+
 /* keep the copy button from washing out against the dark block */
 .md-typeset .md-clipboard {
   color: #5fd75f99;

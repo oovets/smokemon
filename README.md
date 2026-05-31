@@ -16,6 +16,8 @@ the core is pure-stdlib python: a raspberry pi or jetson runs it for ~30 mb of r
 
 **new here?** copy-paste install & use in [QUICKSTART.md](QUICKSTART.md). full reference below.
 
+**the code?** the package is documented file-by-file in [smokemon/README.md](smokemon/README.md); each probe (what it measures, what it refuses to do, the footprint rules) in [smokemon/probes/README.md](smokemon/probes/README.md).
+
 ```
 view:    smoke
          smoke live 24h

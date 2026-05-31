@@ -44,13 +44,16 @@ nav:
   - readme: index.md
   - quickstart: QUICKSTART.md
   - install: INSTALL.md
+  - package: package.md
+  - probes: probes.md
   - roadmap: PLAN.md
   - changelog: CHANGELOG.md
   - contributing: CONTRIBUTING.md
   - security: SECURITY.md
 
 markdown_extensions:
-  - admonition
+  - admonition           # !!! warning / note callouts (docs.sh maps GitHub alerts -> these)
+  - md_in_html           # render markdown (incl. code fences) inside <details> collapsibles
   - toc:
       permalink: true
   - pymdownx.highlight:

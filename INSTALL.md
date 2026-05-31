@@ -35,6 +35,11 @@ package layout
   install.sh   (repo root; works local or curl-piped)
 ```
 
+the package itself is documented file-by-file in [smokemon/README.md](smokemon/README.md) (node /
+hub / read-surface split, what every module does, the import-direction guardrails). each probe is
+documented in [smokemon/probes/README.md](smokemon/probes/README.md): what it measures, what it
+deliberately refuses to do, and the edge-footprint rules they all share.
+
 schema is single-source (`schema.py`): node DDL, hub DDL (adds `node` + `src_id` +
 `UNIQUE(node,src_id)`), `STD_TABLES` and the generic INSERT all derive from one table
 spec. migrations are additive (`ensure_node_column`), so the node DB and the hub DB share
@@ -161,9 +166,17 @@ fleet-status,heatmap,risks,cost,services,logs,ports,network,inventory,ingest-rat
 plus `GET /api/{plot,png}?node=NAME` (render a node's panels server-side). `services` is the
 docker/redis/pipeline fleet rollup behind the dashboard's services tab; `logs` backs the logs
 tab. if the secret is the default `changeme` it logs a warning at startup and refuses ingest.
-expose the port only over a private network — there is no TLS and the read endpoints have no auth.
+
+> [!WARNING]
+> the hub speaks plain HTTP — no TLS — and the read endpoints (`GET /`, `/metrics`, `/api/*`) have
+> no auth. expose 8765 only over a private network (Tailscale / VPN / LAN), never the public
+> internet. ingest is gated by the shared secret (`X-Smokemon-Key`) and refuses to start on the
+> default `changeme`.
 
 set in the launchd plist `EnvironmentVariables` (macOS) or `/etc/smokemon.env` (Linux).
+
+<details markdown="1">
+<summary>all SMOKEMON_* environment variables (click to expand)</summary>
 
 ```
 general
@@ -336,6 +349,8 @@ hub alert delivery (smokemon.hub background pass; tracks always, pages if NOTIFY
   SMOKEMON_ALERT_NOTIFY_RESOLVED  1 = also page when an alert clears (default 1)
   SMOKEMON_ALERT_MUTE      ; list of node/kind/label globs never paged (still shown on the Risk tab)
 ```
+
+</details>
 
 run as `smoke <sub>` (zsh helper) or `python -m smokemon.cli <sub>` (`PYTHONPATH`=repo).
 default sub is `tui`.
