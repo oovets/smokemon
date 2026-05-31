@@ -244,11 +244,15 @@ def _ro_call(fn):
         return fn(_ro_conn)
 
 
-def _cached(key: str, producer):
-    """Serve `producer()` memoized for up to HUB_CACHE_TTL_S. On a miss a single thread recomputes
-    while concurrent callers wait on the per-key lock and then get the fresh value (single-flight),
-    so the dashboard's repeated/parallel polls don't each pay the full recompute. TTL<=0 = off."""
-    ttl = config.HUB_CACHE_TTL_S
+def _cached(key: str, producer, ttl: float | None = None):
+    """Serve `producer()` memoized for up to `ttl` seconds (default HUB_CACHE_TTL_S). On a miss a
+    single thread recomputes while concurrent callers wait on the per-key lock and then get the
+    fresh value (single-flight), so the dashboard's repeated/parallel polls don't each pay the full
+    recompute. A per-key ttl lets fast-poll endpoints (fleet-status/spark) share one pass across
+    concurrent viewers without holding a stale value as long as the heavy aggregates. TTL<=0 = off.
+    When ttl exceeds the global HUB_CACHE_TTL_S it is clamped to it, so a 0/off global disables all
+    caching as before."""
+    ttl = config.HUB_CACHE_TTL_S if ttl is None else min(ttl, config.HUB_CACHE_TTL_S)
     if ttl <= 0:
         return producer()
     hit = _resp_cache.get(key)
@@ -310,8 +314,15 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/health":
                 return self._send(200, {"ok": True, "service": "smokemon-hub"})
             if u.path == "/api/fleet-status":
-                with _read_lock:
-                    return self._send(200, hubapi.fleet_status(_ro_conn))
+                # short TTL: the live grid polls this every ~5s; caching collapses concurrent
+                # viewers/tabs onto one latest_metrics pass without feeling stale.
+                data = _cached("fleet-status", lambda: _ro_call(hubapi.fleet_status), ttl=3.0)
+                return self._send(200, data)
+            if u.path == "/api/nodes-detail":
+                # composite per-node row for the merged 'nodes' tab (live + 24h + svc + cost).
+                data = _cached(f"nodes-detail:{hours}",
+                               lambda: _ro_call(lambda c: hubapi.nodes_detail(c, hours)))
+                return self._send(200, data)
             if u.path == "/api/nodes":
                 with _read_lock:
                     return self._send(200, {"nodes": hubapi.nodes(_ro_conn)})
@@ -328,8 +339,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, data)
             if u.path == "/api/spark":
                 spark_hours = _clamp_hours(qs, default=2.0)
-                with _read_lock:
-                    return self._send(200, {"spark": hubapi.sparklines(_ro_conn, spark_hours)})
+                data = _cached(f"spark:{spark_hours}",
+                               lambda: {"spark": _ro_call(lambda c: hubapi.sparklines(c, spark_hours))})
+                return self._send(200, data)
             if u.path == "/api/risks":
                 data = _cached(f"risks:{hours}", lambda: _ro_call(lambda c: hubapi.risks(c, hours)))
                 return self._send(200, data)

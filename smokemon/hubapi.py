@@ -103,6 +103,51 @@ def prometheus(conn) -> str:
 # ---------- S3: fleet ranking + heatmap ----------
 
 
+def fleet_stats_fast(conn, hours: float = 24.0, until: float | None = None) -> dict[str, dict]:
+    """Cheap per-node 24h health for the merged nodes table: {node: {uptime_pct, rtt_ms_24h,
+    outage_pct}}. Unlike fleet() this runs ONE rollup-aware GROUP BY over ping_runs and never
+    loads full time-series or runs detect_incidents per node, so it does not N+1 as the fleet
+    grows. uptime/outage are exact (fraction of internet-target loss samples below / at 100);
+    rtt_ms_24h is the AVG of the per-sample medians over internet targets - a table-view proxy,
+    not the true median fleet() reports (median needs every value; the table only needs a
+    representative latency). Internet-vs-gateway classification stays in Python (config-driven),
+    so we group by (node, target) and fold per node here. Read-only."""
+    until = time.time() if until is None else until
+    since = until - hours * 3600
+    res = query._resolution(since, until)
+    tbl, tcol = query._table_for(conn, "ping_runs", res, since, until, None)
+    rows = _rows(conn,
+                 f"SELECT node, target, COUNT(*), "
+                 f"SUM(CASE WHEN COALESCE(loss_pct,0) < 100 THEN 1 ELSE 0 END), "
+                 f"SUM(CASE WHEN COALESCE(loss_pct,0) >= 100 THEN 1 ELSE 0 END), "
+                 f"AVG(rtt_median) FROM {tbl} WHERE {tcol} BETWEEN ? AND ? "
+                 f"GROUP BY node, target", (since, until))
+    # Per node, split targets into internet vs other and aggregate the internet ones (falling back
+    # to all targets when a node has no internet-classified target, mirroring fleet()).
+    per: dict[str, dict[str, list]] = {}
+    for node, target, n, up, down, rtt_avg in rows:
+        if node is None:
+            continue
+        d = per.setdefault(node, {"inet": [], "all": []})
+        rec = (target, n or 0, up or 0, down or 0, rtt_avg)
+        d["all"].append(rec)
+        if analyze.classify_target(target) == "internet":
+            d["inet"].append(rec)
+    out: dict[str, dict] = {}
+    for node, d in per.items():
+        recs = d["inet"] or d["all"]
+        total = sum(r[1] for r in recs)
+        up = sum(r[2] for r in recs)
+        down = sum(r[3] for r in recs)
+        rtts = [r[4] for r in recs if r[4] is not None]
+        out[node] = {
+            "uptime_pct": round(100.0 * up / total, 2) if total else None,
+            "outage_pct": round(100.0 * down / total, 2) if total else None,
+            "rtt_ms_24h": round(sum(rtts) / len(rtts), 1) if rtts else None,
+        }
+    return out
+
+
 def fleet(conn, hours: float = 24.0, until: float | None = None) -> list[dict]:
     """Per-node health over the last `hours`, ranked worst-first: internet uptime %,
     median RTT, incident count. Uses the same detector as `smoke incidents`. For long windows
@@ -842,6 +887,80 @@ def services(conn, hours: float = 168.0, now: float | None = None) -> dict:
             "redis": redis, "procs": procs, "streams": streams}
 
 
+def services_rollup(svc: dict) -> dict[str, dict]:
+    """Fold a services() result into per-node counts for the merged nodes table. Reuses the same
+    'bad'/down definitions services() already computed (docker bad, redis connected<1, watched
+    proc count==0, stream ok==0) so the rollup never drifts from the services tab. Returns
+    {node: {docker_total, docker_bad, docker_running, docker_down(bool), redis_total, redis_down,
+    procs_total, procs_down, streams_total, streams_down}}."""
+    out: dict[str, dict] = {}
+
+    def slot(node):
+        return out.setdefault(node, {
+            "docker_total": 0, "docker_bad": 0, "docker_running": 0, "docker_down": False,
+            "redis_total": 0, "redis_down": 0, "procs_total": 0, "procs_down": 0,
+            "streams_total": 0, "streams_down": 0})
+
+    for c in svc.get("docker", []):
+        s = slot(c["node"])
+        s["docker_total"] += 1
+        s["docker_bad"] += 1 if c.get("bad") else 0
+        s["docker_running"] += 1 if c.get("running") else 0
+    for node in svc.get("docker_down", []):
+        slot(node)["docker_down"] = True
+    for r in svc.get("redis", []):
+        s = slot(r["node"])
+        s["redis_total"] += 1
+        s["redis_down"] += 0 if (r.get("connected") or 0) >= 1 else 1
+    for p in svc.get("procs", []):
+        s = slot(p["node"])
+        s["procs_total"] += 1
+        s["procs_down"] += 0 if p.get("count") else 1
+    for st in svc.get("streams", []):
+        s = slot(st["node"])
+        s["streams_total"] += 1
+        s["streams_down"] += 0 if st.get("ok") else 1
+    return out
+
+
+def nodes_detail(conn, hours: float = 24.0, now: float | None = None) -> dict:
+    """Composite per-node row for the merged 'nodes' dashboard tab: the union of the old table
+    (live latest), rank (24h aggregate) and services (per-entity) tabs, assembled from one pass
+    of each cheap building block instead of three separate endpoints + an N+1 incident loop.
+
+    Per node: live state/rtt/loss/cpu/mem/temp/age (fleet_status -> latest_metrics), 24h
+    uptime/rtt/outage (fleet_stats_fast, no detect_incidents), ship cost (ship_volume node
+    slice), and a service rollup count block (services_rollup). Returns {now, hours, nodes:[...]}
+    sorted worst-first by live state then 24h uptime. True incident detail stays on the risk tab;
+    the table shows outage_pct as the cheap health proxy. Read-only; cached by the hub."""
+    now = time.time() if now is None else now
+    live = fleet_status(conn, now=now)            # live fields + state, already sorted
+    stats = fleet_stats_fast(conn, hours, until=now)  # 24h uptime/rtt/outage
+    svc = services_rollup(services(conn, hours, now=now))  # per-node service counts
+    cost = ship_volume(conn, hours, now=now)      # node cost slice
+    cost_nodes = {c["node"]: c for c in cost.get("nodes", [])}
+
+    out = []
+    for n in live["nodes"]:
+        node = n["node"]
+        s = stats.get(node, {})
+        c = cost_nodes.get(node, {})
+        out.append({
+            **n,  # node, state, rtt_ms, loss_pct, cpu, mem, temp, age_s
+            "uptime_pct": s.get("uptime_pct"), "rtt_ms_24h": s.get("rtt_ms_24h"),
+            "outage_pct": s.get("outage_pct"),
+            "rows_per_day": c.get("rows_per_day"), "wire_bytes_per_day": c.get("wire_bytes_per_day"),
+            "smoke_cpu_pct": c.get("smoke_cpu_pct"), "smoke_rss_mb": c.get("smoke_rss_mb"),
+            "cost_per_day": c.get("cost_per_day"),
+            "svc": svc.get(node, {}),
+        })
+    # worst-first: live state, then least 24h uptime, then highest live loss
+    out.sort(key=lambda r: (_STATE_ORDER.get(r["state"], 9),
+                            (r["uptime_pct"] if r["uptime_pct"] is not None else 100.0),
+                            -(r["loss_pct"] or 0.0), r["node"]))
+    return {"now": now, "hours": hours, "nodes": out}
+
+
 def inventory(conn, now: float | None = None) -> dict:
     """Per-node device/environment facts for the dashboard inventory view, from the delta-coded
     device_facts table: the latest value per (node, key) via the MAX(ts) bare-column trick (one
@@ -1057,7 +1176,7 @@ _DASHBOARD_HTML = """<!doctype html>
  .hostgrid.dense .hc-spark,.hostgrid.dense .hc-svc{display:none}
  .hostgrid.dense .hcard{padding:7px 9px}
  .hostgrid.dense .hc-metrics{grid-template-columns:repeat(3,1fr);gap:3px 8px;margin-top:6px}
- /* ---- per-node view (table tab) ---- */
+ /* ---- per-node view (nodes tab) ---- */
  .nodebar{display:flex;align-items:center;gap:10px;margin-bottom:13px}
  .seg-ctl{display:flex;gap:2px;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:2px}
  .seg-ctl button{background:none;border:none;color:var(--mut);font:500 12px var(--sans);
@@ -1074,6 +1193,7 @@ _DASHBOARD_HTML = """<!doctype html>
  .grid-t td{padding:8px 12px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap;
    font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--fg)}
  .grid-t td.tname{text-align:left;font-family:var(--sans);font-weight:500}
+ .svc-cell{font-size:11px;color:var(--mut)}.svc-cell span{margin-right:7px}
  .grid-t td.stcell{text-align:center;width:34px}
  .grid-t tbody tr{cursor:pointer;transition:background .12s}
  .grid-t tbody tr:hover{background:var(--card)}
@@ -1337,13 +1457,11 @@ _DASHBOARD_HTML = """<!doctype html>
 </header>
 <div id="err"></div>
 <div id="grid" class="view"></div>
-<div id="table" class="view" hidden></div>
-<div id="rank" class="view" hidden></div>
+<div id="nodes" class="view" hidden></div>
 <div id="heat" class="view" hidden></div>
 <div id="net" class="view" hidden></div>
 <div id="risk" class="view" hidden></div>
 <div id="logs" class="view" hidden></div>
-<div id="svc" class="view" hidden></div>
 <div id="cost" class="view" hidden></div>
 <div id="detail" hidden>
  <div class="dwin">
@@ -1401,14 +1519,10 @@ function render(){
   `<span class="pill ${k}"><span class="dot s-${k}"></span><span class="pc">${c[k]||0}</span><span class="pl">${k}</span></span>`).join("");
  ["healthy","warn","down","stale"].forEach(k=>{const el=document.getElementById("hb-"+k);
   if(el)el.style.width=(total?((c[k]||0)/total*100):0).toFixed(2)+"%";});
- // grid/table paint from the live poll, not a server cache, but on the very first boot last is
+ // grid paints from the live poll, not a server cache, but on the very first boot last is
  // still empty until /api/fleet-status returns - show the warm-up instead of an empty shell.
- if(!gotData&&(view==="grid"||view==="table")){viewEl(view).innerHTML=loadingHtml(view);return;}
+ if(!gotData&&view==="grid"){viewEl(view).innerHTML=loadingHtml(view);return;}
  if(view==="grid")renderGrid();
- else if(view==="table"){
-  const term=q.value.trim().toLowerCase();
-  renderTable((last.nodes||[]).filter(n=>!term||n.node.toLowerCase().includes(term)));
- }
 }
 // ---- fleet overview (grid tab): status donut + ingest area gauge + KPI cards ------------
 // static skeleton (no dynamic data -> safe innerHTML once); all live values are written via
@@ -1600,30 +1714,56 @@ function renderIngest(){
 }
 async function ingestTick(){try{const r=await fetch("/api/ingest-rate",{cache:"no-store"});
  if(r.ok){ingest=await r.json();if(view==="grid")renderIngest();}}catch(e){}}
-// per-node view (table tab): a sortable table with inline cpu/mem meters + RTT trend sparklines,
-// or a status-tile grid (layout toggle). live off the fleet-status poll + the spark/cost caches;
-// click a row/tile to open the graphs. node-controlled strings go through esc() before innerHTML.
-let nodeLayout="table",tableSort={key:"",dir:-1};
+// per-node view (nodes tab): the merged table that folds the old table (live), ranking (24h
+// aggregates) and services (per-entity rollup) tabs into ONE composite row per node. Painted
+// from /api/nodes-detail (server-sorted worst-first) on the 15s refreshView timer (NOT the 5s
+// fleet-status tick), with the 2h RTT spark joined from the shared spark cache. A layout toggle
+// switches to the live-only status tiles. Click a row/tile to open the node modal. All
+// node-controlled strings go through esc() before innerHTML.
+let nodeLayout="table",tableSort={key:"",dir:-1},nodesData=null;
 function sortVal(n,k){
  if(k==="node")return n.node.toLowerCase();
  if(k==="state")return ({down:0,stale:1,warn:2,healthy:3})[n.state];
- if(k==="ship"){const f=foot[n.node]||{};return f.wire_bytes_per_day!=null?f.wire_bytes_per_day:(f.wire_bytes||0);}
- if(k==="rows"){const f=foot[n.node]||{};return f.rows_per_day!=null?f.rows_per_day:(f.rows||0);}
- if(k==="smoke"){return (foot[n.node]||{}).smoke_cpu_pct||0;}
+ if(k==="uptime_pct")return n.uptime_pct==null?-1:n.uptime_pct;
+ if(k==="rtt_ms_24h")return n.rtt_ms_24h==null?-1:n.rtt_ms_24h;
+ if(k==="outage_pct")return n.outage_pct==null?-1:n.outage_pct;
+ if(k==="rows")return n.rows_per_day==null?-1:n.rows_per_day;
+ if(k==="ship")return n.wire_bytes_per_day==null?-1:n.wire_bytes_per_day;
+ if(k==="smoke")return n.smoke_cpu_pct==null?-1:n.smoke_cpu_pct;
  return n[k];
 }
 function meterCell(v,warn,bad){if(v==null)return "--";
  const t=v>=bad?"bad":v>=warn?"warn":"",w=Math.max(0,Math.min(100,v));
  return `<span class="mini ${t}"><span class="mbar"><i style="width:${w.toFixed(0)}%"></i></span><b>${Math.round(v)}%</b></span>`;}
-function tableHtml(nodes){
+// compact per-node service summary built from the rollup counts in n.svc. Each kind is a tiny
+// piece (dkr running/total, redis down marker, proc up/total, strm ok/total); bad counts get the
+// .bad class. Empty / all-zero -> a dim "--".
+function svcCell(s){
+ if(!s)return `<span style="color:var(--dim)">--</span>`;
+ const parts=[];
+ const dt=s.docker_total||0;
+ if(s.docker_down)parts.push(`<span class="bad">dkr down</span>`);
+ else if(dt){const bad=(s.docker_bad||0)>0,run=s.docker_running||0;
+  parts.push(`<span class="${bad?"bad":run<dt?"warnv":""}">dkr ${run}/${dt}${(s.docker_bad||0)?" "+s.docker_bad+"!":""}</span>`);}
+ if((s.redis_total||0)){if((s.redis_down||0))parts.push(`<span class="bad">redis -${s.redis_down}</span>`);
+  else parts.push(`<span>redis ${s.redis_total}</span>`);}
+ if((s.procs_total||0)){const up=(s.procs_total||0)-(s.procs_down||0);
+  parts.push(`<span class="${(s.procs_down||0)?"bad":""}">proc ${up}/${s.procs_total}</span>`);}
+ if((s.streams_total||0)){const up=(s.streams_total||0)-(s.streams_down||0);
+  parts.push(`<span class="${(s.streams_down||0)?"bad":""}">strm ${up}/${s.streams_total}</span>`);}
+ return parts.length?`<span class="svc-cell">${parts.join(" ")}</span>`:`<span style="color:var(--dim)">--</span>`;
+}
+function nodesTableHtml(nodes){
  const tcls=(v,warn,bad)=>v==null?"":v>=bad?"bad":v>=warn?"warnv":"";
  const cols=[["state",""],["node","node"],["rtt_ms","rtt"],["loss_pct","loss"],["cpu","cpu"],["mem","mem"],
-  ["temp","temp"],["_trend","trend"],["age_s","seen"],["rows","rows/d"],["ship","ship/d"],["smoke","smoke"]];
- const head=cols.map(([k,l])=>{const sortable=k!=="_trend"&&k!=="state";
+  ["temp","temp"],["_trend","trend"],["uptime_pct","uptime"],["rtt_ms_24h","rtt 24h"],["outage_pct","outage"],
+  ["_svc","services"],["rows","rows/d"],["ship","ship/d"],["smoke","smoke"]];
+ const head=cols.map(([k,l])=>{const sortable=k!=="_trend"&&k!=="state"&&k!=="_svc";
   const ar=tableSort.key===k?`<span class="ar">${tableSort.dir>0?"▲":"▼"}</span>`:"";
   return `<th${sortable?` data-sort="${k}"`:""}>${esc(l)} ${ar}</th>`;}).join("");
  const body=nodes.map(n=>{
-  const f=foot[n.node]||{},sd=f.wire_bytes_per_day!=null?f.wire_bytes_per_day:f.wire_bytes;
+  const sd=n.wire_bytes_per_day,up=n.uptime_pct,upCls=up==null?"":up>=99.5?"okv":up>=95?"warnv":"bad";
+  const oc=n.outage_pct,octxt=oc==null?"--":oc<=0?"0%":oc.toFixed(1)+"%";
   return `<tr class="${n.state}" data-node="${esc(n.node)}">`
    +`<td class="stcell"><span class="st s-${n.state}" title="${esc(n.state)}"></span></td>`
    +`<td class="tname">${esc(n.node)}</td>`
@@ -1633,14 +1773,17 @@ function tableHtml(nodes){
    +`<td>${meterCell(n.mem,75,90)}</td>`
    +`<td class="${tcls(n.temp,70,80)}">${n.temp==null?"--":Math.round(n.temp)+"°"}</td>`
    +`<td>${sparkArea(n.node)||"<span style='color:var(--dim)'>--</span>"}</td>`
-   +`<td>${fmtAge(n.age_s)}</td>`
-   +`<td>${fmtK(f.rows_per_day!=null?f.rows_per_day:f.rows)}</td>`
-   +`<td>${sd==null?"--":fmtKB(sd)+(f.wire_bytes_per_day!=null?"/d":"")}</td>`
-   +`<td title="smokemon's own cpu/mem">${f.smoke_cpu_pct==null?"--":Math.round(f.smoke_cpu_pct)+"% · "+(f.smoke_rss_mb==null?"?":Math.round(f.smoke_rss_mb)+"MB")}</td></tr>`;
+   +`<td class="${upCls}">${up==null?"--":up.toFixed(1)+"%"}</td>`
+   +`<td>${fmtRtt(n.rtt_ms_24h)}</td>`
+   +`<td class="${oc!=null&&oc>0?"bad":""}">${octxt}</td>`
+   +`<td style="text-align:left">${svcCell(n.svc)}</td>`
+   +`<td>${fmtK(n.rows_per_day)}</td>`
+   +`<td>${sd==null?"--":fmtKB(sd)+"/d"}</td>`
+   +`<td title="smokemon's own cpu/mem">${n.smoke_cpu_pct==null?"--":Math.round(n.smoke_cpu_pct)+"% · "+(n.smoke_rss_mb==null?"?":Math.round(n.smoke_rss_mb)+"MB")}</td></tr>`;
  }).join("");
  return `<table class="grid-t"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
 }
-function tilesHtml(nodes){
+function nodesTilesHtml(nodes){
  return `<div class="tilegrid">`+nodes.map(n=>{
   const rc=n.rtt_ms==null?"":n.rtt_ms>250?"bad":n.rtt_ms>120?"warnv":"";
   return `<div class="ntile ${n.state}" data-node="${esc(n.node)}">`
@@ -1653,21 +1796,30 @@ function tilesHtml(nodes){
    +`<span>cpu <b>${n.cpu==null?"--":Math.round(n.cpu)+"%"}</b></span>`
    +`<span>mem <b>${n.mem==null?"--":Math.round(n.mem)+"%"}</b></span>`
    +(n.temp==null?"":`<span>temp <b>${Math.round(n.temp)}°</b></span>`)
+   +(n.uptime_pct==null?"":`<span>up <b>${n.uptime_pct.toFixed(1)}%</b></span>`)
    +`<span>seen <b>${fmtAge(n.age_s)}</b></span></div></div>`;}).join("")+`</div>`;
 }
-function renderTable(nodes){
- const T=viewEl("table");
+// fetch the composite per-node rows (live + 24h + svc rollup + cost) and paint. The endpoint
+// already carries every column, so no separate cost join is needed here.
+async function loadNodes(){
+ try{const r=await fetch("/api/nodes-detail?hours=24",{cache:"no-store"});if(!r.ok)return;
+  nodesData=(await r.json()).nodes||[];renderNodes();}catch(e){}
+}
+function renderNodes(){
+ const T=viewEl("nodes");if(!T)return;
+ const rows=nodesData||[],term=q.value.trim().toLowerCase();
+ const nodes=rows.filter(n=>!term||n.node.toLowerCase().includes(term));
  const bar=`<div class="nodebar"><div class="seg-ctl" id="layout-ctl">`
   +`<button data-l="table" class="${nodeLayout==="table"?"on":""}">table</button>`
   +`<button data-l="tiles" class="${nodeLayout==="tiles"?"on":""}">tiles</button></div>`
   +`<span class="cnt">${nodes.length} node${nodes.length===1?"":"s"}</span></div>`;
- if(!nodes.length){T.innerHTML=bar+`<div class="empty">no nodes reporting yet</div>`;return;}
+ if(!nodes.length){T.innerHTML=bar+`<div class="empty">${rows.length?"no nodes match the filter":"no nodes reporting yet"}</div>`;return;}
  let sorted=nodes;
  if(tableSort.key){const k=tableSort.key,d=tableSort.dir;sorted=nodes.slice().sort((a,b)=>{
   const va=sortVal(a,k),vb=sortVal(b,k);
   if(va==null&&vb==null)return 0;if(va==null)return 1;if(vb==null)return -1;
   return (va<vb?-1:va>vb?1:0)*d;});}
- T.innerHTML=bar+(nodeLayout==="tiles"?tilesHtml(sorted):tableHtml(sorted));
+ T.innerHTML=bar+(nodeLayout==="tiles"?nodesTilesHtml(sorted):nodesTableHtml(sorted));
 }
 async function tick(){
  try{
@@ -1678,11 +1830,11 @@ async function tick(){
   render();
  }catch(e){err.textContent="fetch error: "+e.message;}
 }
-q.addEventListener("input",render);
+q.addEventListener("input",()=>{render();if(view==="nodes")renderNodes();});
 
 // ---- view tabs: grid (live) · ranking · heatmap · risks. Only the active non-grid view
 // polls (slow, 15s); grid status + sparklines + header pills always refresh. -------------
-const VIEWS=[["grid","grid"],["table","table"],["rank","ranking"],["heat","heatmap"],["net","network"],["risk","risks"],["logs","logs"],["svc","services"],["cost","cost"]];
+const VIEWS=[["grid","grid"],["nodes","nodes"],["heat","heatmap"],["net","network"],["risk","risks"],["logs","logs"],["cost","cost"]];
 let view="grid",heatMetric="loss",heatHours=24;
 // measured ship-cost cache (/api/cost): actual compressed bytes each node pushed over the wire,
 // per node. shared by cost view, ranking columns and the modal stat line. cached ~25s.
@@ -1700,22 +1852,21 @@ tabs.innerHTML=VIEWS.map(([id,l])=>`<div class="tab" data-v="${id}">${l}</div>`)
 // these tabs are painted wholesale by an /api/* fetch that hits a server-side cache; the first
 // open is a cache miss (reads history) so it lags. Show why, instead of a grey blank, until the
 // loader overwrites innerHTML. Re-opens already hold content, so no spinner flash on return.
-const WARMUP={grid:"the fleet overview",table:"the per-node table",
- rank:"the 24-hour ranking",heat:"the latency heatmap",risk:"the risk death-clocks + incident feed",
+const WARMUP={grid:"the fleet overview",nodes:"the per-node detail table",
+ heat:"the latency heatmap",risk:"the risk death-clocks + incident feed",
  logs:"the fleet event & log stream",net:"the per-application network view",
- cost:"the measured ship-cost view",svc:"the fleet service telemetry"};
+ cost:"the measured ship-cost view"};
 function loadingHtml(v){return `<div class="loading"><div class="spin"></div>`
  +`<div class="lt">building ${WARMUP[v]}…</div>`
  +`<div class="lh">first open reads each node's history and warms the hub's cache — this view stays instant on every later visit.</div></div>`;}
 function setView(v){view=v;
  VIEWS.forEach(([id])=>viewEl(id).hidden=(id!==v));
  tabs.querySelectorAll(".tab").forEach(t=>t.classList.toggle("on",t.dataset.v===v));
- q.style.display=(v==="table"||v==="grid"||v==="logs"||v==="net"||v==="risk")?"":"none";  // node filter (net: drill-in)
+ q.style.display=(v==="nodes"||v==="grid"||v==="logs"||v==="net"||v==="risk")?"":"none";  // node filter (net: drill-in)
  const el=viewEl(v);
  if(WARMUP[v]&&!el.firstChild)el.innerHTML=loadingHtml(v);  // first visit only (empty view)
  refreshView();}
-function refreshView(){if(view==="rank")loadRank();else if(view==="heat")loadHeat();else if(view==="risk")loadRisk();else if(view==="logs")loadLogs();else if(view==="net")loadNet();else if(view==="cost")loadCost();else if(view==="svc")loadServices();
- else if(view==="table"){render();loadFoot().then(render);}
+function refreshView(){if(view==="nodes")loadNodes();else if(view==="heat")loadHeat();else if(view==="risk")loadRisk();else if(view==="logs")loadLogs();else if(view==="net")loadNet();else if(view==="cost")loadCost();
  else if(view==="grid"){render();ingestTick();sparkTick();
   loadFoot().then(()=>{if(view==="grid")renderGrid();});
   loadSvc().then(()=>{if(view==="grid")renderHosts();});}}
@@ -1723,22 +1874,6 @@ tabs.addEventListener("click",e=>{if(e.target.dataset.v)setView(e.target.dataset
 
 // open a node's graph modal from any view's [data-node] row
 function nodeClick(box){box.addEventListener("click",e=>{const el=e.target.closest("[data-node]");if(el&&el.dataset.node)openDetail(el.dataset.node);});}
-
-// ranking table (/api/fleet): uptime%, rtt, incidents, downtime - worst-first from server.
-// footprint columns (rows/day, ship/day) joined in from the measured /api/cost cache.
-async function loadRank(){await loadFoot();try{const r=await fetch("/api/fleet?hours=24",{cache:"no-store"});if(!r.ok)return;
- const rows=(await r.json()).fleet||[];
- const body=rows.map(x=>{const f=foot[x.node]||{},sd=f.wire_bytes_per_day!=null?f.wire_bytes_per_day:f.wire_bytes;
-  const up=x.uptime_pct,upCls=up==null?"":up>=99.5?"okv":up>=95?"warnv":"bad";
-  return `<tr data-node="${esc(x.node)}"><td class="tname">${esc(x.node)}</td>`
-   +`<td class="${upCls}">${up==null?"--":up.toFixed(1)+"%"}</td>`
-   +`<td class="${x.rtt_ms>250?"bad":x.rtt_ms>120?"warnv":""}">${fmtRtt(x.rtt_ms)}</td>`
-   +`<td class="${x.incidents?"warnv":""}">${x.incidents}</td>`
-   +`<td class="${x.downtime_s?"bad":""}">${fmtDur(x.downtime_s)}</td>`
-   +`<td>${fmtK(f.rows_per_day!=null?f.rows_per_day:f.rows)}</td>`
-   +`<td>${sd==null?"--":fmtKB(sd)}</td></tr>`;}).join("");
- viewEl("rank").innerHTML=rows.length?`<table class="grid-t"><thead><tr><th>node</th><th>uptime</th><th>rtt</th><th>incidents</th><th>downtime</th><th>rows/day</th><th>ship/day</th></tr></thead><tbody>${body}</tbody></table>`:`<div class="empty">no ranking data in this window</div>`;
-}catch(e){}}
 
 // cost view: horizontal bars comparing MEASURED ship volume (actual gzip bytes on the wire) per
 // node, with the per-table breakdown so wasteful shippers stand out.
@@ -1961,60 +2096,7 @@ function renderNet(d){
  }).join("")+`</div>`:`<div class="empty">no port traffic in this window (is the ports probe deployed?)</div>`;
  viewEl("net").innerHTML=hdr+body;
 }
-// services (/api/services): fleet-wide latest docker / redis / pipeline telemetry as tables.
-// rows are click-through to the node graph modal (which has the matching time-series panels).
-async function loadServices(){try{const r=await fetch("/api/services",{cache:"no-store"});if(!r.ok)return;
- renderServices(await r.json());}catch(e){}}
-function renderServices(d){
- const S=viewEl("svc"),mb=v=>v==null?"--":Math.round(v)+"MB",pc=v=>v==null?"--":Math.round(v)+"%",
-  agec=a=>a==null?"?":fmtAge(a),sec=(l,n)=>`<h2>${l}<span class="cnt">${n}</span></h2>`;
- let html="";
- const dk=d.docker||[],ddown=d.docker_down||[];
- if(dk.length||ddown.length){
-  const body=dk.map(c=>{const st=c.bad?"bad":(c.running?"ok":"warn");
-   const hl=c.health?` <span class="badge ${c.health==="unhealthy"?"bad":c.health==="healthy"?"ok":"warn"}">${esc(c.health)}</span>`:"";
-   return `<tr data-node="${esc(c.node)}"><td class="tname">${esc(c.node)}</td><td class="tname">${esc(c.name)}</td>`
-    +`<td style="text-align:left"><span class="badge ${st}">${esc(c.state||(c.running?"running":"stopped"))}</span>${hl}</td>`
-    +`<td class="${c.cpu_pct>80?"bad":c.cpu_pct>50?"warnv":""}">${pc(c.cpu_pct)}</td><td>${mb(c.mem_mb)}</td>`
-    +`<td class="${c.restart_count?"warnv":""}">${c.restart_count==null?"--":c.restart_count}</td>`
-    +`<td class="${c.oom_killed?"bad":""}">${c.oom_killed?"OOM":""}</td><td>${agec(c.age_s)}</td></tr>`;}).join("");
-  const dn=ddown.length?`<tr><td colspan="8" class="bad">daemon unreachable: ${esc(ddown.join(", "))}</td></tr>`:"";
-  html+=sec("docker containers",dk.length)+`<table class="svc-tbl"><thead><tr><th>node</th><th>container</th><th>state</th><th>cpu</th><th>mem</th><th>restarts</th><th>oom</th><th>seen</th></tr></thead><tbody>${body}${dn}</tbody></table>`;
- }
- const rd=d.redis||[];
- if(rd.length){
-  const body=rd.map(x=>{const up=(x.connected||0)>=1;
-   const streams=(x.streams||[]).map(s=>`${esc(String(s.stream).split(":").pop())} ${s.xlen==null?0:s.xlen}${s.pending?"/"+s.pending+"p":""}`).join(", ");
-   return `<tr data-node="${esc(x.node)}"><td class="tname">${esc(x.node)}</td><td class="tname">${esc(x.instance||"redis")}</td>`
-    +`<td style="text-align:left"><span class="badge ${up?"ok":"bad"}">${up?"up":"down"}</span></td><td>${mb(x.used_memory_mb)}</td>`
-    +`<td>${x.connected_clients==null?"--":x.connected_clients}</td>`
-    +`<td class="${x.blocked_clients?"warnv":""}">${x.blocked_clients==null?"--":x.blocked_clients}</td>`
-    +`<td>${x.ops_per_sec==null?"--":Math.round(x.ops_per_sec)}</td>`
-    +`<td class="${x.evicted_keys?"warnv":""}">${x.evicted_keys==null?"--":x.evicted_keys}</td>`
-    +`<td style="text-align:left;color:var(--mut)">${esc(streams)}</td><td>${agec(x.age_s)}</td></tr>`;}).join("");
-  html+=sec("redis",rd.length)+`<table class="svc-tbl"><thead><tr><th>node</th><th>instance</th><th>state</th><th>mem</th><th>clients</th><th>blocked</th><th>ops/s</th><th>evicted</th><th>top streams</th><th>seen</th></tr></thead><tbody>${body}</tbody></table>`;
- }
- const pr=d.procs||[];
- if(pr.length){
-  const body=pr.map(p=>{const up=(p.count||0)>0;
-   return `<tr data-node="${esc(p.node)}"><td class="tname">${esc(p.node)}</td><td class="tname">${esc(p.label)}</td>`
-    +`<td style="text-align:left"><span class="badge ${up?"ok":"bad"}">${up?"x"+p.count:"down"}</span></td>`
-    +`<td>${pc(p.cpu_pct)}</td><td>${mb(p.rss_mb)}</td><td>${p.uptime_s==null?"--":fmtDur(p.uptime_s)}</td>`
-    +`<td class="${p.restarts?"warnv":""}">${p.restarts==null?"--":p.restarts}</td><td>${agec(p.age_s)}</td></tr>`;}).join("");
-  html+=sec("watched processes",pr.length)+`<table class="svc-tbl"><thead><tr><th>node</th><th>process</th><th>state</th><th>cpu</th><th>rss</th><th>uptime</th><th>restarts</th><th>seen</th></tr></thead><tbody>${body}</tbody></table>`;
- }
- const st=d.streams||[];
- if(st.length){
-  const body=st.map(s=>{const ok=!!s.ok;
-   return `<tr data-node="${esc(s.node)}"><td class="tname">${esc(s.node)}</td><td class="tname">${esc(s.url)}</td>`
-    +`<td style="text-align:left"><span class="badge ${ok?"ok":"bad"}">${ok?"serving":"down"}</span></td>`
-    +`<td>${s.latency_ms==null?"--":Math.round(s.latency_ms)+"ms"}</td>`
-    +`<td style="text-align:left;color:var(--mut)">${esc(s.status||"")}</td><td>${agec(s.age_s)}</td></tr>`;}).join("");
-  html+=sec("stream probes",st.length)+`<table class="svc-tbl"><thead><tr><th>node</th><th>endpoint</th><th>state</th><th>latency</th><th>status</th><th>seen</th></tr></thead><tbody>${body}</tbody></table>`;
- }
- S.innerHTML=html||`<div class="empty">no docker / redis / pipeline telemetry reported yet</div>`;
-}
-[viewEl("table"),viewEl("rank"),viewEl("heat"),viewEl("net"),viewEl("risk"),viewEl("logs"),viewEl("svc"),viewEl("cost")].forEach(nodeClick);
+[viewEl("nodes"),viewEl("heat"),viewEl("net"),viewEl("risk"),viewEl("logs"),viewEl("cost")].forEach(nodeClick);
 // logs: severity / kind / source filters + sortable headers (delegated, all client-side so they
 // survive innerHTML re-renders and never refetch). The #q node filter + #logq text both call drawLogs.
 viewEl("logs").addEventListener("click",e=>{
@@ -2041,10 +2123,10 @@ viewEl("risk").addEventListener("click",e=>{
 document.addEventListener("click",e=>{const l=e.target.closest("[data-lognode]");if(l){gotoLogs(l.dataset.lognode);}});
 function gotoLogs(node){detail.hidden=true;clearInterval(dTimer);q.value=node;setView("logs");loadLogs();}
 // per-node view: layout toggle (table/tiles) + click-to-sort column headers (re-renders in place).
-viewEl("table").addEventListener("click",e=>{
- const lb=e.target.closest("[data-l]");if(lb){nodeLayout=lb.dataset.l;render();return;}
+viewEl("nodes").addEventListener("click",e=>{
+ const lb=e.target.closest("[data-l]");if(lb){nodeLayout=lb.dataset.l;renderNodes();return;}
  const th=e.target.closest("th[data-sort]");if(th&&th.dataset.sort){const k=th.dataset.sort;
-  if(tableSort.key===k)tableSort.dir*=-1;else{tableSort.key=k;tableSort.dir=(k==="node")?1:-1;}render();}});
+  if(tableSort.key===k)tableSort.dir*=-1;else{tableSort.key=k;tableSort.dir=(k==="node")?1:-1;}renderNodes();}});
 
 // per-node detail: embed the live PNG (same renderer as `smoke png`), refreshed every 15s
 // (matches the shipper cadence; data granularity is PING_INTERVAL=10s so no point going lower).
@@ -2154,10 +2236,50 @@ async function loadRisksData(){
  if(riskAll&&Date.now()-riskTs<15000)return riskAll;
  try{const r=await fetch("/api/risks?hours=24",{cache:"no-store"});if(r.ok){riskAll=await r.json();riskTs=Date.now();}}catch(e){}
  return riskAll;}
+// per-node service detail (fetched once, cached ~15s) drilled into the risks modal: the flat
+// /api/services lists filtered to this node, rendered as compact .rd-row sections so the full
+// per-entity telemetry the old services tab showed now lives inside the node it belongs to.
+let svcAll=null,svcAllTs=0;
+async function loadServicesData(){
+ if(svcAll&&Date.now()-svcAllTs<15000)return svcAll;
+ try{const r=await fetch("/api/services",{cache:"no-store"});if(r.ok){svcAll=await r.json();svcAllTs=Date.now();}}catch(e){}
+ return svcAll;}
+function svcSectionsHtml(node){
+ const d=svcAll;if(!d)return"";
+ const mb=v=>v==null?"--":Math.round(v)+"MB",pc=v=>v==null?"--":Math.round(v)+"%",agec=a=>a==null?"?":fmtAge(a);
+ const sec=(l,n)=>`<div class="rd-sec">${l} <span>${n}</span></div>`;
+ const erow=(badge,name,detail,tail)=>`<div class="rd-row">${badge}`
+  +`<span class="rd-kind">${esc(name)}</span><span class="rd-detail">${esc(detail)}</span>`
+  +`<span class="rd-tail">${esc(tail||"")}</span></div>`;
+ const badge=(cls,txt)=>`<span class="badge ${cls}">${esc(txt)}</span>`;
+ let h="";
+ const dk=(d.docker||[]).filter(x=>x.node===node),ddown=(d.docker_down||[]).includes(node);
+ if(dk.length||ddown){
+  h+=sec("docker",dk.length);
+  if(ddown)h+=`<div class="rd-row"><span class="rd-detail bad">daemon unreachable</span></div>`;
+  h+=dk.map(c=>{const st=c.bad?"bad":(c.running?"ok":"warn");
+   const detail=`cpu ${pc(c.cpu_pct)} · mem ${mb(c.mem_mb)}`+(c.restart_count?` · restarts ${c.restart_count}`:"")+(c.oom_killed?" · OOM":"");
+   return erow(badge(st,c.state||(c.running?"running":"stopped")),c.name,detail,agec(c.age_s));}).join("");
+ }
+ const rd=(d.redis||[]).filter(x=>x.node===node);
+ if(rd.length){h+=sec("redis",rd.length)+rd.map(x=>{const up=(x.connected||0)>=1;
+  const detail=`mem ${mb(x.used_memory_mb)}`+(x.connected_clients==null?"":` · clients ${x.connected_clients}`)
+   +(x.ops_per_sec==null?"":` · ${Math.round(x.ops_per_sec)} ops/s`)+(x.evicted_keys?` · evicted ${x.evicted_keys}`:"");
+  return erow(badge(up?"ok":"bad",up?"up":"down"),x.instance||"redis",detail,agec(x.age_s));}).join("");}
+ const pr=(d.procs||[]).filter(x=>x.node===node);
+ if(pr.length){h+=sec("watched processes",pr.length)+pr.map(p=>{const up=(p.count||0)>0;
+  const detail=`cpu ${pc(p.cpu_pct)} · rss ${mb(p.rss_mb)}`+(p.uptime_s==null?"":` · up ${fmtDur(p.uptime_s)}`)+(p.restarts?` · restarts ${p.restarts}`:"");
+  return erow(badge(up?"ok":"bad",up?"x"+p.count:"down"),p.label,detail,agec(p.age_s));}).join("");}
+ const st=(d.streams||[]).filter(x=>x.node===node);
+ if(st.length){h+=sec("stream probes",st.length)+st.map(s=>{const ok=!!s.ok;
+  const detail=(s.latency_ms==null?"":Math.round(s.latency_ms)+"ms")+(s.status?` · ${s.status}`:"");
+  return erow(badge(ok?"ok":"bad",ok?"serving":"down"),s.url,detail,agec(s.age_s));}).join("");}
+ return h;}
 async function paintRisks(){
  if(!dNode)return;
  drisk.innerHTML='<div class="rd-load">loading risks…</div>';
  const d=await loadRisksData();
+ try{await loadServicesData();}catch(e){}  // services are supplementary; risks still render if this fails
  if(!d){drisk.innerHTML='<div class="empty">failed to load risks</div>';return;}
  const sev=s=>s===3?"critical":s===2?"warning":"watch";
  const row=(s,kind,detail,tail)=>`<div class="rd-row s${s}"><span class="rd-sev">${sev(s)}</span>`
@@ -2185,6 +2307,8 @@ async function paintRisks(){
   +an.map(a=>row(a.severity||1,"anomaly",a.detail,tago(a.ts))).join("");
  if(inc.length)h+='<div class="rd-sec">recent incidents <span>'+inc.length+'</span></div>'
   +inc.map(i=>row(i.severity,i.klass,i.scope+" · "+i.detail,tago(i.start))).join("");
+ const svcH=svcSectionsHtml(dNode);  // per-entity service detail for this node (docker/redis/procs/streams)
+ if(svcH)h+=svcH;
  drisk.innerHTML=h||'<div class="empty">no risks for this node — healthy</div>';}
 async function paintGraph(){
  if(!dNode)return;
@@ -2250,7 +2374,7 @@ document.getElementById("dclose").onclick=closeDetail;
 detail.addEventListener("click",e=>{if(e.target===detail)closeDetail();});
 addEventListener("keydown",e=>{if(e.key==="Escape")closeDetail();});
 
-async function sparkTick(){try{const r=await fetch("/api/spark?hours=2",{cache:"no-store"});if(r.ok){sparks=(await r.json()).spark||{};if(view==="table")render();else if(view==="grid")renderHosts();}}catch(e){}}
+async function sparkTick(){try{const r=await fetch("/api/spark?hours=2",{cache:"no-store"});if(r.ok){sparks=(await r.json()).spark||{};if(view==="nodes")renderNodes();else if(view==="grid")renderHosts();}}catch(e){}}
 tick();setInterval(tick,REFRESH);
 sparkTick();setInterval(sparkTick,30000);                 // sparklines: slow 2h trend (grid + table)
 ingestTick();setInterval(ingestTick,REFRESH);             // live ingest gauge (grid)

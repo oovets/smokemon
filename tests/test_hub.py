@@ -231,11 +231,15 @@ def test_dashboard_has_loading_warmup():
     assert 'class="loading"' in h and "function loadingHtml" in h
     assert "warms the hub's cache" in h
     assert "const WARMUP=" in h
-    # every tab names its warm-up, incl. grid/table (shown until the first fleet-status poll)
-    for hint in ("the fleet overview", "the per-node table", "the 24-hour ranking",
+    # every tab names its warm-up, incl. grid (shown until the first fleet-status poll). the old
+    # per-node / ranking / services tabs are now merged into one "nodes" tab.
+    for hint in ("the fleet overview", "the per-node detail table",
                  "the latency heatmap", "the measured ship-cost view"):
         assert hint in h
-    assert "let gotData=false" in h  # grid/table gate
+    # the merged tab replaced the three old per-node warm-up hints
+    for gone in ("the per-node table", "the 24-hour ranking", "the fleet service telemetry"):
+        assert gone not in h
+    assert "let gotData=false" in h  # grid gate
 
 
 def test_dashboard_has_logs_tab():
@@ -251,6 +255,27 @@ def test_dashboard_has_network_tab():
     h = hubapi.dashboard_html()
     assert '["net","network"]' in h and 'id="net" class="view"' in h
     assert "function loadNet(" in h and "function netSpark(" in h and "/api/network?hours=6" in h
+
+
+def test_dashboard_has_merged_nodes_tab():
+    """The old table / ranking / services per-node tabs are merged into one 'nodes' tab backed by
+    the /api/nodes-detail composite endpoint. Confirm the merged tab is wired and the three old
+    tabs (view ids + renderers) are gone."""
+    h = hubapi.dashboard_html()
+    # merged tab present
+    assert '["nodes","nodes"]' in h and 'id="nodes" class="view"' in h
+    assert "function loadNodes(" in h and "function renderNodes(" in h
+    assert "/api/nodes-detail?hours=24" in h
+    # the merged tab carries the union of columns (live + 24h + service rollup)
+    assert "function nodesTableHtml(" in h and "function svcCell(" in h
+    assert "n.uptime_pct" in h and "n.rtt_ms_24h" in h and "n.outage_pct" in h
+    # old per-node tabs and their renderers are gone
+    for gone in ('["table","table"]', '["rank","ranking"]', '["svc","services"]',
+                 'id="table"', 'id="rank"', 'id="svc"',
+                 "function renderTable(", "function loadRank(", "function renderServices("):
+        assert gone not in h
+    # the per-node service detail is drilled into the modal (per-entity, filtered to the node)
+    assert "function svcSectionsHtml(" in h and "async function loadServicesData(" in h
 
 
 def test_hub_housekeeping_builds_rollups(hub_ready, monkeypatch):
@@ -326,6 +351,53 @@ def test_api_logs_route(hub_ready):
             assert r.status == 200
             d = json.loads(r.read())
             assert d["node"] == "pi9" and any(x["kind"] == "log" for x in d["rows"])
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_api_nodes_detail_route(hub_ready):
+    """/api/nodes-detail returns the merged per-node composite (live + 24h + svc rollup) that the
+    unified 'nodes' tab renders in one fetch."""
+    # hub_ready already seeds ping/host for pi9 via the ingest payload fixture
+    now = time.time()
+    schema.insert(hub_ready, "ping_runs", [{
+        "ts": now - 30, "target": "1.1.1.1", "sent": 20, "recv": 20, "loss_pct": 0.0,
+        "rtt_min": 5.0, "rtt_median": 8.0, "rtt_max": 12.0}], node="pi9")
+    schema.insert(hub_ready, "host_samples", [{"ts": now - 30, "cpu_pct": 22.0,
+                  "mem_used_pct": 40.0, "temp_c": 50.0}], node="pi9")
+    hub_ready.commit()
+    srv = core_http_server()
+    try:
+        port = srv.server_address[1]
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/nodes-detail?hours=24", timeout=5) as r:
+            assert r.status == 200
+            d = json.loads(r.read())
+            assert "nodes" in d
+            row = next(n for n in d["nodes"] if n["node"] == "pi9")
+            # composite carries live + 24h + svc fields in one row
+            assert {"state", "rtt_ms", "cpu", "uptime_pct", "rtt_ms_24h", "outage_pct", "svc"} <= set(row)
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_fleet_status_is_cached(hub_ready, monkeypatch):
+    """fleet-status is now served through the response cache (short TTL), so concurrent polls share
+    one latest_metrics pass instead of each recomputing."""
+    monkeypatch.setattr(config, "HUB_CACHE_TTL_S", 20)  # enable caching (some tests disable it)
+    hub._resp_cache.pop("fleet-status", None)
+    calls = {"n": 0}
+    real = hubapi.fleet_status
+    monkeypatch.setattr(hubapi, "fleet_status",
+                        lambda *a, **k: (calls.__setitem__("n", calls["n"] + 1) or real(*a, **k)))
+    srv = core_http_server()
+    try:
+        port = srv.server_address[1]
+        for _ in range(3):  # three rapid polls within the TTL
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/fleet-status", timeout=5) as r:
+                assert r.status == 200
+        assert calls["n"] == 1  # only the first poll recomputed; the rest hit the cache
     finally:
         srv.shutdown()
         srv.server_close()

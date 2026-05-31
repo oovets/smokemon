@@ -170,6 +170,92 @@ def test_heatmap_grid(tmp_db, ts0):
     conn.close()
 
 
+def test_fleet_stats_fast_uptime_outage_and_agrees_with_fleet(tmp_db, ts0):
+    """fleet_stats_fast computes per-node uptime/outage exactly from loss counts, and agrees with
+    fleet() on uptime for the clean node (where there are no incidents to diverge on)."""
+    conn = core.connect(str(tmp_db))
+    _seed(conn, ts0)
+    until = ts0 + 100
+    fast = hubapi.fleet_stats_fast(conn, hours=24, until=until)
+    # app01: 6 clean internet samples -> 100% uptime, 0% outage
+    assert fast["app01"]["uptime_pct"] == 100.0
+    assert fast["app01"]["outage_pct"] == 0.0
+    # pi01: 1.1.1.1 had 4 of 6 samples at 100% loss -> uptime 2/6, outage 4/6
+    assert fast["pi01"]["uptime_pct"] == round(100.0 * 2 / 6, 2)
+    assert fast["pi01"]["outage_pct"] == round(100.0 * 4 / 6, 2)
+    # uptime parity with fleet() on the clean node
+    fl = {r["node"]: r for r in hubapi.fleet(conn, hours=24, until=until)}
+    assert fast["app01"]["uptime_pct"] == fl["app01"]["uptime_pct"]
+    conn.close()
+
+
+def test_services_rollup_counts():
+    """services_rollup folds the flat services() lists into per-node counts using the same
+    bad/down definitions services() already set."""
+    svc = {
+        "docker": [
+            {"node": "n1", "running": 1, "bad": False},
+            {"node": "n1", "running": 0, "bad": True},
+            {"node": "n2", "running": 1, "bad": False},
+        ],
+        "docker_down": ["n3"],
+        "redis": [{"node": "n1", "connected": 1}, {"node": "n2", "connected": 0}],
+        "procs": [{"node": "n1", "count": 2}, {"node": "n1", "count": 0}],
+        "streams": [{"node": "n2", "ok": 1}, {"node": "n2", "ok": 0}],
+    }
+    roll = hubapi.services_rollup(svc)
+    assert roll["n1"]["docker_total"] == 2 and roll["n1"]["docker_bad"] == 1
+    assert roll["n1"]["docker_running"] == 1
+    assert roll["n3"]["docker_down"] is True
+    assert roll["n1"]["redis_down"] == 0 and roll["n2"]["redis_down"] == 1
+    assert roll["n1"]["procs_total"] == 2 and roll["n1"]["procs_down"] == 1
+    assert roll["n2"]["streams_total"] == 2 and roll["n2"]["streams_down"] == 1
+
+
+def test_nodes_detail_composite_shape(tmp_db, ts0):
+    """nodes_detail returns one row per node carrying live + 24h + svc-rollup + cost fields, in a
+    single composite the merged dashboard tab can render without three separate fetches."""
+    conn = core.connect(str(tmp_db))
+    _seed(conn, ts0)
+    now = ts0 + 100
+    d = hubapi.nodes_detail(conn, hours=24, now=now)
+    assert set(d) >= {"now", "hours", "nodes"}
+    by_node = {n["node"] for n in d["nodes"]}
+    assert {"app01", "pi01"} <= by_node
+    row = next(n for n in d["nodes"] if n["node"] == "app01")
+    # live fields (from fleet_status) + 24h fields (from fleet_stats_fast) + svc rollup present
+    assert {"state", "rtt_ms", "cpu", "mem", "temp", "age_s"} <= set(row)
+    assert {"uptime_pct", "rtt_ms_24h", "outage_pct"} <= set(row)
+    # svc is always present as a dict; counts are populated only for nodes with service data
+    assert "svc" in row and isinstance(row["svc"], dict)
+    assert row["uptime_pct"] == 100.0  # app01 is clean
+    # pi01 had an outage -> its 24h uptime is below 100
+    pi = next(n for n in d["nodes"] if n["node"] == "pi01")
+    assert pi["uptime_pct"] is not None and pi["uptime_pct"] < 100.0
+    conn.close()
+
+
+def test_nodes_detail_includes_service_rollup(tmp_db, ts0):
+    """When a node reports docker telemetry, nodes_detail's per-node svc block carries the counts
+    (so the merged table can show a service summary without a separate /api/services fetch)."""
+    conn = core.connect(str(tmp_db))
+    _seed(conn, ts0)
+    schema.insert(conn, "docker_samples", [
+        {"ts": ts0 + 50, "name": "edge", "image": "x", "state": "running", "running": 1,
+         "health": "healthy", "exit_code": 0, "restart_count": 0, "oom_killed": 0,
+         "cpu_pct": 5.0, "mem_mb": 50.0, "pids": 3},
+        {"ts": ts0 + 50, "name": "broken", "image": "x", "state": "exited", "running": 0,
+         "health": "", "exit_code": 1, "restart_count": 9, "oom_killed": 0,
+         "cpu_pct": None, "mem_mb": None, "pids": None},
+    ], node="app01")
+    conn.commit()
+    d = hubapi.nodes_detail(conn, hours=24, now=ts0 + 100)
+    app01 = next(n for n in d["nodes"] if n["node"] == "app01")
+    assert app01["svc"]["docker_total"] == 2
+    assert app01["svc"]["docker_bad"] == 1 and app01["svc"]["docker_running"] == 1
+    conn.close()
+
+
 def test_heatmap_rollup_matches_raw_for_long_window(tmp_db, ts0):
     """A long-window heatmap reads the hub rollup table; for loss (MAX agg) the per-hour grid must
     match what raw ping_runs would produce, since a 1-min bucket's max loss equals the hour's max

@@ -12,6 +12,24 @@ tagged; dated entries begin at the first release, 0.11.0.)
 
 added:
 
+- hub dashboard: merged the overlapping table / ranking / services tabs into one "nodes" tab
+  backed by a single cached composite endpoint GET /api/nodes-detail. Each row carries live
+  metrics (state/rtt/loss/cpu/mem/temp/age), 24h aggregates (uptime/rtt/outage), ship cost
+  (rows-per-day/ship-per-day/smoke footprint) and a per-node service rollup (docker/redis/proc/
+  stream counts) - previously three separate fetches with two different rtt semantics. Per-entity
+  service detail (container/redis/proc/stream rows) moved into the node detail modal, so nothing
+  is lost. New hubapi.nodes_detail()/fleet_stats_fast()/services_rollup() assemble it from one
+  pass of each cheap building block instead of the old per-node detect_incidents N+1.
+
+changed:
+
+- hub dashboard efficiency: /api/fleet-status and /api/spark are now served through the response
+  cache (short TTL) so the 5s/30s global polls from concurrent viewers/tabs share one pass
+  instead of each recomputing. fleet_stats_fast() computes 24h uptime/rtt/outage in one
+  rollup-aware GROUP BY (no per-node time-series load or detect_incidents), removing the main
+  "first open lags" cost on the per-node view. true incident detail stays on the risk tab; the
+  nodes table shows outage% as the cheap health proxy.
+
 - ship: stop shipping tables the hub does not consume, while still collecting and keeping them
   node-local. synthetic_samples (DoH/captive-portal checks) has no hub-side reader, so it is now
   excluded from the push BY DEFAULT - shipping and storing it hub-side was dead weight. backward
