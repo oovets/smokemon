@@ -74,8 +74,10 @@ retention pass if/when needed.
 security:
 
 - ship now refuses to send when SMOKEMON_HUB_URL is plaintext http:// to a non-loopback
-  host (the shared X-Smokemon-Key would cross the wire in clear). allow https, loopback, or
-  SMOKEMON_HUB_INSECURE=1 for a trusted LAN.
+  host (the shared X-Smokemon-Key would cross the wire in clear). allow https, loopback, a
+  Tailscale address (100.64.0.0/10 or the IPv6 ULA fd7a:115c:a1e0::/48 - the tailnet is
+  WireGuard-encrypted, and is the project's actual fleet path), or SMOKEMON_HUB_INSECURE=1
+  for another trusted LAN.
 
 - log excerpts are secret-redacted (Bearer/Basic creds, key=value pairs, the hub secret
   verbatim) before they are ever written to the DB.
