@@ -7,6 +7,7 @@ Latest-value queries lean on SQLite's documented bare-column behaviour: with a
 MAX(ts) aggregate and GROUP BY node, the other selected columns come from the row
 that holds that max ts - i.e. the most recent sample per node."""
 
+import fnmatch
 import sqlite3
 import time
 
@@ -298,7 +299,8 @@ def risks(conn, hours: float = 24.0, now: float | None = None) -> dict:
     incidents += _http_error_incidents(conn, since, now)
     incidents.sort(key=lambda i: -i["start"])
     return {"now": now, "hours": hours, "clocks": clocks,
-            "alerts": _service_alerts(conn, hours, now), "incidents": incidents[:50]}
+            "alerts": _annotate_alerts(conn, _service_alerts(conn, hours, now), now),
+            "incidents": incidents[:50]}
 
 
 _ERROR_SEVS = {"error", "err", "crit", "critical", "fatal", "emerg", "alert", "panic"}
@@ -420,6 +422,27 @@ def _service_alerts(conn, hours: float, now: float) -> list[dict]:
             out.append({"node": node, "kind": "tcp", "severity": 3 if frac >= 0.95 else 2,
                         "label": "conntrack", "detail": f"{used}/{mx} ({frac * 100:.0f}%)"})
     out.sort(key=lambda a: (-a["severity"], a["kind"], a["node"]))
+    return out
+
+
+def _annotate_alerts(conn, alerts: list[dict], now: float) -> list[dict]:
+    """Decorate each service alert (from _service_alerts) with delivery state for the Risk tab:
+      muted    - matches a SMOKEMON_ALERT_MUTE glob (never paged, still shown here, dimmed)
+      since_s  - how long it has been firing, from alert_state.first_ts (None until the alert
+                 loop has recorded it; that loop only runs when a notify URL is configured)
+      notified - whether a page has already been sent for it
+    The key mirrors alerts._key ('node/kind/label'). Read-only and tolerant of the alert_state
+    table being absent (older hub DB) - _rows swallows the OperationalError."""
+    state = {r[0]: (r[1], r[2]) for r in _rows(
+        conn, "SELECT key, first_ts, notified_ts FROM alert_state")}
+    out = []
+    for a in alerts:
+        key = f"{a['node']}/{a['kind']}/{a.get('label', '')}"
+        first_ts, notified_ts = state.get(key, (None, None))
+        out.append({**a,
+                    "muted": any(fnmatch.fnmatch(key, p) for p in config.ALERT_MUTE),
+                    "since_s": round(now - first_ts) if first_ts is not None else None,
+                    "notified": notified_ts is not None})
     return out
 
 
@@ -1658,7 +1681,9 @@ function renderRisk(d){
  const byNode={};
  const push=(node,sev,kind,detail,extra)=>{(byNode[node]=byNode[node]||[]).push({sev,kind,detail,...(extra||{})});};
  clocks.forEach(c=>push(c.node,c.severity||1,c.kind,c.detail,{eta:c.eta_s}));
- alerts.forEach(a=>push(a.node,a.severity,a.kind,`${a.label} · ${a.detail}`));
+ alerts.forEach(a=>push(a.node,a.muted?1:a.severity,a.kind,
+  `${a.label} · ${a.detail}`+(a.since_s!=null?` · firing ${fmtDur(a.since_s)}`:"")
+  +(a.muted?" · muted":a.notified?" · paged":"")));
  incidents.forEach(i=>push(i.node,i.severity,i.klass,`${i.scope} · ${i.detail}`,{ago:i.start}));
  const nodes=Object.keys(byNode).map(n=>{const list=byNode[n].sort((a,b)=>b.sev-a.sev);
   return {node:n,list,worst:Math.max(...list.map(x=>x.sev)),cnt:list.length};})

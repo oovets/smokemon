@@ -107,6 +107,25 @@ def test_persist_roundtrip(hub_conn):
     assert alerts.load_state(hub_conn) == {}
 
 
+def test_risks_annotates_alerts(hub_conn, ts0, monkeypatch):
+    """The Risk tab's /api/risks alerts carry muted/since_s/notified after a delivery pass."""
+    from smokemon import hubapi
+    monkeypatch.setattr(config, "NOTIFY_MIN_SEVERITY", 2)
+    monkeypatch.setattr(config, "ALERT_MUTE", ["pi01/stream/*"])
+    _seed_services(hub_conn, ts0)
+    now = ts0 + 100
+    # record delivery state so first_ts/notified_ts are populated for the proc alert
+    cur = alerts.evaluate(hub_conn, now)
+    alerts.persist(hub_conn, cur, [], {"pi01/proc/gst"}, now)
+    out = {f"{a['node']}/{a['kind']}/{a.get('label', '')}": a
+           for a in hubapi.risks(hub_conn, 24, now=now)["alerts"]}
+    gst = out["pi01/proc/gst"]
+    assert gst["notified"] is True and gst["since_s"] == 0 and gst["muted"] is False
+    # stream alert is muted by the glob and was never recorded -> since_s None, notified False
+    stream = next(a for a in out.values() if a["kind"] == "stream")
+    assert stream["muted"] is True and stream["since_s"] is None and stream["notified"] is False
+
+
 def test_full_pass_sends_once(hub_conn, ts0, monkeypatch):
     """evaluate -> plan -> render -> (send) -> persist, then a second pass is silent."""
     monkeypatch.setattr(config, "NOTIFY_MIN_SEVERITY", 2)
