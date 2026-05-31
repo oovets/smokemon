@@ -217,27 +217,37 @@ def _clamp_hours(qs: dict, default: float = 24.0) -> float:
     return max(0.0, min(hours, _MAX_HOURS))
 
 
+# A client that reloads, navigates away, or hits its own fetch timeout aborts the in-flight
+# request; the next write from our side then raises one of these. It's normal for a polling
+# dashboard, not a server fault - swallow it instead of dumping a traceback per cancelled fetch.
+_CLIENT_GONE = (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)
+
+
 class Handler(BaseHTTPRequestHandler):
+    def _write(self, code: int, data: bytes, content_type: str,
+               extra: dict | None = None, no_store: bool = False) -> None:
+        """Write a complete response, tolerating a client that hung up mid-flight."""
+        try:
+            self.send_response(code)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(data)))
+            if no_store:
+                self.send_header("Cache-Control", "no-store")  # always serve fresh html/css/png
+            for k, v in (extra or {}).items():
+                self.send_header(k, v)
+            self.end_headers()
+            self.wfile.write(data)
+        except _CLIENT_GONE:
+            self.close_connection = True  # client went away; nothing to send, don't raise
+
     def _send(self, code: int, obj: dict) -> None:
-        body = json.dumps(obj).encode()
-        self.send_response(code)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        self._write(code, json.dumps(obj).encode(), "application/json")
 
     def _send_text(self, code: int, body: str, content_type: str) -> None:
-        self._send_bytes(code, body.encode(), content_type)
+        self._write(code, body.encode(), content_type, no_store=True)
 
     def _send_bytes(self, code: int, data: bytes, content_type: str, extra: dict | None = None) -> None:
-        self.send_response(code)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-store")  # always serve fresh html/css/png
-        for k, v in (extra or {}).items():
-            self.send_header(k, v)
-        self.end_headers()
-        self.wfile.write(data)
+        self._write(code, data, content_type, extra=extra, no_store=True)
 
     def do_GET(self):  # noqa: N802
         """Read-only S2/S3 surfaces. Reads go through a dedicated read-only connection under
@@ -325,6 +335,8 @@ class Handler(BaseHTTPRequestHandler):
                 # carry °C / -> etc., which aren't header-safe raw).
                 extra = {"X-Smokemon-Panels": base64.b64encode(meta.encode()).decode()} if meta else None
                 return self._send_bytes(200, png, "image/png", extra)
+        except _CLIENT_GONE:
+            return None  # client hung up before/while we responded - normal, not an error
         except Exception as e:  # noqa: BLE001
             core.log(f"GET {u.path} error: {e!r}")
             return self._send(500, {"error": "internal error"})
@@ -353,6 +365,8 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(413, {"error": "decompressed body too large"})
             # wire_bytes = what actually crossed the network (compressed); raw_bytes = decoded size
             counts = ingest(json.loads(body), wire_bytes=len(compressed), raw_bytes=len(body))
+        except _CLIENT_GONE:
+            return None  # node dropped the connection mid-push - the shipper will retry next drain
         except Exception as e:  # noqa: BLE001
             core.log(f"ingest error: {e!r}")
             return self._send(500, {"error": "internal error"})

@@ -8,6 +8,19 @@ roadmap / ideas -> [PLAN.md](PLAN.md)
 tagged; dated entries begin at the first release, 0.11.0.)
 
 ```
+== 0.14.1 - 2026-05-31  post-deploy hotfixes ==
+
+fixed:
+
+- ship: allow http over Tailscale addresses (100.64.0.0/10 + IPv6 ULA fd7a:115c:a1e0::/48).
+  The 0.14.0 transport guard refused them and broke the existing tailnet fleet; the tailnet is
+  WireGuard-encrypted, so the shared secret is not exposed. No SMOKEMON_HUB_INSECURE needed.
+
+- hub: tolerate a client that hangs up mid-response. A dashboard reload / fetch abort closes the
+  socket; the writer then raised BrokenPipe/ConnectionReset, and the generic 500 handler tried to
+  write to the dead socket too -> an unhandled traceback per cancelled request in the hub log.
+  Response writes now swallow client-disconnect errors (GET and POST), so these are silent.
+
 == 0.14.0 - 2026-05-31  edge hardening: retention, governor, transport, inventory ==
 
 added:
