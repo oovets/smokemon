@@ -231,6 +231,18 @@ SHIP_EXPEDITE_INTERVAL = _f("SMOKEMON_SHIP_EXPEDITE_INTERVAL", "10")
 # fresh rows, so shipping them is ~85% of ship traffic for zero hub-side gain. Opt in if a
 # hub-side consumer ever needs the raw distribution.
 SHIP_RTTS = os.environ.get("SMOKEMON_SHIP_RTTS", "0") != "0"
+# Tables to NOT ship to the hub. The rows are still collected and kept node-local; they are just
+# excluded from the gather/push. Backward compatible - the hub simply receives fewer table keys
+# and ignores the absence (UNIQUE(node,src_id) ingest never required any table).
+#
+# A small default set is excluded out of the box: tables the hub has no reader for, so shipping
+# and storing them hub-side is pure dead weight. synthetic_samples (DoH/captive-portal checks) is
+# written node-local but no hub surface queries it. SMOKEMON_SHIP_EXCLUDE (comma-separated) ADDS
+# to this default rather than replacing it, so adding your own never silently re-enables a known
+# dead-weight table. To force-ship a defaulted table, name it in SMOKEMON_SHIP_INCLUDE.
+_SHIP_EXCLUDE_DEFAULT = frozenset({"synthetic_samples"})
+SHIP_INCLUDE = frozenset(_list("SMOKEMON_SHIP_INCLUDE", ""))
+SHIP_EXCLUDE = (_SHIP_EXCLUDE_DEFAULT | frozenset(_list("SMOKEMON_SHIP_EXCLUDE", ""))) - SHIP_INCLUDE
 
 
 def hub_dest(url: str) -> str:

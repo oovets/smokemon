@@ -75,7 +75,8 @@ def test_events_log_limit(hub_conn):
 def test_ordered_tables_priority():
     ordered = ship._ordered_tables()
     assert ordered[0] == "ext_events" and ordered[1] == "log_excerpts"
-    assert set(ordered) == set(schema.STD_TABLES)  # every table still present, no dupes/drops
+    # every table present except the baked-in default exclusions (synthetic_samples), no dupes
+    assert set(ordered) == set(schema.STD_TABLES) - config._SHIP_EXCLUDE_DEFAULT
 
 
 # ---- expedite trigger --------------------------------------------------------------------

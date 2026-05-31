@@ -280,6 +280,14 @@ ship (push -> hub)   (repoint a node any time with `smoke hub NEW-HUB`)
                            rtts node-local: the hub renders percentile bands from the
                            aggregates in ping_runs, so this cuts ~85% of ship traffic for
                            no hub-side change. ingest bodies are gzipped either way.
+  SMOKEMON_SHIP_EXCLUDE    comma-sep extra table names to NOT ship. the rows are still collected
+                           and kept node-local; they are just excluded from the push. this ADDS to
+                           a baked-in default (synthetic_samples, which no hub surface reads), so
+                           your own additions never silently re-enable a known dead-weight table.
+                           backward compatible: the hub simply receives fewer table keys.
+  SMOKEMON_SHIP_INCLUDE    comma-sep table names to force-ship even if defaulted-out. e.g.
+                           SMOKEMON_SHIP_INCLUDE=synthetic_samples to ship the synthetic checks
+                           after all (only useful once a hub-side consumer for them exists).
 
 retention / prune (node DB; `python -m smokemon.prune`, daily timer)
   SMOKEMON_RETENTION_DAYS  delete rows older than N days (default 14); 0 = keep everything.

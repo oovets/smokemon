@@ -95,8 +95,13 @@ _SHIP_PRIORITY = ("ext_events", "log_excerpts")
 
 
 def _ordered_tables() -> tuple[str, ...]:
-    rest = tuple(t for t in schema.STD_TABLES if t not in _SHIP_PRIORITY)
-    return tuple(t for t in _SHIP_PRIORITY if t in schema.STD_TABLES) + rest
+    """Std tables in ship order (priority tables first), minus any in config.SHIP_EXCLUDE. Excluded
+    tables are still collected/kept node-local; they are just never gathered for a push. ping_rtts
+    is not a STD_TABLE and is gated separately by SHIP_RTTS, so excluding it here is a no-op."""
+    excl = config.SHIP_EXCLUDE
+    priority = tuple(t for t in _SHIP_PRIORITY if t in schema.STD_TABLES and t not in excl)
+    rest = tuple(t for t in schema.STD_TABLES if t not in _SHIP_PRIORITY and t not in excl)
+    return priority + rest
 
 
 def gather(conn, dest: str) -> tuple[dict, dict]:

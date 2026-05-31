@@ -12,6 +12,14 @@ tagged; dated entries begin at the first release, 0.11.0.)
 
 added:
 
+- ship: stop shipping tables the hub does not consume, while still collecting and keeping them
+  node-local. synthetic_samples (DoH/captive-portal checks) has no hub-side reader, so it is now
+  excluded from the push BY DEFAULT - shipping and storing it hub-side was dead weight. backward
+  compatible: the hub just receives fewer table keys (the ingest contract never required any
+  specific table). SMOKEMON_SHIP_EXCLUDE (comma-separated) ADDS more tables to the default
+  exclusion; SMOKEMON_SHIP_INCLUDE force-ships a defaulted-out table (e.g. to re-enable
+  synthetic_samples once a hub-side consumer for it exists).
+
 - hub storage: downsampling/rollups (smokemon/rollup.py, hub-side, pure stdlib) wired into the
   heavy read paths. the hub aggregates the bulky time-series tables (ping_runs/host_samples/
   net_samples/tcp_samples/wifi_samples) into additive <table>_1m and <table>_1h tables, driven by
