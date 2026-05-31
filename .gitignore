@@ -246,3 +246,5 @@ graphs/
 
 # macOS
 .DS_Store
+
+.superpowers/
