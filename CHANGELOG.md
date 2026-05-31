@@ -13,13 +13,17 @@ tagged; dated entries begin at the first release, 0.11.0.)
 added:
 
 - hub dashboard: the network tab is now the home for both throughput and the heatmap (the separate
-  heatmap tab is gone). The heatmap gains a third metric, bandwidth (node x hour bytes/s from
-  net_samples, computed as the hourly delta of the cumulative byte gauge with virtual interfaces
-  filtered out), alongside loss % and rtt. The per-application throughput graphs gain a fleet vs
-  per-node toggle: /api/network?by_node=1 breaks each app's bytes/s down per contributing node
-  (busiest first, capped with a "+N more" rollup), rendered as overlaid colour-coded series with a
-  legend so you see the fleet total and who drives it. Custom service ports are labelled: 8554/554
-  rtsp, 5000 raw-video, 19999 netdata, 1935 rtmp (plus the existing well-known set).
+  heatmap tab is gone). The throughput graphs lead the tab as large cards, two per row (responsive
+  to one on narrow screens), with the heatmap in a collapsible section below (collapsed by default,
+  so the tab skips the heatmap fetch until expanded). The heatmap gains a third metric, bandwidth
+  (node x hour bytes/s from net_samples, computed as the hourly delta of the cumulative byte gauge
+  with virtual interfaces filtered out), alongside loss % and rtt, and is rendered transposed and
+  full-width: nodes are columns with diagonal labels, hours run down the y-axis, and cells flex to
+  fill the screen. The per-application graphs gain a fleet vs per-node toggle: /api/network?by_node=1
+  breaks each app's bytes/s down per contributing node (busiest first, capped with a "+N more"
+  rollup), rendered as overlaid colour-coded series with a legend so you see the fleet total and who
+  drives it. Custom service ports are labelled: 8554/554 rtsp, 5000 raw-video, 19999 netdata, 1935
+  rtmp (plus the existing well-known set).
 
 - hub dashboard: merged the overlapping table / ranking / services tabs into one "nodes" tab
   backed by a single cached composite endpoint GET /api/nodes-detail. Each row carries live

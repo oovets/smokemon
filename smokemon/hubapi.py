@@ -1312,9 +1312,9 @@ _DASHBOARD_HTML = """<!doctype html>
  .hh-grid{--tw:52px;width:100%}
  .hh-labels{display:flex;align-items:flex-end;height:70px;gap:2px;margin-bottom:3px}
  .hh-corner{width:var(--tw);flex:0 0 auto}
- .hh-name{flex:1 1 0;min-width:0;display:flex;justify-content:center;align-items:flex-end;cursor:pointer}
+ .hh-name{flex:1 1 0;min-width:0;display:flex;justify-content:flex-start;align-items:flex-end;cursor:pointer}
  .hh-name>span{transform:rotate(-45deg);transform-origin:left bottom;white-space:nowrap;
-   font:600 11px var(--mono);color:var(--mut);max-width:120px;overflow:hidden;text-overflow:ellipsis}
+   font:600 11px var(--mono);color:var(--mut);max-width:130px;overflow:hidden;text-overflow:ellipsis}
  .hh-name:hover>span{color:var(--fg)}
  .hh-row{display:flex;align-items:center;gap:2px;height:16px;margin-bottom:2px}
  .hh-time{width:var(--tw);flex:0 0 auto;text-align:right;padding-right:8px;
