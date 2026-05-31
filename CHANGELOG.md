@@ -8,6 +8,60 @@ roadmap / ideas -> [PLAN.md](PLAN.md)
 tagged; dated entries begin at the first release, 0.11.0.)
 
 ```
+== 0.14.0 - 2026-05-31  edge hardening: retention, governor, transport, inventory ==
+
+added:
+
+- prune (smokemon/prune.py; `python -m smokemon.prune`, daily timer/plist): node-DB
+  retention. deletes rows older than SMOKEMON_RETENTION_DAYS (default 14) but only once
+  they are shipped (id <= the ship_state cursor) when a hub is set, so a hub outage backs
+  up on disk instead of losing data; age-only when no hub. orphaned ping_rtts are dropped
+  with their parent runs. truncates the WAL afterward (SMOKEMON_PRUNE_VACUUM=1 adds a full
+  VACUUM). without this the append-only tables grew forever and wore out SD cards.
+
+- governor (smokemon/governor.py; opt-in, off by default): when the collector exceeds
+  SMOKEMON_MAX_RSS_MB or SMOKEMON_MAX_DB_MB it sheds its costliest probes (ext/synthetic/
+  mtr) for that cycle and writes a throttled ext_events row, so detail degrades gracefully
+  under pressure instead of the footprint overrunning target. ping/net/host always run.
+
+- probes.inventory (auto-on, vslow, delta-coded): device/environment facts (model, kernel,
+  os release, jetpack/l4t, cpu/mem, interfaces, gateway, boot id) into a new additive
+  device_facts table. a row is written only when a fact changes, so steady-state cost is one
+  /proc+/sys scan per hour that usually emits nothing. SMOKEMON_INVENTORY=0 disables.
+
+- probes.logexcerpt (opt-in, off by default): event-driven capped log tails into a new
+  log_excerpts table - NOT log streaming. ships a redacted last-N-KB excerpt of the files in
+  SMOKEMON_LOGEXCERPT_PATHS only when a warn/error+ ext_events row just appeared (governor
+  sheds, probe anomalies). per-file byte-offset cursor (never resends), drop-oldest byte cap
+  (SMOKEMON_LOGEXCERPT_MAX_BYTES), secret redaction; the shipper gzips the wire. seeded at
+  probe start so enabling never dumps history. SMOKEMON_LOGEXCERPT_ALWAYS=1 captures always.
+
+- hub GET /api/inventory: per-node device_facts (latest value per key, grouped by hw/os/net/
+  runtime) so the inventory the nodes collect is surfaced fleet-wide.
+
+changed:
+
+- self panel now reports the honest multi-daemon footprint: rss_mb on the name='smokemon'
+  proc_samples row is summed across ALL smokemon pids (fast + slow + transient shipper), not
+  just one process, and a new write_mb_day column projects the fleet's SD-write rate so card
+  wear is as visible as RSS (TUI/PNG titles show "NN MB/day SD"). linux /proc only.
+
+- cadence now carries a stable per-node jitter (hash of node name -> 0..interval/4 offset) so
+  the fleet no longer pings/ships in wall-clock lockstep - spreads simultaneous POSTs and net
+  probes across the window.
+
+- hub serves dashboard/API GETs through a dedicated read-only connection (own lock, WAL) so
+  reads run concurrently with ingest instead of queuing behind the writer's lock.
+
+security:
+
+- ship now refuses to send when SMOKEMON_HUB_URL is plaintext http:// to a non-loopback
+  host (the shared X-Smokemon-Key would cross the wire in clear). allow https, loopback, or
+  SMOKEMON_HUB_INSECURE=1 for a trusted LAN.
+
+- log excerpts are secret-redacted (Bearer/Basic creds, key=value pairs, the hub secret
+  verbatim) before they are ever written to the DB.
+
 == 0.13.0 - 2026-05-31  docker + pipeline collectors, redis enrichment ==
 
 added (all three run by default and self-detect their dependency, staying a cheap no-op on

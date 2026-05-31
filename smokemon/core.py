@@ -1,5 +1,6 @@
 """Daemon runtime shared by all collectors: logging, DB connect, signals, scheduler."""
 
+import hashlib
 import os
 import signal
 import sqlite3
@@ -7,7 +8,20 @@ import threading
 import time
 from collections.abc import Callable
 
+from . import config
+
 _stop = threading.Event()
+
+
+def _jitter(interval: float, node: str = "") -> float:
+    """Stable per-node offset in [0, interval/4) so the fleet doesn't ping/ship in lockstep.
+    Wall-clock-aligned cadence makes every node fire on the same boundary; a hash-derived
+    offset (sha1 of node name, so it's stable across restarts and unsalted unlike hash())
+    spreads the herd out without drifting. interval<=0 (or no node) -> no offset."""
+    if interval <= 0 or not node:
+        return 0.0
+    h = int(hashlib.sha1(node.encode()).hexdigest()[:8], 16)
+    return (h % 10_000) / 10_000.0 * (interval / 4.0)
 
 
 def log(msg: str) -> None:
@@ -28,6 +42,18 @@ def connect(path: str, timeout: float = 30, check_same_thread: bool = True) -> s
     return conn
 
 
+def connect_ro(path: str, timeout: float = 30) -> sqlite3.Connection:
+    """Open a read-only connection (URI mode=ro). On the hub this serves dashboard/API GETs
+    so they read concurrently under WAL instead of queuing behind ingest on the writer's lock.
+    query_only is belt-and-braces: the connection cannot mutate even if asked. The DB must
+    already exist (the writer creates it); shared across threads, so callers serialize use."""
+    uri = "file:" + os.path.abspath(path) + "?mode=ro"
+    conn = sqlite3.connect(uri, uri=True, timeout=timeout, check_same_thread=False)
+    conn.execute("PRAGMA query_only=ON")
+    conn.execute("PRAGMA busy_timeout=10000")
+    return conn
+
+
 def install_signals() -> None:
     def handler(signum, _frame):
         _stop.set()
@@ -42,7 +68,9 @@ def stopping() -> bool:
 
 def run_scheduler(probes: list[tuple[float, Callable[[], None]]]) -> None:
     """Run each (interval, fn) on its own wall-clock-aligned cadence in this thread.
-    A failing probe is logged and never kills the loop."""
+    A failing probe is logged and never kills the loop. Each cadence carries a stable
+    per-node jitter offset so the whole fleet doesn't fire on the same boundary."""
+    offsets = [_jitter(interval, config.NODE) for interval, _ in probes]
     due = {i: 0.0 for i in range(len(probes))}
     while not _stop.is_set():
         now = time.time()
@@ -52,7 +80,8 @@ def run_scheduler(probes: list[tuple[float, Callable[[], None]]]) -> None:
                     fn()
                 except Exception as e:  # noqa: BLE001
                     log(f"probe error: {e!r}")
-                due[i] = (int(now // interval) + 1) * interval
+                off = offsets[i]
+                due[i] = (int((now - off) // interval) + 1) * interval + off
         nxt = min(due.values())
         while not _stop.is_set():
             d = nxt - time.time()

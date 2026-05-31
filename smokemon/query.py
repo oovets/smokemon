@@ -718,15 +718,16 @@ def wear_eta(health_data: dict) -> tuple[str, float] | None:
 
 
 def load_self(conn, since, until, node=None):
-    """S5: smokemon's own rss/cpu over time, from the proc_samples rows the host probe
-    records for itself (name='smokemon'). Proves the low-RSS claim - the monitor shows
-    up in its own data."""
+    """S5: smokemon's own rss/cpu/SD-write-rate over time, from the proc_samples rows the
+    host probe records for itself (name='smokemon'). rss is summed over all smokemon pids;
+    write_mb_day is the projected SD-write load. Proves the low-footprint claim - the
+    monitor shows up in its own data. write_mb_day is NULL on old rows / non-Linux."""
     nf, np_ = _filt(node)
-    d: dict = {"t": [], "rss": [], "cpu": []}
-    for ts, cpu, rss in _q(conn, "SELECT ts, cpu_pct, rss_mb FROM proc_samples "
-                           "WHERE name='smokemon' AND ts BETWEEN ? AND ?" + nf + " ORDER BY ts",
-                           [since, until, *np_]):
-        d["t"].append(ts); d["cpu"].append(cpu); d["rss"].append(rss)
+    d: dict = {"t": [], "rss": [], "cpu": [], "write": []}
+    for ts, cpu, rss, wr in _q(conn, "SELECT ts, cpu_pct, rss_mb, write_mb_day FROM proc_samples "
+                               "WHERE name='smokemon' AND ts BETWEEN ? AND ?" + nf + " ORDER BY ts",
+                               [since, until, *np_]):
+        d["t"].append(ts); d["cpu"].append(cpu); d["rss"].append(rss); d["write"].append(wr)
     return d if d["t"] else {}
 
 

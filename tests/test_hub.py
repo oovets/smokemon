@@ -18,7 +18,9 @@ def hub_ready(hub_db, monkeypatch):
     """Initialise a hub DB and wire it into the hub module's globals."""
     conn = core.connect(str(hub_db), check_same_thread=False)
     schema.init_hub(conn)
+    ro_conn = core.connect_ro(str(hub_db))  # GET endpoints read through this (mirrors main())
     monkeypatch.setattr(hub, "_conn", conn)
+    monkeypatch.setattr(hub, "_ro_conn", ro_conn)
     hub._hub_cols.clear()
     hub._hub_cols.update({
         t: {r[1] for r in conn.execute(f"PRAGMA table_info({t})").fetchall()}
@@ -26,6 +28,7 @@ def hub_ready(hub_db, monkeypatch):
     })
     yield conn
     conn.close()
+    ro_conn.close()
 
 
 def _payload(ts0):

@@ -195,6 +195,9 @@ NOTIFY_MIN_SEVERITY = _i("SMOKEMON_NOTIFY_MIN_SEVERITY", "2")
 # central aggregation; set SMOKEMON_HUB_URL to the hub's /ingest endpoint
 HUB_URL = os.environ.get("SMOKEMON_HUB_URL", "")
 HUB_SECRET = os.environ.get("SMOKEMON_HUB_SECRET", "changeme")
+# The shipper refuses to send (so the shared secret never crosses the wire in clear) unless
+# HUB_URL is https, or the host is loopback, or this is set. Set =1 only for trusted LANs.
+HUB_INSECURE = os.environ.get("SMOKEMON_HUB_INSECURE", "0") != "0"
 SHIP_BATCH = _i("SMOKEMON_SHIP_BATCH", "2000")
 SHIP_INTERVAL = _f("SMOKEMON_SHIP_INTERVAL", "0")  # 0 = drain once and exit
 # Raw per-ping rtts stay node-local by default: the hub renders percentile bands from the
@@ -205,6 +208,40 @@ SHIP_RTTS = os.environ.get("SMOKEMON_SHIP_RTTS", "0") != "0"
 HUB_BIND = os.environ.get("SMOKEMON_HUB_BIND", "0.0.0.0")
 HUB_PORT = _i("SMOKEMON_HUB_PORT", "8765")
 HUB_MAX_BODY = _i("SMOKEMON_HUB_MAX_BODY", str(64 * 1024 * 1024))
+
+# Retention / pruning of the node DB (run `python -m smokemon.prune`, e.g. from a daily timer).
+# Rows older than RETENTION_DAYS are deleted, but only once they have been shipped (id <=
+# ship_state cursor) when a hub is configured - so a long hub outage never loses data. With no
+# hub, age alone applies. 0 disables pruning entirely. After deleting, the WAL is checkpoint-
+# truncated so the file actually shrinks; freed main-DB pages are reused by later inserts.
+# PRUNE_VACUUM=1 additionally runs a full VACUUM (heavy, needs free space) to reclaim pages.
+RETENTION_DAYS = _f("SMOKEMON_RETENTION_DAYS", "14")
+PRUNE_VACUUM = os.environ.get("SMOKEMON_PRUNE_VACUUM", "0") != "0"
+
+# Footprint governor (node-side, opt-in). When this process exceeds a budget, the collector
+# sheds its most expensive probes (mtr / synthetic / ext) for that cycle and logs a throttled
+# governor event, so detail degrades gracefully instead of the footprint blowing past target.
+# 0 = disabled (default), so out-of-the-box behaviour is unchanged.
+MAX_RSS_MB = _f("SMOKEMON_MAX_RSS_MB", "0")     # this process's RSS ceiling (MB)
+MAX_DB_MB = _f("SMOKEMON_MAX_DB_MB", "0")       # node DB (+WAL) size ceiling (MB)
+
+# Device/environment inventory (delta-coded). Auto-on and cheap: one vslow scan emits a
+# device_facts row only when a fact actually changes, so it captures model/kernel/OS/JetPack/
+# versions/interfaces for ~zero steady-state cost. SMOKEMON_INVENTORY=0 disables.
+INVENTORY_ENABLED = _enabled("SMOKEMON_INVENTORY", True)
+INVENTORY_INTERVAL = _f("SMOKEMON_INVENTORY_INTERVAL", "3600")
+
+# Event-driven log excerpts (opt-in, OFF by default). Ships a capped, redacted *tail* of the
+# configured log files only when a warn/error+ event just landed in ext_events (governor sheds,
+# probe anomalies) - never a stream (AGENTS.md forbids log streaming). A byte-offset cursor per
+# file means bytes are never resent; each excerpt is hard-capped with drop-oldest (keep the
+# freshest tail); secrets are redacted before storage; the shipper's gzip compresses the wire.
+# SMOKEMON_LOGEXCERPT_ALWAYS=1 captures every cycle regardless of events (testing / manual pull).
+LOGEXCERPT_ENABLED = _enabled("SMOKEMON_LOGEXCERPT", False)
+LOGEXCERPT_PATHS = _list("SMOKEMON_LOGEXCERPT_PATHS", "")  # files to tail, comma-separated
+LOGEXCERPT_INTERVAL = _f("SMOKEMON_LOGEXCERPT_INTERVAL", "60")
+LOGEXCERPT_MAX_BYTES = _i("SMOKEMON_LOGEXCERPT_MAX_BYTES", str(16 * 1024))  # per-excerpt hard cap
+LOGEXCERPT_ALWAYS = os.environ.get("SMOKEMON_LOGEXCERPT_ALWAYS", "0") != "0"
 
 # CLI tool paths (env -> PATH)
 FPING = cli_path("SMOKEMON_FPING", "fping")

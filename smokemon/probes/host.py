@@ -30,6 +30,7 @@ _VSLOW_INTERVAL = 3600.0   # SD wear-level cadence
 _prev_cpu: tuple[int, int] | None = None
 _prev_proc: dict[str, int] = {}
 _prev_self_cpu: float | None = None
+_prev_self_io: tuple[int, float] | None = None  # (summed write_bytes, ts) for the SD-write rate
 _prev_diskio: tuple[int, int, float] | None = None
 _last = 0.0
 _slow_last = 0.0
@@ -582,12 +583,55 @@ def _self_rss_mb(ru) -> float | None:
     return round(ru.ru_maxrss / 1e6, 1)
 
 
+def _fleet_footprint_linux() -> tuple[float | None, int | None]:
+    """One /proc pass summing RSS and lifetime storage writes across *every* smokemon
+    process (collect fast + slow, transient shipper/iperf), so the self panel reports the
+    honest multi-daemon footprint - README's "~30 MB" is per process, not the real
+    steady-state - and exposes SD write load. RSS from statm field 2 (pages); writes from
+    io.write_bytes (bytes that actually reached storage, the figure that wears an SD card).
+    A process is "smokemon" if its cmdline mentions the package."""
+    pages = wbytes = 0
+    saw_rss = saw_io = False
+    try:
+        scan = os.scandir("/proc")
+    except OSError:
+        return (None, None)
+    with scan as it:
+        for entry in it:
+            if not entry.name.isdigit():
+                continue
+            try:
+                with open(f"/proc/{entry.name}/cmdline", "rb") as f:
+                    if b"smokemon" not in f.read():
+                        continue
+            except OSError:
+                continue
+            try:
+                with open(f"/proc/{entry.name}/statm") as f:
+                    pages += int(f.read().split()[1])
+                    saw_rss = True
+            except (OSError, ValueError, IndexError):
+                pass
+            try:  # /proc/<pid>/io is readable for our own uid; absent on some kernels
+                with open(f"/proc/{entry.name}/io") as f:
+                    for line in f:
+                        if line.startswith("write_bytes:"):
+                            wbytes += int(line.split()[1])
+                            saw_io = True
+                            break
+            except (OSError, ValueError, IndexError):
+                pass
+    return (round(pages * _PAGE / 1e6, 1) if saw_rss else None, wbytes if saw_io else None)
+
+
 def _self_proc(dt: float) -> dict | None:
     """smokemon's own footprint as a proc_samples row named 'smokemon'. The top-N
     sampler would usually miss it (low cpu), so we record it explicitly - this is what
-    backs the `self` panel that proves the low-RSS claim. cpu% is the delta of cumulative
-    user+system CPU seconds over dt. Read-only of our own /proc, stdlib."""
-    global _prev_self_cpu
+    backs the `self` panel. rss_mb is summed over all smokemon pids on Linux (an honest
+    multi-daemon number); cpu% is this process's delta of cumulative user+system CPU over
+    dt; write_mb_day projects the fleet's recent SD-write rate so wear is as visible as RSS.
+    Read-only of /proc, stdlib."""
+    global _prev_self_cpu, _prev_self_io
     try:
         ru = resource.getrusage(resource.RUSAGE_SELF)
     except (OSError, ValueError):
@@ -597,7 +641,23 @@ def _self_proc(dt: float) -> dict | None:
     if _prev_self_cpu is not None and dt > 0:
         cpu_pct = round(max(0.0, 100.0 * (cpu_secs - _prev_self_cpu) / dt), 1)
     _prev_self_cpu = cpu_secs
-    return {"pid": os.getpid(), "name": "smokemon", "cpu_pct": cpu_pct, "rss_mb": _self_rss_mb(ru)}
+
+    rss_mb = write_mb_day = None
+    if _SYS == "Linux":
+        rss_mb, wbytes = _fleet_footprint_linux()
+        if wbytes is not None:
+            now = time.time()
+            if _prev_self_io is not None:
+                pb, pt = _prev_self_io
+                span = now - pt
+                # Ignore drops: a restarted pid resets its counter, which would read negative.
+                if span > 0 and wbytes >= pb:
+                    write_mb_day = round((wbytes - pb) / 1e6 / span * 86400.0, 1)
+            _prev_self_io = (wbytes, now)
+    if rss_mb is None:  # non-Linux, or /proc scan found nothing
+        rss_mb = _self_rss_mb(ru)
+    return {"pid": os.getpid(), "name": "smokemon", "cpu_pct": cpu_pct,
+            "rss_mb": rss_mb, "write_mb_day": write_mb_day}
 
 
 # ---------- Main collect() ----------

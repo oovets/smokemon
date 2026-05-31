@@ -595,6 +595,29 @@ def services(conn, hours: float = 168.0, now: float | None = None) -> dict:
             "redis": redis, "procs": procs, "streams": streams}
 
 
+def inventory(conn, now: float | None = None) -> dict:
+    """Per-node device/environment facts for the dashboard inventory view, from the delta-coded
+    device_facts table: the latest value per (node, key) via the MAX(ts) bare-column trick (one
+    GROUP BY query). Facts are grouped by kind (hw / os / net / runtime) so the UI can render a
+    block per node, with each node's most recent fact change as its freshness. Empty when the
+    inventory probe is unused fleet-wide."""
+    now = time.time() if now is None else now
+    by_node: dict[str, dict] = {}
+    for node, key, value, kind, ts in _rows(
+            conn, "SELECT node, key, value, kind, MAX(ts) FROM device_facts GROUP BY node, key"):
+        if node is None or key is None:
+            continue
+        entry = by_node.setdefault(node, {"node": node, "facts": {}, "_last": None})
+        entry["facts"][key] = {"value": value, "kind": kind or "runtime"}
+        if ts is not None and (entry["_last"] is None or ts > entry["_last"]):
+            entry["_last"] = ts
+    out = sorted(by_node.values(), key=lambda r: r["node"])
+    for e in out:
+        last = e.pop("_last")
+        e["updated_s"] = round(now - last) if last else None
+    return {"now": now, "nodes": out}
+
+
 def dashboard_html() -> str:
     """Self-contained fleet dashboard (no external assets). Polls /api/fleet-status and
     renders an ultra-dense, worst-first, colour-coded one-line-per-node grid. Refresh

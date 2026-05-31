@@ -10,8 +10,27 @@ import sqlite3
 import sys
 import urllib.error
 import urllib.request
+from urllib.parse import urlparse
 
 from . import config, core, schema
+
+_LOOPBACK_HOSTS = ("127.0.0.1", "::1", "localhost")
+
+
+def hub_url_ok(url: str) -> tuple[bool, str]:
+    """The shipper authenticates with a shared secret carried in a plaintext header, so the
+    transport must be encrypted or the secret leaks. Allow https, loopback (local testing), or
+    an explicit SMOKEMON_HUB_INSECURE=1 (trusted LAN). Returns (ok, reason)."""
+    parsed = urlparse(url)
+    if parsed.scheme == "https":
+        return True, "https"
+    host = (parsed.hostname or "").lower()
+    if host in _LOOPBACK_HOSTS:
+        return True, "loopback"
+    if config.HUB_INSECURE:
+        return True, "insecure-allowed"
+    return False, (f"refusing to ship over {parsed.scheme or 'unknown'}:// to {host or '?'} - the "
+                   "shared secret would be sent in clear. Use https, or set SMOKEMON_HUB_INSECURE=1.")
 
 
 def init_state(conn: sqlite3.Connection) -> None:
@@ -104,6 +123,10 @@ def main() -> int:
     if not config.HUB_URL:
         core.log("ship: SMOKEMON_HUB_URL not set, nothing to do")
         return 0
+    ok, reason = hub_url_ok(config.HUB_URL)
+    if not ok:
+        core.log(f"ship: {reason}")
+        return 2
     core.install_signals()
     conn = core.connect(config.DB_PATH)
     init_state(conn)
