@@ -346,16 +346,49 @@ def events_log(conn, node=None, severity="elevated", hours: float = 24.0,
     return {"now": now, "hours": hours, "node": node or "", "severity": severity, "rows": rows[:limit]}
 
 
+def _num(x, suf="", pre=""):
+    """Format a number as a display string (e.g. '512MB', '95%'), or None when not a number so
+    _kv drops it. Keeps the alert 'extra' grid free of empty/None rows."""
+    return f"{pre}{x:.0f}{suf}" if isinstance(x, (int, float)) else None
+
+
+def _dur(x):
+    """Compact human duration for an age/uptime in seconds, or None when missing/zero."""
+    return query.human_eta(x) if isinstance(x, (int, float)) and x else None
+
+
+def _kv(*pairs):
+    """Build the alert 'extra' detail grid: [[label, value], ...] dropping empty values, so the
+    modal only shows context fields that actually have data on this node."""
+    return [[k, v] for k, v in pairs if v not in (None, "")]
+
+
 def _service_alerts(conn, hours: float, now: float) -> list[dict]:
     """Current service/host degradations across the fleet (newest state per entity). Reuses
     services() for docker/redis/watched-procs/stream-probes, plus host-level OOM kills, swap /
-    memory-pressure, CPU throttling and conntrack saturation. Each alert is
-    {node, kind, severity 1-3, label, detail}; sorted most-severe first."""
+    memory-pressure, CPU throttling and conntrack saturation.
+
+    Each alert carries three text levels so the dashboard can show short -> full:
+      summary - terse chip text (e.g. 'restart loop x5', 'OOM x3', 'conntrack 95%')
+      detail  - the one-line headline (unchanged for back-compat; used as the chip tooltip)
+      extra   - [[label, value], ...] context grid for the click-through modal, pulled from
+                fields services()/the host+tcp SELECTs already fetch (zero extra edge cost)
+    plus optional logs_hint (memory/throttle/oom): the modal then offers a Logs deep-link, since
+    the literal kernel cause (e.g. the OOM victim) lives in log_excerpts, not the metric tables.
+    Sorted most-severe first."""
     since = now - hours * 3600
     out: list[dict] = []
+
+    def add(node, kind, sev, label, detail, summary, extra=None, logs_hint=False):
+        a = {"node": node, "kind": kind, "severity": sev, "label": label,
+             "detail": detail, "summary": summary, "extra": extra or []}
+        if logs_hint:
+            a["logs_hint"] = True
+        out.append(a)
+
     svc = services(conn, hours, now)
     for n in svc.get("docker_down", []):
-        out.append({"node": n, "kind": "docker", "severity": 3, "label": "daemon", "detail": "docker daemon unreachable"})
+        add(n, "docker", 3, "daemon", "docker daemon unreachable", "daemon down")
     for c in svc.get("docker", []):
         # Only alert on containers that are SUPPOSED to be up but aren't working. A container that
         # has simply exited / been stopped (watchtower & other periodic jobs, portainer agents,
@@ -364,63 +397,83 @@ def _service_alerts(conn, hours: float, now: float) -> list[dict]:
         # (running+unhealthy), a live container that was OOM-killed, and heavy restart flapping.
         state, running = c.get("state"), c.get("running")
         rc = c.get("restart_count") or 0
+        ex = _kv(("image", c.get("image")), ("cpu", _num(c.get("cpu_pct"), "%")),
+                 ("mem", _num(c.get("mem_mb"), "MB")), ("pids", c.get("pids")),
+                 ("restarts", rc or None), ("exit", c.get("exit_code")),
+                 ("age", _dur(c.get("age_s"))))
         if state == "restarting":
-            out.append({"node": c["node"], "kind": "docker", "severity": 3, "label": c["name"],
-                        "detail": "restart loop" + (f" ({rc}x)" if rc else "")})
+            add(c["node"], "docker", 3, c["name"], "restart loop" + (f" ({rc}x)" if rc else ""),
+                "restart loop" + (f" x{rc}" if rc else ""), ex, logs_hint=True)
         elif state == "dead":
-            out.append({"node": c["node"], "kind": "docker", "severity": 2, "label": c["name"], "detail": "dead (stuck)"})
+            add(c["node"], "docker", 2, c["name"], "dead (stuck)", "dead", ex, logs_hint=True)
         elif running and c.get("health") == "unhealthy":
-            out.append({"node": c["node"], "kind": "docker", "severity": 2, "label": c["name"], "detail": "unhealthy"})
+            add(c["node"], "docker", 2, c["name"], "unhealthy", "unhealthy", ex, logs_hint=True)
         elif running and c.get("oom_killed"):
-            out.append({"node": c["node"], "kind": "docker", "severity": 2, "label": c["name"], "detail": "OOM-killed (restarted)"})
+            add(c["node"], "docker", 2, c["name"], "OOM-killed (restarted)", "OOM-killed", ex, logs_hint=True)
         elif running and rc >= 10:
-            out.append({"node": c["node"], "kind": "docker", "severity": 1, "label": c["name"],
-                        "detail": f"{rc} restarts (flapping)"})
+            add(c["node"], "docker", 1, c["name"], f"{rc} restarts (flapping)", f"{rc} restarts", ex)
     for r in svc.get("redis", []):
         inst = r.get("instance") or "redis"
+        rex = _kv(("mem", _num(r.get("used_memory_mb"), "MB")), ("clients", r.get("connected_clients")),
+                  ("ops/s", _num(r.get("ops_per_sec"))), ("evicted", r.get("evicted_keys")))
         if (r.get("connected") or 0) < 1:
-            out.append({"node": r["node"], "kind": "redis", "severity": 3, "label": inst, "detail": "instance down"})
+            add(r["node"], "redis", 3, inst, "instance down", "down", rex)
             continue
         # NB: blocked_clients>0 is normal (BLPOP/XREAD BLOCK consumers idle-wait) -> not an alert.
         if r.get("rejected_connections"):
-            out.append({"node": r["node"], "kind": "redis", "severity": 2, "label": inst,
-                        "detail": f"{r['rejected_connections']} rejected connections"})
+            add(r["node"], "redis", 2, inst, f"{r['rejected_connections']} rejected connections",
+                f"{r['rejected_connections']} rejected", rex)
         for s in r.get("streams", []):
             if (s.get("pending") or 0) >= 1000:
-                out.append({"node": r["node"], "kind": "stream", "severity": 2,
-                            "label": str(s["stream"]).split(":")[-1],
-                            "detail": f"{s['pending']} pending (xlen {s.get('xlen')})"})
+                add(r["node"], "stream", 2, str(s["stream"]).split(":")[-1],
+                    f"{s['pending']} pending (xlen {s.get('xlen')})", f"pending {s['pending']}",
+                    _kv(("xlen", s.get("xlen")), ("pending", s.get("pending"))))
     for p in svc.get("procs", []):
         if not p.get("count"):
-            out.append({"node": p["node"], "kind": "proc", "severity": 3, "label": p["label"], "detail": "process missing"})
+            add(p["node"], "proc", 3, p["label"], "process missing", "gone",
+                _kv(("last cpu", _num(p.get("cpu_pct"), "%")), ("rss", _num(p.get("rss_mb"), "MB")),
+                    ("uptime", _dur(p.get("uptime_s"))), ("restarts", p.get("restarts") or None)))
     for s in svc.get("streams", []):
         if not s.get("ok"):
-            out.append({"node": s["node"], "kind": "stream", "severity": 2, "label": query.host_label(s["url"]),
-                        "detail": f"probe failing (status {s.get('status')})"})
+            add(s["node"], "stream", 2, query.host_label(s["url"]),
+                f"probe failing (status {s.get('status')})", "probe failing",
+                _kv(("url", s.get("url")), ("status", s.get("status")),
+                    ("latency", _num(s.get("latency_ms"), "ms")), ("age", _dur(s.get("age_s")))))
     # host-level gauges: latest row per node (MAX(ts) bare-column trick, like services())
-    for node, oom, swap, psi_mem, thr_bits, thr_cnt, _ts in _rows(
+    for (node, oom, swap, psi_mem, thr_bits, thr_cnt, mem_pct, mem_total, cache, psi_io,
+         temp, freq, cpu, load1, _ts) in _rows(
             conn, "SELECT node, oom_kill_count, swap_used_pct, psi_mem, pi_throttle_bits, "
-            "cpu_throttle_count, MAX(ts) FROM host_samples WHERE ts >= ? GROUP BY node", (since,)):
+            "cpu_throttle_count, mem_used_pct, mem_total_mb, cache_mb, psi_io, temp_c, "
+            "cpu_freq_mhz, cpu_pct, load1, MAX(ts) FROM host_samples WHERE ts >= ? GROUP BY node", (since,)):
         if node is None:
             continue
+        mem_ctx = _kv(("mem used", _num(mem_pct, "%")), ("total", _num(mem_total, "MB")),
+                      ("cache", _num(cache, "MB")), ("swap", _num(swap, "%")),
+                      ("psi mem", _num(psi_mem, "%")), ("psi io", _num(psi_io, "%")))
         if oom:
-            out.append({"node": node, "kind": "memory", "severity": 3, "label": "oom-killer", "detail": f"{oom} OOM kills"})
+            add(node, "memory", 3, "oom-killer", f"{oom} OOM kills", f"OOM x{oom}",
+                _kv(("kills", oom), *mem_ctx), logs_hint=True)
         if swap is not None and swap >= 80:
-            out.append({"node": node, "kind": "memory", "severity": 2, "label": "swap", "detail": f"swap {swap:.0f}% used"})
+            add(node, "memory", 2, "swap", f"swap {swap:.0f}% used", f"swap {swap:.0f}%", mem_ctx, logs_hint=True)
         if psi_mem is not None and psi_mem >= 20:
-            out.append({"node": node, "kind": "memory", "severity": 2, "label": "pressure", "detail": f"PSI mem {psi_mem:.0f}%"})
+            add(node, "memory", 2, "pressure", f"PSI mem {psi_mem:.0f}%", f"PSI mem {psi_mem:.0f}%",
+                mem_ctx, logs_hint=True)
         if thr_bits or (thr_cnt or 0) > 0:
-            out.append({"node": node, "kind": "throttle", "severity": 2, "label": "cpu",
-                        "detail": "throttling" + (f" ({thr_cnt}x)" if thr_cnt else "")})
-    for node, used, mx, _ts in _rows(
-            conn, "SELECT node, conntrack_used, conntrack_max, MAX(ts) FROM tcp_samples "
-            "WHERE ts >= ? GROUP BY node", (since,)):
+            add(node, "throttle", 2, "cpu", "throttling" + (f" ({thr_cnt}x)" if thr_cnt else ""),
+                "throttling" + (f" x{thr_cnt}" if thr_cnt else ""),
+                _kv(("temp", _num(temp, "C")), ("freq", _num(freq, "MHz")), ("cpu", _num(cpu, "%")),
+                    ("load1", _num(load1)), ("count", thr_cnt or None)), logs_hint=True)
+    for node, used, mx, retrans, rsts, estab, _ts in _rows(
+            conn, "SELECT node, conntrack_used, conntrack_max, retrans_segs, out_rsts, "
+            "estab_resets, MAX(ts) FROM tcp_samples WHERE ts >= ? GROUP BY node", (since,)):
         if node is None or not used or not mx:
             continue
         frac = used / mx
         if frac >= 0.8:
-            out.append({"node": node, "kind": "tcp", "severity": 3 if frac >= 0.95 else 2,
-                        "label": "conntrack", "detail": f"{used}/{mx} ({frac * 100:.0f}%)"})
+            add(node, "tcp", 3 if frac >= 0.95 else 2, "conntrack",
+                f"{used}/{mx} ({frac * 100:.0f}%)", f"conntrack {frac * 100:.0f}%",
+                _kv(("used", f"{used}/{mx}"), ("retrans", retrans), ("resets", rsts),
+                    ("estab resets", estab)))
     out.sort(key=lambda a: (-a["severity"], a["kind"], a["node"]))
     return out
 
@@ -1031,6 +1084,19 @@ _DASHBOARD_HTML = """<!doctype html>
  .pi-tag{font:600 9px var(--mono);padding:1px 6px;border-radius:4px;flex:0 0 auto;
    background:var(--accent-bg);color:var(--accent)}
  .pi-tag.muted{background:var(--card2);color:var(--dim)}
+ .pi{cursor:default}
+ .riskbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+ .kbtns{display:flex;gap:5px;flex-wrap:wrap}
+ .kbtn{background:var(--card);border:1px solid var(--line);color:var(--mut);font:500 11px var(--mono);
+   text-transform:uppercase;letter-spacing:.3px;padding:4px 9px;border-radius:7px;cursor:pointer;transition:.12s}
+ .kbtn:hover{color:var(--fg);border-color:var(--line2)}
+ .kbtn.on{color:var(--accent);border-color:var(--accent);background:var(--accent-bg)}
+ .rd-row.rd-alert{flex-direction:column;align-items:stretch}
+ .rd-row .rd-main{display:flex;align-items:center;gap:12px}
+ .rd-kv{display:flex;flex-wrap:wrap;gap:6px 14px;margin:8px 0 2px 74px;font:500 11.5px var(--mono);color:var(--dim)}
+ .rd-kv span b{color:var(--mut);font-weight:600}
+ .rd-logs{cursor:pointer;color:var(--accent);font:600 11px var(--mono);margin-left:8px}
+ .rd-logs:hover{text-decoration:underline}
  .pi.s3 .pi-k{background:var(--down-bg);color:var(--downf)}.pi.s3 .pi-e{color:var(--downf)}
  .pi.s2 .pi-k{background:var(--warn-bg);color:var(--warnf)}
  .pi.s1 .pi-k{background:var(--accent-bg);color:var(--accent)}
@@ -1581,7 +1647,7 @@ function loadingHtml(v){return `<div class="loading"><div class="spin"></div>`
 function setView(v){view=v;
  VIEWS.forEach(([id])=>viewEl(id).hidden=(id!==v));
  tabs.querySelectorAll(".tab").forEach(t=>t.classList.toggle("on",t.dataset.v===v));
- q.style.display=(v==="table"||v==="grid"||v==="logs"||v==="net")?"":"none";  // node filter (net: drill-in)
+ q.style.display=(v==="table"||v==="grid"||v==="logs"||v==="net"||v==="risk")?"":"none";  // node filter (net: drill-in)
  const el=viewEl(v);
  if(WARMUP[v]&&!el.firstChild)el.innerHTML=loadingHtml(v);  // first visit only (empty view)
  refreshView();}
@@ -1679,35 +1745,58 @@ async function loadRisk(){try{const r=await fetch("/api/risks?hours=24",{cache:"
 // Overview-style risks: every clock/alert/incident is folded into ONE issue list per node, so
 // the page is a scannable grid of "problem nodes" (worst-first) + a summary rail — same mental
 // model as the grid tab. Each issue: {sev 1-3, kind, detail, eta?|ago?}. Click a card -> modal.
-function renderRisk(d){
+// Risk view keeps its last payload so the filter bar (severity / kind / hide-muted / #q host)
+// re-renders instantly without refetching (/api/risks is cached client-side anyway).
+let riskData=null;const riskFilter={sev:"all",kinds:new Set(),hideMuted:false};
+const RISK_SEVS=[["all","all"],["crit","critical"],["warn","warn+"]];
+function renderRisk(d){riskData=d;drawRisk();}
+function drawRisk(){
+ const d=riskData||{};
  const clocks=d.clocks||[],alerts=d.alerts||[],incidents=d.incidents||[];
- const byNode={};
- const push=(node,sev,kind,detail,extra)=>{(byNode[node]=byNode[node]||[]).push({sev,kind,detail,...(extra||{})});};
- clocks.forEach(c=>push(c.node,c.severity||1,c.kind,c.detail,{eta:c.eta_s}));
- alerts.forEach(a=>push(a.node,a.severity,a.kind,`${a.label} · ${a.detail}`,
-  {muted:a.muted,notified:a.notified,sinceS:a.since_s}));
- incidents.forEach(i=>push(i.node,i.severity,i.klass,`${i.scope} · ${i.detail}`,{ago:i.start}));
+ // fold every clock/alert/incident into one issue list. text = short chip label; full = the
+ // headline shown in the chip's hover tooltip; alerts carry their mute/firing delivery state.
+ const issues=[];
+ const add=(node,sev,kind,cat,text,full,x)=>issues.push({node,sev,kind,cat,text,full,...(x||{})});
+ clocks.forEach(c=>add(c.node,c.severity||1,c.kind,"clock",c.detail,c.detail,{eta:c.eta_s}));
+ alerts.forEach(a=>add(a.node,a.severity,a.kind,"alert",a.summary||a.detail,
+  (a.label?a.label+" · ":"")+a.detail,{muted:a.muted,notified:a.notified,sinceS:a.since_s}));
+ incidents.forEach(i=>add(i.node,i.severity,i.klass,"incident",i.scope+" · "+i.detail,
+  i.scope+" · "+i.detail,{ago:i.start}));
+ const allKinds=[...new Set(issues.map(x=>x.kind))].sort();
+ const f=riskFilter,hostq=(view==="risk"?q.value.trim().toLowerCase():"");
+ const pass=x=>{
+  if(f.sev==="crit"&&x.sev!==3)return false;
+  if(f.sev==="warn"&&x.sev<2)return false;
+  if(f.kinds.size&&!f.kinds.has(x.kind))return false;
+  if(f.hideMuted&&x.muted)return false;
+  if(hostq&&!x.node.toLowerCase().includes(hostq))return false;
+  return true;};
+ const vis=issues.filter(pass),byNode={};
+ vis.forEach(x=>{(byNode[x.node]=byNode[x.node]||[]).push(x);});
  const nodes=Object.keys(byNode).map(n=>{const list=byNode[n].sort((a,b)=>b.sev-a.sev);
   return {node:n,list,worst:Math.max(...list.map(x=>x.sev)),cnt:list.length};})
   .sort((a,b)=>b.worst-a.worst||b.cnt-a.cnt||a.node.localeCompare(b.node));
- const all=[].concat(...Object.values(byNode));
- const crit=all.filter(x=>x.sev===3).length,warn=all.filter(x=>x.sev===2).length,watch=all.filter(x=>x.sev===1).length;
+ const crit=vis.filter(x=>x.sev===3).length,warn=vis.filter(x=>x.sev===2).length,watch=vis.filter(x=>x.sev===1).length;
  const soon=clocks.filter(c=>c.eta_s!=null).sort((a,b)=>a.eta_s-b.eta_s)[0];
  const tile=(cls,val,label)=>`<div class="kpi ${cls}"><div class="tv">${val}</div><div class="tl">${label}</div></div>`;
  const strip=`<div class="kpis risk-sum">`
   +tile(crit?"bad":"",crit,"critical")+tile(warn?"warn":"",warn,"warnings")
   +tile("",watch,"watch")+tile(crit||warn?"warn":"",nodes.length,"nodes affected")
   +tile("",soon?fmtDur(soon.eta_s):"—",soon?"soonest · "+soon.kind:"death clock")+`</div>`;
+ const seg=`<div class="seg-ctl" id="rsev">`+RISK_SEVS.map(([k,l])=>`<button data-rsev="${k}" class="${f.sev===k?"on":""}">${l}</button>`).join("")+`</div>`;
+ const kinds=allKinds.map(k=>`<button class="kbtn ${f.kinds.has(k)?"on":""}" data-rkind="${esc(k)}">${esc(k)}</button>`).join("");
+ const mute=`<button class="kbtn ${f.hideMuted?"on":""}" data-rmute="1">hide muted</button>`;
+ const bar=`<div class="riskbar">${seg}<div class="kbtns">${kinds}${mute}</div></div>`;
  const cards=nodes.length?nodes.map(N=>{
   const chips=N.list.map(x=>{const tail=x.eta!=null?`<span class="pi-e">${esc(fmtDur(x.eta))}</span>`
     :(x.ago?`<span class="pi-e">${esc(tago(x.ago))}</span>`:"");
    const tags=(x.sinceS!=null?`<span class="pi-tag">firing ${esc(fmtDur(x.sinceS))}</span>`:"")
     +(x.muted?`<span class="pi-tag muted">muted</span>`:x.notified?`<span class="pi-tag">paged</span>`:"");
-   return `<div class="pi s${x.sev}"><span class="pi-k">${esc(x.kind)}</span><span class="pi-d">${esc(x.detail)}</span>${tags}${tail}</div>`;}).join("");
+   return `<div class="pi s${x.sev}" title="${esc(x.full)}"><span class="pi-k">${esc(x.kind)}</span><span class="pi-d">${esc(x.text)}</span>${tags}${tail}</div>`;}).join("");
   return `<div class="pnode" data-node="${esc(N.node)}"><div class="pnode-h"><span class="pdot sev${N.worst}"></span>`
    +`<span class="pn">${esc(N.node)}</span><span class="pc">${N.cnt} issue${N.cnt>1?"s":""}</span></div>`
-   +`<div class="pissues">${chips}</div></div>`;}).join(""):`<div class="empty">no problems detected — fleet healthy</div>`;
- viewEl("risk").innerHTML=strip+`<div class="pnodes">${cards}</div>`;
+   +`<div class="pissues">${chips}</div></div>`;}).join(""):`<div class="empty">${issues.length?"no issues match the filter":"no problems detected — fleet healthy"}</div>`;
+ viewEl("risk").innerHTML=strip+bar+`<div class="pnodes">${cards}</div>`;
 }
 // logs tab (/api/logs): fleet-wide newest-first stream of ext_events + log_excerpts. Severity
 // segmented control (all/elevated/error) + the #q node filter; rows click through to the modal.
@@ -1821,8 +1910,18 @@ function renderServices(d){
 viewEl("logs").addEventListener("click",e=>{const b=e.target.closest("[data-sev]");
  if(b){logSev=b.dataset.sev;loadLogs();}});
 let filtQT=null;  // #q drives the node filter on logs + the fleet/node drill-in on network
-q.addEventListener("input",()=>{if(view!=="logs"&&view!=="net")return;
- clearTimeout(filtQT);filtQT=setTimeout(()=>{if(view==="logs")loadLogs();else if(view==="net")loadNet();},250);});
+q.addEventListener("input",()=>{if(view!=="logs"&&view!=="net"&&view!=="risk")return;
+ clearTimeout(filtQT);filtQT=setTimeout(()=>{if(view==="logs")loadLogs();else if(view==="net")loadNet();else if(view==="risk")drawRisk();},250);});
+// risk filter bar (delegated; lives outside the [data-node] cards so it never opens the modal)
+viewEl("risk").addEventListener("click",e=>{
+ const sv=e.target.closest("[data-rsev]");if(sv){riskFilter.sev=sv.dataset.rsev;drawRisk();return;}
+ const kd=e.target.closest("[data-rkind]");if(kd){const k=kd.dataset.rkind;
+  riskFilter.kinds.has(k)?riskFilter.kinds.delete(k):riskFilter.kinds.add(k);drawRisk();return;}
+ const mt=e.target.closest("[data-rmute]");if(mt){riskFilter.hideMuted=!riskFilter.hideMuted;drawRisk();}});
+// "view logs →" inside the detail modal -> jump to the Logs tab filtered to that node.
+// Delegated on document so it never depends on the modal element's declaration order.
+document.addEventListener("click",e=>{const l=e.target.closest("[data-lognode]");if(l){gotoLogs(l.dataset.lognode);}});
+function gotoLogs(node){detail.hidden=true;clearInterval(dTimer);q.value=node;setView("logs");loadLogs();}
 // per-node view: layout toggle (table/tiles) + click-to-sort column headers (re-renders in place).
 viewEl("table").addEventListener("click",e=>{
  const lb=e.target.closest("[data-l]");if(lb){nodeLayout=lb.dataset.l;render();return;}
@@ -1946,6 +2045,15 @@ async function paintRisks(){
  const row=(s,kind,detail,tail)=>`<div class="rd-row s${s}"><span class="rd-sev">${sev(s)}</span>`
   +`<span class="rd-kind">${esc(kind)}</span><span class="rd-detail">${esc(detail)}</span>`
   +`<span class="rd-tail">${tail?esc(tail):""}</span></div>`;
+ // alert rows are richer: a summary headline + the context grid (cpu/mem/uptime/temp...) +
+ // firing/muted delivery tags + a "view logs" deep-link when the kernel cause lives in logs.
+ const kvgrid=ex=>(ex&&ex.length)?`<div class="rd-kv">`+ex.map(p=>`<span><b>${esc(p[0])}:</b> ${esc(String(p[1]))}</span>`).join("")+`</div>`:"";
+ const arow=a=>{const tags=(a.since_s!=null?`<span class="pi-tag">firing ${esc(fmtDur(a.since_s))}</span>`:"")
+   +(a.muted?`<span class="pi-tag muted">muted</span>`:a.notified?`<span class="pi-tag">paged</span>`:"")
+   +(a.logs_hint?`<span class="rd-logs" data-lognode="${esc(a.node)}">view logs →</span>`:"");
+  return `<div class="rd-row rd-alert s${a.severity}"><div class="rd-main"><span class="rd-sev">${sev(a.severity)}</span>`
+   +`<span class="rd-kind">${esc(a.kind)}</span><span class="rd-detail">${esc(a.label||"")} · ${esc(a.summary||a.detail)}</span>`
+   +`<span class="rd-tail">${tags}</span></div>${kvgrid(a.extra)}</div>`;};
  const cl=(d.clocks||[]).filter(x=>x.node===dNode).sort((a,b)=>(b.severity||1)-(a.severity||1));
  const al=(d.alerts||[]).filter(x=>x.node===dNode).sort((a,b)=>b.severity-a.severity);
  const inc=(d.incidents||[]).filter(x=>x.node===dNode).sort((a,b)=>b.start-a.start);
@@ -1953,7 +2061,7 @@ async function paintRisks(){
  if(cl.length)h+='<div class="rd-sec">death clocks <span>'+cl.length+'</span></div>'
   +cl.map(c=>row(c.severity||1,c.kind,c.detail,c.eta_s!=null?"in "+fmtDur(c.eta_s):"")).join("");
  if(al.length)h+='<div class="rd-sec">service alerts <span>'+al.length+'</span></div>'
-  +al.map(a=>row(a.severity,a.kind,a.label+" · "+a.detail,"")).join("");
+  +al.map(arow).join("");
  if(inc.length)h+='<div class="rd-sec">recent incidents <span>'+inc.length+'</span></div>'
   +inc.map(i=>row(i.severity,i.klass,i.scope+" · "+i.detail,tago(i.start))).join("");
  drisk.innerHTML=h||'<div class="empty">no risks for this node — healthy</div>';}

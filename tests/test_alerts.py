@@ -3,7 +3,7 @@ dedup / re-notify / resolve flap-suppression state machine."""
 
 import pytest
 
-from smokemon import alerts, config, core, schema
+from smokemon import alerts, config, core, hubapi, schema
 
 
 @pytest.fixture
@@ -26,6 +26,52 @@ def _seed_services(conn, ts0):
     schema.insert(conn, "stream_probes", [{"ts": ts0, "url": "rtsp://cam/imx519", "ok": 0,
                   "status": "timeout"}], node="pi01")
     conn.commit()
+
+
+# ---- enriched alert shape (summary / detail / extra / logs_hint) -------------------------
+
+def test_alert_enrichment_docker_unhealthy(hub_conn, ts0):
+    schema.insert(hub_conn, "docker_samples", [{"ts": ts0, "name": "api", "image": "api:latest",
+                  "state": "running", "running": 1, "health": "unhealthy", "restart_count": 3,
+                  "cpu_pct": 12.0, "mem_mb": 512.0, "pids": 7}], node="pi01")
+    hub_conn.commit()
+    a = next(x for x in hubapi._service_alerts(hub_conn, 24, ts0 + 10) if x["kind"] == "docker")
+    assert a["summary"] == "unhealthy"          # short chip text
+    assert a["detail"] == "unhealthy"           # back-compat headline preserved
+    ex = dict(a["extra"])
+    assert ex["image"] == "api:latest" and ex["mem"] == "512MB" and ex["restarts"] == 3
+
+
+def test_alert_enrichment_proc_gone(hub_conn, ts0):
+    schema.insert(hub_conn, "proc_watch", [{"ts": ts0, "label": "gst", "count": 0,
+                  "rss_mb": 124.0, "uptime_s": 0, "restarts": 2}], node="pi01")
+    hub_conn.commit()
+    a = next(x for x in hubapi._service_alerts(hub_conn, 24, ts0 + 10) if x["kind"] == "proc")
+    assert a["summary"] == "gone" and a["detail"] == "process missing"
+    assert dict(a["extra"])["rss"] == "124MB"
+
+
+def test_alert_enrichment_oom_has_context_and_logs_hint(hub_conn, ts0):
+    schema.insert(hub_conn, "host_samples", [{"ts": ts0, "oom_kill_count": 3, "mem_used_pct": 91.0,
+                  "mem_total_mb": 4096.0, "cache_mb": 600.0, "swap_used_pct": 12.0,
+                  "psi_mem": 40.0, "psi_io": 5.0}], node="pi01")
+    hub_conn.commit()
+    a = next(x for x in hubapi._service_alerts(hub_conn, 24, ts0 + 10)
+             if x["kind"] == "memory" and x["label"] == "oom-killer")
+    assert a["summary"] == "OOM x3" and a["detail"] == "3 OOM kills"
+    assert a.get("logs_hint") is True           # modal offers a Logs deep-link
+    ex = dict(a["extra"])
+    assert ex["kills"] == 3 and ex["mem used"] == "91%" and ex["psi io"] == "5%"
+
+
+def test_alert_enrichment_conntrack(hub_conn, ts0):
+    schema.insert(hub_conn, "tcp_samples", [{"ts": ts0, "conntrack_used": 9500,
+                  "conntrack_max": 10000, "retrans_segs": 234, "out_rsts": 18,
+                  "estab_resets": 3}], node="pi01")
+    hub_conn.commit()
+    a = next(x for x in hubapi._service_alerts(hub_conn, 24, ts0 + 10) if x["kind"] == "tcp")
+    assert a["summary"] == "conntrack 95%" and a["detail"] == "9500/10000 (95%)"
+    assert dict(a["extra"])["retrans"] == 234
 
 
 def test_evaluate_detects_services(hub_conn, ts0, monkeypatch):
