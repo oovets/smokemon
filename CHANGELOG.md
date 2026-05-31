@@ -12,6 +12,21 @@ tagged; dated entries begin at the first release, 0.11.0.)
 
 added:
 
+- hub storage: downsampling/rollups (smokemon/rollup.py, hub-side, pure stdlib). the hub now
+  aggregates the heavy time-series tables (ping_runs/host_samples/net_samples/tcp_samples/
+  wifi_samples) into additive <table>_1m and <table>_1h tables, driven by a rollup_state cursor
+  and run incrementally from the hub's hourly housekeeping pass (only fully-closed buckets; the
+  open bucket is left until it closes; idempotent via UNIQUE(node,entity,bucket_ts)). query gains
+  _resolution()/res= so the heavy aggregate read paths can opt into a coarser resolution by span,
+  falling back to raw when a rollup has no rows in range. the node is untouched (still ships raw);
+  incident detection, the analysis frame and the renderers keep full raw fidelity by default.
+
+- hub storage: optional DuckDB read acceleration (smokemon/duckio.py, new `duckdb` extra, hub
+  only). when installed, the hub ATTACHes its existing SQLite file READ_ONLY and runs the heavy
+  cross-node aggregate (heatmap) on the columnar engine; SQLite stays the master store and sole
+  writer. strictly opt-in and lazily imported - absent duckdb, the hub imports and runs exactly as
+  before and every accelerated path falls back to sqlite, so it is never a requirement.
+
 - analysis: multivariate anomaly detection (smokemon/mlanomaly.py, hub-side, read-only). scores
   each time bucket on how jointly anomalous its signals are, so a cluster of mild co-deviations
   (moderate cpu + temp + a little rtt drift = an emerging thermal issue) surfaces even when no

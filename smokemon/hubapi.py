@@ -11,7 +11,7 @@ import fnmatch
 import sqlite3
 import time
 
-from . import analyze, config, mlanomaly, query, schema
+from . import analyze, config, core, duckio, mlanomaly, query, schema
 from .probes.logexcerpt import is_elevated
 
 
@@ -138,9 +138,12 @@ def fleet(conn, hours: float = 24.0, until: float | None = None) -> list[dict]:
     return out
 
 
-def heatmap(conn, metric: str = "loss", hours: float = 24.0, until: float | None = None) -> dict:
+def heatmap(conn, metric: str = "loss", hours: float = 24.0, until: float | None = None,
+            duck=None) -> dict:
     """node × hour grid for 'loss' (max loss%) or 'rtt' (median RTT). Returns
-    {metric, hours:[epoch...], nodes:{node:[val per hour]}}."""
+    {metric, hours:[epoch...], nodes:{node:[val per hour]}}. When `duck` is a DuckDB connection
+    (hub opt-in) the GROUP BY runs on the columnar engine for speed; otherwise it runs on the
+    sqlite3 connection. Both paths use the same SQL and produce an identical result."""
     until = time.time() if until is None else until
     since = until - hours * 3600
     n_buckets = int(hours)
@@ -148,10 +151,17 @@ def heatmap(conn, metric: str = "loss", hours: float = 24.0, until: float | None
     col = "loss_pct" if metric == "loss" else "rtt_median"
     agg = "MAX" if metric == "loss" else "AVG"
     grid: dict[str, list] = {}
-    rows = _rows(conn,
-                 f"SELECT node, CAST((ts - ?) / 3600 AS INT) hr, {agg}({col}) "
-                 "FROM ping_runs WHERE ts BETWEEN ? AND ? GROUP BY node, hr",
-                 (hour0, since, until))
+    sql = (f"SELECT node, CAST((ts - ?) / 3600 AS INT) hr, {agg}({col}) "
+           "FROM ping_runs WHERE ts BETWEEN ? AND ? GROUP BY node, hr")
+    params = (hour0, since, until)
+    if duck is not None:
+        try:
+            rows = duckio.query_rows(duck, sql, params)
+        except Exception as e:  # noqa: BLE001 - any duckdb hiccup degrades to sqlite, never 500s
+            core.log(f"heatmap: duckdb query failed, using sqlite: {e!r}")
+            rows = _rows(conn, sql, params)
+    else:
+        rows = _rows(conn, sql, params)
     for node, hr, val in rows:
         if node is None or hr is None:
             continue

@@ -50,18 +50,56 @@ def _filt(node: str | None) -> tuple[str, list]:
     return (" AND node=?", [node]) if node else ("", [])
 
 
+# ---------- hub rollup resolution selection ----------
+
+# Pick a stored resolution by query span so a long-window aggregate reads pre-downsampled buckets
+# (built by smokemon.rollup on the hub) instead of scanning raw 10s/30s samples. Raw for short
+# spans where full fidelity matters; 1-minute for up to a week; 1-hour beyond. Only the heavy
+# time-series loaders honour this - everything else reads raw as before.
+def _resolution(since: float, until: float) -> str:
+    span = until - since
+    if span <= 6 * 3600:
+        return ""        # raw table, no suffix
+    if span <= 7 * 86400:
+        return "_1m"
+    return "_1h"
+
+
+def _table_for(conn, base: str, res: str, since: float, until: float, node: str | None) -> tuple[str, str]:
+    """(table_name, ts_column) to read for `base` at resolution `res`. Returns the rollup table
+    (reading bucket_ts AS the time column) only when it exists AND actually has a row in range;
+    otherwise falls back to the raw table so a just-upgraded hub (no rollups built yet) or a
+    sparse window still returns data. Read-only."""
+    if not res:
+        return base, "ts"
+    rt = base + res
+    nf, npar = _filt(node)
+    try:
+        row = conn.execute(
+            f"SELECT 1 FROM {rt} WHERE bucket_ts BETWEEN ? AND ?" + nf + " LIMIT 1",
+            [since, until, *npar]).fetchone()
+    except sqlite3.OperationalError:
+        return base, "ts"  # rollup table absent
+    return (rt, "bucket_ts") if row else (base, "ts")
+
+
 def open_ro(db: str) -> sqlite3.Connection:
     return sqlite3.connect(f"file:{db}?mode=ro", uri=True)
 
 
-def load_ping_agg(conn, since, until, targets, node=None):
+def load_ping_agg(conn, since, until, targets, node=None, res=None):
+    """Per-target min/median/max + loss series. `res` opts into a hub rollup resolution
+    ('_1m'/'_1h'); the DEFAULT (None/'') reads raw so incident detection keeps full 10s fidelity.
+    Falls back to raw when the chosen rollup has no rows in range."""
+    tbl, tcol = _table_for(conn, "ping_runs", res or "", since, until, node)
     nf, np_ = _filt(node)
-    q = "SELECT ts,target,loss_pct,rtt_min,rtt_median,rtt_max FROM ping_runs WHERE ts BETWEEN ? AND ?" + nf
+    q = (f"SELECT {tcol},target,loss_pct,rtt_min,rtt_median,rtt_max FROM {tbl} "
+         f"WHERE {tcol} BETWEEN ? AND ?" + nf)
     params = [since, until, *np_]
     if targets:
         q += " AND target IN (%s)" % ",".join("?" * len(targets))
         params += targets
-    q += " ORDER BY target, ts"
+    q += f" ORDER BY target, {tcol}"
     data: dict[str, dict] = {}
     for ts, target, loss, rmin, rmed, rmax in _q(conn, q, params):
         d = data.setdefault(target, {"t": [], "min": [], "med": [], "max": [], "loss": []})
@@ -498,13 +536,17 @@ def load_iperf(conn, since, until, node=None):
     return d if d["t"] else {}
 
 
-def load_host(conn, since, until, node=None):
+def load_host(conn, since, until, node=None, res=None):
     """Combined host gauges. New fields (swap/cache/freq/throttle/pi_bits) default to
-    None when reading older rows that predate the schema migration."""
+    None when reading older rows that predate the schema migration. `res` opts into a hub rollup
+    resolution ('_1m' / '_1h'); the DEFAULT (None/'') reads raw so incident detection, the
+    analysis frame and the renderers keep full fidelity - rollups are opt-in for the heavy
+    aggregate read paths only. Falls back to raw when the chosen rollup has no rows in range."""
+    tbl, tcol = _table_for(conn, "host_samples", res or "", since, until, node)
     nf, np_ = _filt(node)
     d = {"t": [], "cpu": [], "load1": [], "mem": [], "temp": [], "swap": [], "cache_mb": []}
-    rows = _q(conn, "SELECT ts, cpu_pct, load1, mem_used_pct, temp_c, swap_used_pct, cache_mb "
-              "FROM host_samples WHERE ts BETWEEN ? AND ?" + nf + " ORDER BY ts", [since, until, *np_])
+    rows = _q(conn, f"SELECT {tcol}, cpu_pct, load1, mem_used_pct, temp_c, swap_used_pct, cache_mb "
+              f"FROM {tbl} WHERE {tcol} BETWEEN ? AND ?" + nf + f" ORDER BY {tcol}", [since, until, *np_])
     for ts, cpu, load1, mem, temp, swap, cache in rows:
         d["t"].append(ts); d["cpu"].append(cpu); d["load1"].append(load1)
         d["mem"].append(mem); d["temp"].append(temp); d["swap"].append(swap); d["cache_mb"].append(cache)

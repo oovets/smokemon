@@ -170,6 +170,30 @@ def test_heatmap_grid(tmp_db, ts0):
     conn.close()
 
 
+def test_heatmap_duckdb_matches_sqlite(tmp_db, ts0):
+    """The DuckDB-accelerated heatmap must produce byte-identical output to the SQLite path,
+    so enabling the accelerator never changes results - only speed. Skipped without duckdb."""
+    import pytest
+
+    from smokemon import duckio
+    pytest.importorskip("duckdb")
+    conn = core.connect(str(tmp_db))
+    _seed(conn, ts0)
+    conn.close()
+    # sqlite path
+    sconn = core.connect(str(tmp_db))
+    sqlite_hm = hubapi.heatmap(sconn, "loss", hours=24, until=ts0 + 100)
+    sconn.close()
+    # duckdb path against the same file
+    duck = duckio.connect_ro(str(tmp_db))
+    assert duck is not None
+    sconn = core.connect(str(tmp_db))
+    duck_hm = hubapi.heatmap(sconn, "loss", hours=24, until=ts0 + 100, duck=duck)
+    sconn.close()
+    duck.close()
+    assert duck_hm == sqlite_hm
+
+
 def test_risks_shape_and_anomalies(tmp_db, ts0):
     """risks() returns the new anomalies + incident_groups tiers; a node whose cpu/mem/temp
     co-deviate in the same bucket surfaces a multivariate anomaly."""

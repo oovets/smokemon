@@ -15,11 +15,13 @@ import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from . import alerts, config, core, hubapi, notify, schema
+from . import alerts, config, core, duckio, hubapi, notify, rollup, schema
 
 _conn = None              # writer connection: ingest + housekeeping, guarded by _lock
 _lock = threading.Lock()  # serialize writes to the single sqlite connection
 _ro_conn = None           # read-only connection: dashboard/API GETs, guarded by _read_lock
+_duck = None              # optional DuckDB read accelerator (attaches the SQLite file RO); None
+                          # when the duckdb extra is absent -> heavy aggregates fall back to sqlite
 _read_lock = threading.Lock()  # serialize reads among themselves; WAL lets them run beside ingest
 _render_lock = threading.Lock()  # serialize the (heavy) PNG subprocess renders
 # Short-TTL memoization for the expensive aggregate endpoints. Keyed by path+params; a per-key
@@ -174,10 +176,19 @@ def ingest(payload: dict, wire_bytes: int = 0, raw_bytes: int = 0) -> dict:
             now = time.time()
             _conn.execute("INSERT INTO ingest_log (ts, node, wire_bytes, raw_bytes, rows) VALUES (?,?,?,?,?)",
                           (now, node, wire_bytes, raw_bytes, sum(counts.values())))
-            if now - _last_prune > 3600:  # hourly housekeeping, in-band under the same lock
+            do_housekeeping = now - _last_prune > 3600  # hourly, in-band under the same lock
+            if do_housekeeping:
                 _conn.execute("DELETE FROM ingest_log WHERE ts < ?", (now - _INGEST_LOG_RETENTION_S,))
                 _last_prune = now
             _conn.commit()
+            # Build any newly-closed rollup buckets. Done after the commit (rollup() manages its
+            # own transaction) but still under _lock so it never races the writer. Best-effort:
+            # a rollup hiccup must not fail the ingest that just succeeded.
+            if do_housekeeping:
+                try:
+                    rollup.rollup(_conn, now)
+                except Exception as e:  # noqa: BLE001
+                    core.log(f"hub: rollup pass failed (non-fatal): {e!r}")
         except Exception:
             _conn.rollback()
             raise
@@ -314,8 +325,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, data)
             if u.path == "/api/heatmap":
                 metric = qs.get("metric", ["loss"])[0]
+                # _duck (when present) is used under the same _read_lock as _ro_conn, so the single
+                # shared DuckDB connection is never touched concurrently. Falls back inside heatmap.
                 data = _cached(f"heatmap:{metric}:{hours}",
-                               lambda: _ro_call(lambda c: hubapi.heatmap(c, metric, hours)))
+                               lambda: _ro_call(lambda c: hubapi.heatmap(c, metric, hours, duck=_duck)))
                 return self._send(200, data)
             if u.path == "/api/spark":
                 spark_hours = _clamp_hours(qs, default=2.0)
@@ -455,7 +468,7 @@ def _alert_loop() -> None:
 
 
 def main() -> int:
-    global _conn, _ro_conn
+    global _conn, _ro_conn, _duck
     if config.HUB_SECRET == "changeme":
         core.log("WARNING: SMOKEMON_HUB_SECRET is default 'changeme' - set a real secret.")
     _conn = core.connect(config.HUB_DB, check_same_thread=False)
@@ -463,6 +476,11 @@ def main() -> int:
     # Dashboard/API reads use a separate read-only connection (opened after the schema exists)
     # so GETs read under WAL without contending on the writer's lock.
     _ro_conn = core.connect_ro(config.HUB_DB)
+    # Optional columnar read accelerator for the heavy aggregate endpoints. None when the duckdb
+    # extra is not installed; every caller falls back to _ro_conn, so this never gates startup.
+    _duck = duckio.connect_ro(config.HUB_DB)
+    if _duck is not None:
+        core.log("hub: DuckDB read acceleration enabled (heatmap)")
     _hub_cols.update({t: {r[1] for r in _conn.execute(f"PRAGMA table_info({t})").fetchall()}
                       for t in schema.STD_TABLES})
     if config.ALERT_TRACK or config.NOTIFY_URL:  # background alert pass (track always, page if URL)

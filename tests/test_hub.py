@@ -253,6 +253,25 @@ def test_dashboard_has_network_tab():
     assert "function loadNet(" in h and "function netSpark(" in h and "/api/network?hours=6" in h
 
 
+def test_hub_housekeeping_builds_rollups(hub_ready, monkeypatch):
+    """The hourly housekeeping pass inside ingest() must also build rollup buckets. Ingest a batch
+    whose samples sit in a fully-closed minute, force the housekeeping branch, and confirm the
+    1-minute rollup table gets populated by the hub (not just by a direct rollup() call)."""
+    from smokemon import rollup
+    # samples ~10 min in the past so their minute bucket is closed relative to now
+    ts0 = time.time() - 600
+    ts0 = ts0 - (ts0 % 60)
+    monkeypatch.setattr(hub, "_last_prune", 0.0)  # force the hourly housekeeping branch this ingest
+    hub.ingest(_payload(ts0))
+    # the hub's rollup pass should have written a ping_runs_1m bucket for testnode
+    n = hub_ready.execute("SELECT COUNT(*) FROM ping_runs_1m WHERE node='testnode'").fetchone()[0]
+    assert n >= 1
+    # sanity: a direct rollup() call is idempotent (no duplicate buckets)
+    rollup.rollup(hub_ready, now=ts0 + 10_000)
+    n2 = hub_ready.execute("SELECT COUNT(*) FROM ping_runs_1m WHERE node='testnode'").fetchone()[0]
+    assert n2 == n
+
+
 def test_dashboard_risk_tab_renders_anomalies():
     """The risk tab + per-node risk modal fold the new multivariate anomaly tier into their
     issue list / sections, so the anomaly markup and glyph must be present."""

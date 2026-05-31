@@ -173,6 +173,87 @@ def init_node(conn: sqlite3.Connection) -> None:
     ensure_body_columns(conn)
 
 
+# ---------- hub-side rollups (downsampling) ----------
+
+# The heavy time-series tables worth downsampling for long-window aggregate queries. The other
+# tables are either tiny (device_facts, alert_state), latest-row only (docker/redis/proc_watch),
+# or event-driven (ext_events, log_excerpts), so a rollup buys nothing there.
+ROLLUP_TABLES = ("ping_runs", "host_samples", "net_samples", "tcp_samples", "wifi_samples")
+ROLLUP_BUCKETS = {"_1m": 60, "_1h": 3600}
+
+# How each numeric body column collapses within a bucket. Counters (kernel monotonics, byte
+# gauges) MUST keep max so the per-second delta loaders (load_net/load_tcp/load_freq) still see a
+# monotonically rising value across buckets; loss/bandwidth use max so a spike is never averaged
+# away; everything else (levels, rates, latencies) uses mean. Text/identity columns use last.
+_ROLLUP_MAX_COLS = {
+    "loss_pct", "rtt_max", "ibytes", "obytes", "ipkts", "opkts",
+    "retrans_segs", "out_rsts", "estab_resets", "udp_in_errors", "udp_no_ports",
+    "conntrack_used", "conntrack_max", "retry_count", "discard_count", "beacon_loss",
+    "oom_kill_count", "cpu_throttle_count", "pi_throttle_bits",
+}
+# Columns that are not aggregated numerically: the bucket's representative text value.
+_ROLLUP_TEXT_COLS = {"ssid", "channel", "phy_mode", "bssid"}
+
+
+def _col_type(table: str, col: str) -> str:
+    """The declared SQL type of a body column (used to tell numeric from text)."""
+    for name, ddl in _body_cols(table):
+        if name == col:
+            return ddl.upper()
+    return ""
+
+
+def rollup_select_cols(table: str) -> list[tuple[str, str]]:
+    """[(out_col, sql_expr)] for building one rollup row from a group of raw rows. ts becomes the
+    bucket start; the entity column is a GROUP BY key (kept verbatim); numeric cols aggregate;
+    text cols take MAX (a stable representative). node is added by the caller."""
+    entity = _IX.get(table)
+    out: list[tuple[str, str]] = []
+    for col in columns(table):
+        if col == "ts":
+            continue
+        if col == entity:
+            out.append((col, col))
+        elif col in _ROLLUP_TEXT_COLS or "TEXT" in _col_type(table, col) or col in _ROLLUP_MAX_COLS:
+            # text/identity columns take a representative MAX; counters/loss/bandwidth keep MAX so
+            # the per-second delta loaders still see a monotonically rising value across buckets.
+            out.append((col, f"MAX({col})"))
+        else:
+            out.append((col, f"AVG({col})"))
+    return out
+
+
+def _rollup_ddl() -> str:
+    """CREATE for every <table><suffix> rollup (same body cols + node + bucket_ts) and the
+    rollup_state cursor. bucket_ts is the bucket start epoch; (node, entity, bucket_ts) is unique
+    so a re-run can INSERT OR IGNORE without duplicating a bucket."""
+    parts = []
+    for t in ROLLUP_TABLES:
+        # Drop the raw `ts` column entirely (the rollup keys on bucket_ts) and relax NOT NULL on
+        # the rest: a rolled-up bucket has no single raw ts, and aggregates of all-NULL columns
+        # are NULL. Keeping `ts NOT NULL` would make INSERT OR IGNORE silently drop every bucket.
+        body_cols = [c.strip() for c in _BODY[t].split(",") if c.strip().split()[0] != "ts"]
+        body = ", ".join(c.replace(" NOT NULL", "") for c in body_cols)
+        entity = _IX.get(t)
+        uniq = f"UNIQUE(node, {entity}, bucket_ts)" if entity else "UNIQUE(node, bucket_ts)"
+        for suffix in ROLLUP_BUCKETS:
+            rt = t + suffix
+            parts.append(f"CREATE TABLE IF NOT EXISTS {rt} (id INTEGER PRIMARY KEY, {body}, "
+                         f"node TEXT, bucket_ts REAL NOT NULL, {uniq});")
+            parts.append(f"CREATE INDEX IF NOT EXISTS ix_{rt}_node_ts ON {rt}(node, bucket_ts);")
+            parts.append(f"CREATE INDEX IF NOT EXISTS ix_{rt}_ts ON {rt}(bucket_ts);")
+    parts.append("CREATE TABLE IF NOT EXISTS rollup_state ("
+                 "tbl TEXT NOT NULL, bucket TEXT NOT NULL, last_ts REAL NOT NULL DEFAULT 0, "
+                 "PRIMARY KEY (tbl, bucket));")
+    return "\n".join(parts)
+
+
+def ensure_rollup_tables(conn: sqlite3.Connection) -> None:
+    """Create the hub-side rollup tables + cursor (additive, IF NOT EXISTS)."""
+    conn.executescript(_rollup_ddl())
+    conn.commit()
+
+
 def init_hub(conn: sqlite3.Connection) -> None:
     conn.executescript(_hub_ddl())
     # Per-POST ingest accounting (hub-only): actual compressed bytes received on the wire per
@@ -191,6 +272,7 @@ def init_hub(conn: sqlite3.Connection) -> None:
         "detail TEXT, first_ts REAL, notified_ts REAL);")
     conn.commit()
     ensure_body_columns(conn)
+    ensure_rollup_tables(conn)
     # Give the planner stats so it picks the loose-index scan over a full (node,ts) scan for the
     # latest-value queries. analysis_limit caps the sampling so this stays cheap even on a large
     # hub DB (a few hundred index rows per table, not a full ANALYZE).
