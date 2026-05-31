@@ -1496,7 +1496,9 @@ _DASHBOARD_HTML = """<!doctype html>
  .nc-h{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
  .nc-app{font:700 16px var(--mono);color:var(--fg)}
  .nc-rate{font:600 13px var(--mono);color:var(--accent);flex:0 0 auto}
-.ntspark{width:100%;height:92px;display:block;margin:10px 0 6px}
+.ntspark{width:100%;height:92px;display:block;margin:6px 0 6px}
+.nc-mag{height:3px;border-radius:2px;background:var(--line);overflow:hidden;margin-top:8px}
+.nc-mag>i{display:block;height:100%;background:linear-gradient(90deg,#7c83ff,#56d4dd);border-radius:2px}
 .nc-sub{font:12px var(--mono);color:var(--dim)}
 .net-sec{font:600 10.5px var(--mono);text-transform:uppercase;letter-spacing:.6px;color:var(--mut);
   margin:22px 2px 11px;display:flex;gap:8px;align-items:center}
@@ -2207,26 +2209,29 @@ function netSpark(s){
   +`<path d="M0,40 L${pts.join(" L")} L100,40 Z" fill="url(#gIngest)"/>`
   +`<path d="M${pts.join(" L")}" fill="none" stroke="#7c83ff" stroke-width="1.5" vector-effect="non-scaling-stroke"/></svg>`;
 }
-// 100%-stacked share chart: per bucket, each node is a band whose thickness = its share of THAT
-// bucket's total throughput. The bands always fill the full height, so a tiny node reads just as
-// clearly as a 500x-bigger one (absolute scale would bury it). Node identity is shown on hover
-// via each band's <svg><title>, not a giant permanent legend.
-function netMultiSpark(nodesArr){
+// Absolute stacked area: per bucket each node is a band on TOP of the ones below it, so the total
+// band height = the app's real bytes/s (small apps stay short, busy apps fill the card) and you can
+// see WHICH nodes build the total. `scale` is a shared bytes/s -> svg-height factor passed by the
+// renderer so cards are comparable across apps. Bands carry a hover <title> with node + rate; thin
+// separators keep adjacent bands legible instead of a colour mush.
+function netMultiSpark(nodesArr,scale){
  const series=nodesArr.map(x=>x.series||[]);
  const len=Math.max(1,...series.map(s=>s.length));
- const totals=[];for(let i=0;i<len;i++){let t=0;series.forEach(s=>t+=(s[i]||0));totals.push(t);}
  const xmax=Math.max(1,len-1),X=i=>(i/xmax*100).toFixed(2);
- // cumulative share boundaries: lower[i]..upper[i] per node per bucket (0..40 svg units, 40=100%).
- const cum=new Array(len).fill(0);
+ // scale = svg-height per byte/s. The renderer passes the app's OWN peak-derived scale so each
+ // card's shape fills its box (a shared linear scale would crush small apps to a flat line behind
+ // a 100x outlier); cross-app magnitude is conveyed by the header rate + the relative size bar.
+ const Y=v=>(40-Math.min(40,v*scale)).toFixed(2);  // bytes/s -> svg y (40=baseline, up = more)
+ const cum=new Array(len).fill(0);  // running stacked total per bucket (bytes/s)
  const bands=series.map((s,k)=>{const c=NET_COLORS[k%NET_COLORS.length];
-  const lower=[],upper=[];
-  for(let i=0;i<len;i++){const tot=totals[i]||0,share=tot>0?(s[i]||0)/tot:0;
-   const lo=cum[i],hi=lo+share;lower.push(lo);upper.push(hi);cum[i]=hi;}
-  // polygon: upper edge left->right, then lower edge right->left
-  const up=upper.map((v,i)=>X(i)+" "+(40-v*40).toFixed(2));
-  const dn=lower.map((v,i)=>X(i)+" "+(40-v*40).toFixed(2)).reverse();
-  return `<path d="M${up.join(" L")} L${dn.join(" L")} Z" fill="${c}" fill-opacity="0.85">`
-   +`<title>${esc(nodesArr[k].node)}</title></path>`;
+  const lo=cum.slice(),hi=cum.map((v,i)=>v+(s[i]||0));
+  for(let i=0;i<len;i++)cum[i]=hi[i];
+  const up=hi.map((v,i)=>X(i)+" "+Y(v));
+  const dn=lo.map((v,i)=>X(i)+" "+Y(v)).reverse();
+  const peak=Math.max(0,...(s.map(v=>v||0)));
+  return `<path d="M${up.join(" L")} L${dn.join(" L")} Z" fill="${c}" fill-opacity="0.82" `
+   +`stroke="${c}" stroke-width="0.4" vector-effect="non-scaling-stroke">`
+   +`<title>${esc(nodesArr[k].node)} · peak ${fmtKB(peak)}/s</title></path>`;
  }).join("");
  return `<svg class="ntspark" viewBox="0 0 100 40" preserveAspectRatio="none">${bands}</svg>`;
 }
@@ -2259,26 +2264,31 @@ async function loadNet(opts){
 // 100%-stacked SHARE chart (each node a band = its % of the app total per bucket), so no node
 // drowns regardless of absolute size. Identity shows on hover (svg <title>); only the top-3
 // contributors get a compact inline swatch hint - no giant permanent legend.
-function netCardHtml(a,buckets,node){
+// fleetPeak = the busiest app's peak bytes/s across the whole tab, used only for the relative
+// size bar so apps are comparable at a glance without a shared chart scale crushing small ones.
+function netCardHtml(a,buckets,node,fleetPeak){
  const dn=node?` data-node="${esc(node)}"`:"";
  const title=`<span class="nc-app">${esc(a.app)}</span>`;
+ const peak=Math.max(0,...a.series);  // this app's peak total bytes/s in any bucket
+ // relative magnitude bar: how big is this app vs the busiest one (sqrt so small apps stay visible)
+ const relW=fleetPeak>0?Math.max(2,Math.round(100*Math.sqrt(peak/fleetPeak))):0;
+ const magBar=`<div class="nc-mag" title="${fmtKB(peak)}/s peak vs busiest app"><i style="width:${relW}%"></i></div>`;
  if(netMode==="split"&&a.nodes&&a.nodes.length){
-  const fleetRate=buckets?a.total/buckets:0;  // app total throughput (avg/s), not a single node
-  const hdr=`<div class="nc-h">${title}<span class="nc-rate">${fmtKB(fleetRate)}/s total</span></div>`;
-  const sub=`<div class="nc-sub">:${esc(String(a.port))} · ${a.nodes.length} node${a.nodes.length===1?"":"s"} · share over time · hover for node</div>`;
-  // top-3 contributors as a tiny hint row (share % of total), the rest implied by the bands.
+  const hdr=`<div class="nc-h">${title}<span class="nc-rate">${fmtKB(peak)}/s peak</span></div>`;
+  const sub=`<div class="nc-sub">:${esc(String(a.port))} · ${a.nodes.length} node${a.nodes.length===1?"":"s"} · stacked by node · hover for detail</div>`;
   const tot=a.nodes.reduce((s,x)=>s+(x.total||0),0)||1;
   const top=a.nodes.slice(0,3).map((x,k)=>{const c=NET_COLORS[k%NET_COLORS.length];
    return `<span class="nc-leg"><span class="sw" style="background:${c}"></span>${esc(x.node)}`
     +`<b>${Math.round(100*(x.total||0)/tot)}%</b></span>`;}).join("");
   const more=a.nodes.length>3?`<span class="nc-leg nc-more">+${a.nodes.length-3} more</span>`:"";
   const leg=`<div class="nc-legend">${top}${more}</div>`;
-  return `<div class="netcard"${dn}>${hdr}${netMultiSpark(a.nodes)}${sub}${leg}</div>`;
+  const scale=peak>0?38/peak:0;  // per-card self-scale: the app's peak fills ~95% of the box
+  return `<div class="netcard"${dn}>${hdr}${magBar}${netMultiSpark(a.nodes,scale)}${sub}${leg}</div>`;
  }
- const peak=Math.max(0,...a.series),avg=buckets?a.total/buckets:0;
+ const avg=buckets?a.total/buckets:0;
  const hdr=`<div class="nc-h">${title}<span class="nc-rate">${fmtKB(peak)}/s peak</span></div>`;
  const sub=`<div class="nc-sub">:${esc(String(a.port))} · ${fmtKB(avg)}/s avg</div>`;
- return `<div class="netcard"${dn}>${hdr}${netSpark(a.series)}${sub}</div>`;
+ return `<div class="netcard"${dn}>${hdr}${magBar}${netSpark(a.series)}${sub}</div>`;
 }
 function renderNet(hm,nw,node){
  const apps=(nw&&nw.apps)||[],buckets=nw&&nw.buckets,hours=(nw&&nw.hours)||6;
@@ -2289,7 +2299,8 @@ function renderNet(hm,nw,node){
   +`${node?"":" · type a node in the filter to drill into its ports"}</span>`;
  const tpHdr=`<div class="net-sec">throughput per application</div>`
   +`<div class="logbar">${toggle}${scope}</div>`;
- const tpBody=apps.length?`<div class="netgrid">`+apps.map(a=>netCardHtml(a,buckets,node)).join("")+`</div>`
+ const fleetPeak=Math.max(0,...apps.map(a=>Math.max(0,...(a.series||[]))));  // busiest app, for the size bars
+ const tpBody=apps.length?`<div class="netgrid">`+apps.map(a=>netCardHtml(a,buckets,node,fleetPeak)).join("")+`</div>`
   :`<div class="empty">no port traffic in this window (is the ports probe deployed?)</div>`;
  // collapsible heatmap: a clickable header (data-heattoggle) flips heatOpen; the body only renders
  // its (heavier) grid markup when open, so a collapsed heatmap costs nothing to paint.
