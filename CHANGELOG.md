@@ -8,6 +8,38 @@ roadmap / ideas -> [PLAN.md](PLAN.md)
 tagged; dated entries begin at the first release, 0.11.0.)
 
 ```
+== 0.15.0 - 2026-05-31  multi-hub fan-out shipping ==
+
+added:
+
+- ship: fan-out to multiple hubs. Set SMOKEMON_HUB_URLS to a semicolon-separated list of /ingest
+  URLs (or `smoke hub HUB-A HUB-B`) and every hub receives a complete copy - no single point of
+  failure on the receiving side. A single SMOKEMON_HUB_URL behaves exactly as before. Per-hub
+  secrets are optional and positional via SMOKEMON_HUB_SECRETS (empty slot = shared HUB_SECRET).
+
+- ship: each batch is gathered and gzipped ONCE per shared cursor frontier and the same body is
+  POSTed to every hub at that frontier, so node CPU stays ~1x regardless of hub count; only egress
+  scales. A hub that lagged behind (was unreachable) gets its own catch-up gather.
+
+- ship: per-destination delivery is isolated - a hub that is down keeps its own cursor untouched
+  and never blocks or rolls back shipping to the others; it catches up on its backlog when it
+  returns (the hub stays idempotent on UNIQUE(node, src_id), so replays are dropped).
+
+- prune: with multiple hubs, a local row is deletable once AT LEAST ONE configured hub has
+  confirmed it (MAX cursor across destinations). A configured-but-unreachable hub (cursor 0)
+  never blocks pruning of data another hub already took.
+
+- cli: `smoke hub` lists all configured targets with per-hub reachability; `smoke hub HOST...`
+  takes several hosts to set up fan-out (writes SMOKEMON_HUB_URLS) and clears the single-var form
+  so the two can't shadow each other.
+
+changed:
+
+- ship_state migrates in place from a single per-table cursor (table_name PK) to a per-destination
+  composite key (dest, table_name); old cursors are remapped to the primary hub. Migration is
+  atomic and idempotent. Note: downgrading to pre-0.15 code on a migrated DB requires dropping
+  ship_state (cursors reset; re-ship is harmless thanks to hub idempotency).
+
 == 0.14.1 - 2026-05-31  post-deploy hotfixes ==
 
 fixed:

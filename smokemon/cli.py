@@ -309,6 +309,24 @@ def _env_set(path: str, key: str, val: str) -> tuple[bool, str]:
         return False, e.__class__.__name__
 
 
+def _env_unset(path: str, key: str) -> None:
+    """Remove any KEY=... lines from the env file. No-op if the file or key is absent. Used to
+    keep SMOKEMON_HUB_URL and SMOKEMON_HUB_URLS from coexisting (the list would shadow the single
+    var per config._hubs), so `smoke hub` writes exactly one of them."""
+    try:
+        with open(path) as f:
+            lines = f.read().splitlines()
+    except OSError:
+        return
+    out = [ln for ln in lines if not ln.startswith(key + "=")]
+    if len(out) != len(lines):
+        try:
+            with open(path, "w") as f:
+                f.write("\n".join(out) + ("\n" if out else ""))
+        except OSError:
+            pass
+
+
 def _hub_status(url: str) -> str:
     """Quick reachability of a hub ingest URL via its sibling GET /health."""
     if not url:
@@ -321,44 +339,84 @@ def _hub_status(url: str) -> str:
         return f"unreachable ({e.__class__.__name__})"
 
 
-def _hub(args) -> int:
-    """`smoke hub` shows where this node ships; `smoke hub HOST` repoints it by writing
-    SMOKEMON_HUB_URL to the node env file (config.ENV_FILE). The Linux shipper re-reads
-    that file on its next 60s run; macOS keeps the value in the launchd plist instead."""
-    envf = config.ENV_FILE
-    current = _env_get(envf, "SMOKEMON_HUB_URL")
-    if current is None:
-        current = config.HUB_URL  # fall back to this process's env
+def _current_hubs(envf: str) -> list[str]:
+    """The node's configured hub URLs, mirroring config._hubs precedence: the semicolon list
+    SMOKEMON_HUB_URLS wins over the single SMOKEMON_HUB_URL; both read from the env file, then
+    this process's resolved config as a fallback."""
+    urls_val = _env_get(envf, "SMOKEMON_HUB_URLS")
+    if urls_val:
+        return [u.strip() for u in urls_val.split(";") if u.strip()]
+    single = _env_get(envf, "SMOKEMON_HUB_URL")
+    if single:
+        return [single]
+    return [u for u, _ in config.HUBS]
 
-    if not args.host:
-        shown = current or "(none — local-only)"
-        if not current and os.path.exists(envf) and not os.access(envf, os.R_OK):
-            shown = f"(can't read {envf} without sudo)"
-        print(f"hub:    {shown}")
-        if current:
-            print(f"status: {_hub_status(current)}")
-        print(f"config: {envf}")
+
+def _hub(args) -> int:
+    """`smoke hub` shows where this node ships; `smoke hub HOST [HOST2 ...]` repoints it by writing
+    the node env file (config.ENV_FILE). One host writes SMOKEMON_HUB_URL; several write the
+    semicolon list SMOKEMON_HUB_URLS (fan-out: every hub gets a full copy). Whichever form is
+    written, the other var is cleared so it can't shadow it. The Linux shipper re-reads the file
+    on its next run; macOS keeps the value in the launchd plist instead."""
+    envf = config.ENV_FILE
+    current = _current_hubs(envf)
+
+    if not args.hosts:
         if not current:
-            print("set it: smoke hub HUB-HOST")
+            shown = "(none — local-only)"
+            if os.path.exists(envf) and not os.access(envf, os.R_OK):
+                shown = f"(can't read {envf} without sudo)"
+            print(f"hub:    {shown}")
+            print(f"config: {envf}")
+            print("set it: smoke hub HUB-HOST   (fan-out to several: smoke hub HUB-A HUB-B)")
+            return 0
+        if len(current) == 1:
+            print(f"hub:    {current[0]}")
+            print(f"status: {_hub_status(current[0])}")
+        else:
+            print(f"hubs:   {len(current)} targets (fan-out — each gets a full copy)")
+            for u in current:
+                print(f"  {u}  — {_hub_status(u)}")
+        print(f"config: {envf}")
         return 0
 
-    url = _normalize_hub_url(args.host)
-    print(f"hub -> {url}")
+    urls, seen = [], set()
+    for h in args.hosts:  # normalize + de-dup, preserving order
+        u = _normalize_hub_url(h)
+        if u not in seen:
+            seen.add(u)
+            urls.append(u)
+    if len(urls) == 1:
+        print(f"hub -> {urls[0]}")
+    else:
+        print(f"hubs -> {len(urls)} targets (fan-out):")
+        for u in urls:
+            print(f"  {u}")
+
     if sys.platform == "darwin":
-        plist = "~/Library/LaunchAgents/com.smokemon.shipper.plist"
-        print(f"  macOS keeps SMOKEMON_HUB_URL in the launchd plist, not {envf}.")
-        print(f"  set it there, then reload:  defaults write... or edit {plist}, then")
+        var = "SMOKEMON_HUB_URL" if len(urls) == 1 else "SMOKEMON_HUB_URLS"
+        val = urls[0] if len(urls) == 1 else ";".join(urls)
+        print(f"  macOS keeps the shipper env in the launchd plist, not {envf}.")
+        print(f"  set {var}={val} there, then reload:")
         print("    launchctl kickstart -k gui/$(id -u)/com.smokemon.shipper")
         return 0
-    ok, why = _env_set(envf, "SMOKEMON_HUB_URL", url)
+
+    if len(urls) == 1:
+        ok, why = _env_set(envf, "SMOKEMON_HUB_URL", urls[0])
+        if ok:
+            _env_unset(envf, "SMOKEMON_HUB_URLS")  # a stale list would otherwise shadow this
+        status = _hub_status(urls[0])
+    else:
+        ok, why = _env_set(envf, "SMOKEMON_HUB_URLS", ";".join(urls))
+        if ok:
+            _env_unset(envf, "SMOKEMON_HUB_URL")   # the list supersedes the single var
+        status = ", ".join(f"{u} {_hub_status(u)}" for u in urls)
     if ok:
-        print(f"  written to {envf} — {_hub_status(url)}")
-        print("  applies on the next shipper run (<=60s); force now:")
+        print(f"  written to {envf} — {status}")
+        print("  applies on the next shipper run (<=15s); force now:")
         print("    sudo systemctl start smokemon-shipper.service")
     else:
-        print(f"  can't write {envf} ({why}); run:")
-        print(f"    sudo sed -i '/^SMOKEMON_HUB_URL=/d' {envf} && "
-              f"echo 'SMOKEMON_HUB_URL={url}' | sudo tee -a {envf}")
+        print(f"  can't write {envf} ({why}); edit it with sudo (set the var shown above).")
     return 0
 
 
@@ -372,6 +430,7 @@ examples:
   smoke footprint                collector footprint + ship estimate
   smoke fleet --hub-url http://hub:8765    the fleet over HTTP, from any terminal
   smoke hub HUB-HOST             repoint this node to a new hub (writes the env file)
+  smoke hub HUB-A HUB-B          fan out to several hubs (each gets a full copy)
 
 colour: auto on a TTY; honours the NO_COLOR env var. full reference: INSTALL.md / QUICKSTART.md
 """
@@ -412,9 +471,10 @@ def main() -> int:
     p.add_argument("window", nargs="?", help="date (2026-05-20), datetime, or Nh/Nm window")
     p.add_argument("--frame", type=float, default=60.0, help="playhead width in minutes (default 60)")
 
-    p = sub.add_parser("hub", help="show or set where this node ships (SMOKEMON_HUB_URL)")
-    p.add_argument("host", nargs="?",
-                   help="hub host / host:port / URL to ship to (omit to show the current target)")
+    p = sub.add_parser("hub", help="show or set where this node ships (one hub, or several for fan-out)")
+    p.add_argument("hosts", nargs="*",
+                   help="hub host(s) / host:port / URL to ship to; give several for fan-out "
+                        "(each hub gets a full copy). Omit to show the current target(s).")
 
     p = sub.add_parser("fleet", help="aggregated view across all hub nodes")
     p.add_argument("mode", nargs="?", choices=["live"], help="'live' repaints on an interval")

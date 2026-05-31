@@ -89,6 +89,14 @@ PYTHONPATH=/opt/smokemon python3 -m smokemon.cli png \
     --db /opt/smokemon/data/smokemon-hub.db --node NAME --hours 24
 ```
 
+fan-out to several hubs (redundancy): set `SMOKEMON_HUB_URLS` in the node env file to a
+semicolon-separated list of `/ingest` URLs, or run `smoke hub HUB-A HUB-B`. every hub receives a
+complete copy; one that is down just backs up on the node's disk and catches up when it returns.
+a local row is pruned once **at least one** hub has confirmed it. each batch is gzipped once and
+reused across hubs (CPU stays ~1x; only egress scales with hub count). per-hub secrets are optional
+and positional via `SMOKEMON_HUB_SECRETS` (an empty slot = the shared `SMOKEMON_HUB_SECRET`). a
+single hub still uses `SMOKEMON_HUB_URL` and behaves exactly as before.
+
 the plists run `python3 -m smokemon.*` with `WorkingDirectory` + `PYTHONPATH` set to the
 repo, and include a `PATH` with `/opt/homebrew/{bin,sbin}` so `shutil.which` finds
 fping/mtr/iperf3. no pip install required.
