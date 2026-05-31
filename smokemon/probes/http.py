@@ -3,7 +3,7 @@
 import subprocess
 import time
 
-from .. import config, core, schema
+from .. import config, core, events, schema
 
 _FMT = ("code=%{http_code} dns=%{time_namelookup} conn=%{time_connect} "
         "tls=%{time_appconnect} ttfb=%{time_starttransfer} total=%{time_total}")
@@ -31,3 +31,10 @@ def collect(conn) -> None:
     if rows:
         schema.insert(conn, "http_samples", rows)
         conn.commit()
+    # Edge event per URL off the request we already made: a 5xx or no-response trips a warn once;
+    # it clears (quiet) when the URL answers < 500 again. No extra request -> no footprint.
+    for r in rows:
+        code = r["http_code"]
+        events.edge(conn, code == 0 or code >= 500, f"http:{r['url']}", source="http",
+                    severity="warn", event="http-error",
+                    detail=f"{r['url']} -> {code or 'no response'}", clear_detail=f"{r['url']} {code}")

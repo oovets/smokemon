@@ -17,6 +17,13 @@ added:
   (all/elevated/error), with tail-truncated excerpts. Surfaces data that already ships; no new
   per-device capture.
 
+- events: edge/delta-triggered ext_events producers riding on data the probes already collect
+  (no new I/O / footprint), so the logs tab gets real warn/error/crit signal: collector
+  probe-crash (error, then a quiet recover), host OOM-kill (crit), CPU thermal-throttle (warn),
+  over-temp (crit), swap >90% (warn), Pi under-voltage (crit) / throttled (warn), and a per-URL
+  HTTP 5xx/no-response (warn) for the built-in checks. Each fires once on transition (a stuck
+  condition never re-floods the table or the wire) and clears quietly when it recovers.
+
 - ship: expedite-on-error. When an elevated ext_events row lands, the collector kicks an
   out-of-band ship on a daemon thread (~10s detection on the fast loop, rate-limited + coalesced)
   so errors reach the hub in seconds, decoupled from the bulk ship cadence. Toggle via

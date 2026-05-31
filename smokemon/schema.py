@@ -182,6 +182,13 @@ def init_hub(conn: sqlite3.Connection) -> None:
         "CREATE TABLE IF NOT EXISTS ingest_log ("
         "ts REAL NOT NULL, node TEXT, wire_bytes INTEGER, raw_bytes INTEGER, rows INTEGER);"
         "CREATE INDEX IF NOT EXISTS ix_ingest_log_ts ON ingest_log (ts);")
+    # Alert-delivery flap-suppression state (hub-only, not shipped): one row per currently-firing
+    # service alert, keyed by "node/kind/label". notified_ts drives the re-notify cooldown; rows are
+    # deleted when the alert clears. Tiny (a handful of rows), so no extra index. See alerts.py.
+    conn.executescript(
+        "CREATE TABLE IF NOT EXISTS alert_state ("
+        "key TEXT PRIMARY KEY, node TEXT, kind TEXT, label TEXT, severity INTEGER, "
+        "detail TEXT, first_ts REAL, notified_ts REAL);")
     conn.commit()
     ensure_body_columns(conn)
     # Give the planner stats so it picks the loose-index scan over a full (node,ts) scan for the

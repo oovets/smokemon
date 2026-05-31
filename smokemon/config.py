@@ -193,6 +193,22 @@ NOTIFY_URL = os.environ.get("SMOKEMON_NOTIFY_URL", "")
 NOTIFY_KIND = os.environ.get("SMOKEMON_NOTIFY_KIND", "")  # "" = auto-detect
 NOTIFY_MIN_SEVERITY = _i("SMOKEMON_NOTIFY_MIN_SEVERITY", "2")
 
+# Hub-side service-alert delivery (delivery-only). A background thread in the hub process
+# periodically re-evaluates the same fleet service/host degradations the Risk tab already shows
+# (gst/watched-proc down, RTSP stream failing, docker restart-loops/unhealthy, redis/memory/
+# throttle/conntrack - see hubapi._service_alerts) and pushes newly-firing and newly-resolved
+# ones to SMOKEMON_NOTIFY_URL via notify.py. Detection is reused, not duplicated; this only adds
+# delivery (dedup / flap-suppression / mute / re-notify cooldown). No-op unless NOTIFY_URL is set.
+# The paging bar is the shared NOTIFY_MIN_SEVERITY (1-3).
+ALERT_EVAL_INTERVAL = _f("SMOKEMON_ALERT_EVAL_INTERVAL", "60")  # seconds between passes
+ALERT_WINDOW_HOURS = _f("SMOKEMON_ALERT_WINDOW_HOURS", "1")     # lookback defining "currently firing"
+ALERT_RENOTIFY_S = _f("SMOKEMON_ALERT_RENOTIFY_S", "1800")      # re-page a still-firing alert after this
+ALERT_NOTIFY_RESOLVED = os.environ.get("SMOKEMON_ALERT_NOTIFY_RESOLVED", "1") != "0"
+# opt-out: semicolon list of fnmatch globs matched against the alert key "node/kind/label", e.g.
+# 'pi04/*;*/docker/watchtower;*/*/scratch-*'. A matched alert is never paged (it still shows in
+# the dashboard). kinds: docker / redis / stream / proc / memory / throttle / tcp.
+ALERT_MUTE = _semi_list("SMOKEMON_ALERT_MUTE", "")
+
 # central aggregation; set SMOKEMON_HUB_URL to the hub's /ingest endpoint
 HUB_URL = os.environ.get("SMOKEMON_HUB_URL", "")
 HUB_SECRET = os.environ.get("SMOKEMON_HUB_SECRET", "changeme")

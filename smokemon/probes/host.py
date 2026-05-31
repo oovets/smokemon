@@ -18,7 +18,7 @@ import shutil
 import subprocess
 import time
 
-from .. import adapters, config, schema
+from .. import adapters, config, events, schema
 
 _SYS = adapters.SYSTEM
 _CLK = os.sysconf("SC_CLK_TCK") if hasattr(os, "sysconf") else 100
@@ -735,3 +735,24 @@ def collect(conn) -> None:
             schema.insert(conn, "disk_health", [{"ts": ts, **w} for w in wear])
 
     conn.commit()
+
+    # Edge/delta events off the values just computed - no new probing, so no footprint. Each fires
+    # once on transition (and a quiet 'recovered' when it clears), so a stuck condition never spams.
+    events.counter(conn, "host:oom", oom, source="host", severity="crit",
+                   event="oom-kill", detail_fn=lambda d: f"{d} new OOM kill(s)")
+    events.counter(conn, "host:cpu-throttle", throttle, source="host", severity="warn",
+                   event="cpu-throttle", detail_fn=lambda d: f"{d} new CPU thermal-throttle event(s)")
+    if temp_c is not None:
+        events.edge(conn, temp_c >= config.THROTTLE_TEMP_C, "host:overtemp", source="host",
+                    severity="crit", event="overtemp",
+                    detail=f"{temp_c:.0f}C (>= throttle {config.THROTTLE_TEMP_C:.0f}C)",
+                    clear_detail=f"{temp_c:.0f}C")
+    if swap_used is not None:
+        events.edge(conn, swap_used >= 90.0, "host:swap", source="host", severity="warn",
+                    event="swap-high", detail=f"swap {swap_used:.0f}% used",
+                    clear_detail=f"swap {swap_used:.0f}%")
+    if pi_bits is not None:  # only on the 5-min Pi sampling tier; bit0 = under-voltage now, bit2 = throttled now
+        events.edge(conn, bool(pi_bits & 0x1), "host:undervolt", source="host", severity="crit",
+                    event="under-voltage", detail="Pi under-voltage detected", clear_detail="voltage ok")
+        events.edge(conn, bool(pi_bits & 0x4), "host:pi-throttle", source="host", severity="warn",
+                    event="pi-throttled", detail="Pi currently throttled", clear_detail="not throttled")

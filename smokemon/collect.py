@@ -4,7 +4,7 @@ Production runs `fast` and `slow` as two services so a slow probe never delays p
 
 import sys
 
-from . import adapters, config, core, expedite, governor, schema
+from . import adapters, config, core, events, expedite, governor, schema
 from .probes import (
     dockerps,
     ext,
@@ -52,13 +52,23 @@ def _probes(group: str) -> list[tuple[float, str, object]]:
 
 
 def _guarded(name: str, fn, conn):
-    """Wrap a probe so the governor can shed it when this process is over budget."""
+    """Wrap a probe so the governor can shed it when over budget, and so a crash is recorded as an
+    error event (then suppressed until it recovers) instead of only a log line - the shipper
+    expedites it to the hub so a silently-broken probe becomes visible fleet-wide."""
     def run() -> None:
         shed, reason = governor.should_shed(name)
         if shed:
             governor.note(conn, name, reason)
             return
-        fn(conn)
+        try:
+            fn(conn)
+        except Exception as e:  # noqa: BLE001 - one probe must never kill the loop
+            core.log(f"probe {name} crashed: {e!r}")
+            events.trip(conn, f"probe:{name}", source="collector", severity="error",
+                        event="probe-crash", detail=f"{name}: {type(e).__name__}: {e}")
+        else:
+            events.clear(conn, f"probe:{name}", source="collector",
+                         event="probe-recovered", detail=f"{name} ok")
     return run
 
 
