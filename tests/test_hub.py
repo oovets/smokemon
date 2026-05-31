@@ -271,6 +271,10 @@ def test_dashboard_heatmap_lives_in_network_tab():
     # heatmap controls + render helpers live in the net tab, with the new bandwidth metric
     assert "const HEAT_STOPS=" in h and "bw:[[0," in h
     assert 'data-m="bw"' in h and "function heatSectionHtml(" in h
+    # the heatmap is collapsible (graphs lead the tab) and renders as a transposed, full-width
+    # grid: nodes are columns with diagonal labels, hours are rows on the y-axis
+    assert "data-heattoggle=" in h and "heatOpen=" in h
+    assert "hh-grid" in h and "hh-name" in h and "hh-cell" in h
 
 
 def test_dashboard_has_merged_nodes_tab():

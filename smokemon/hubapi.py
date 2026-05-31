@@ -1306,16 +1306,21 @@ _DASHBOARD_HTML = """<!doctype html>
  .heat-legend{display:flex;align-items:center;gap:8px;margin-left:auto;font-size:11px;
    color:var(--dim);font-family:var(--mono)}
  .heat-legend .bar{width:130px;height:10px;border-radius:6px;border:1px solid var(--line)}
- .heatgrid{display:inline-block;min-width:100%}
- .hrow{display:flex;align-items:center;gap:10px;margin-bottom:3px}
- .hname{width:140px;flex:0 0 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;
-   font-size:12px;font-weight:500;text-align:right;color:var(--mut)}
- .hname:hover{color:var(--fg)}
- .hcells{display:flex;gap:2px}
- .hcell{width:15px;height:15px;border-radius:3px;flex:0 0 auto;transition:transform .1s}
- .hcell:hover{transform:scale(1.5);outline:1px solid var(--fg);position:relative;z-index:2}
- .haxis{display:flex;gap:2px;margin:7px 0 0 150px;color:var(--dim);font-size:10px;font-family:var(--mono)}
- .haxis span{flex:0 0 auto;width:15px;text-align:center;overflow:visible}
+ /* transposed heatmap: nodes as columns (diagonal labels on top), hours as rows (time on the y
+    axis). cells flex to fill the full width dynamically. --tw = the time-gutter width, shared by
+    the label header and every row so columns line up. */
+ .hh-grid{--tw:52px;width:100%}
+ .hh-labels{display:flex;align-items:flex-end;height:70px;gap:2px;margin-bottom:3px}
+ .hh-corner{width:var(--tw);flex:0 0 auto}
+ .hh-name{flex:1 1 0;min-width:0;display:flex;justify-content:center;align-items:flex-end;cursor:pointer}
+ .hh-name>span{transform:rotate(-45deg);transform-origin:left bottom;white-space:nowrap;
+   font:600 11px var(--mono);color:var(--mut);max-width:120px;overflow:hidden;text-overflow:ellipsis}
+ .hh-name:hover>span{color:var(--fg)}
+ .hh-row{display:flex;align-items:center;gap:2px;height:16px;margin-bottom:2px}
+ .hh-time{width:var(--tw);flex:0 0 auto;text-align:right;padding-right:8px;
+   font:10px var(--mono);color:var(--dim)}
+ .hh-cell{flex:1 1 0;min-width:0;height:100%;border-radius:3px;transition:transform .1s}
+ .hh-cell:hover{transform:scaleY(1.25);outline:1px solid var(--fg);position:relative;z-index:2}
  /* ---- risks: overview-style summary rail + per-node problem cards ---- */
  #risk{max-width:none}
  .risk-sum{margin-bottom:16px;grid-template-columns:repeat(auto-fit,minmax(120px,1fr))}
@@ -1464,18 +1469,23 @@ _DASHBOARD_HTML = """<!doctype html>
   border-radius:8px;font:12px/1.5 var(--mono);color:var(--mut);white-space:pre-wrap;word-break:break-word;
   max-height:220px;overflow:auto}
  /* network tab: per-application throughput cards (small multiples) */
- .netgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
- .netcard{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+ /* two large throughput cards per row (responsive: collapses to one on narrow screens) */
+ .netgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+ @media (max-width:760px){.netgrid{grid-template-columns:1fr}}
+ .netcard{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
  .netcard[data-node]{cursor:pointer}
  .netcard[data-node]:hover{border-color:var(--line2)}
  .nc-h{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
- .nc-app{font:600 13px var(--mono);color:var(--fg)}
- .nc-rate{font:600 11px var(--mono);color:var(--accent);flex:0 0 auto}
-.ntspark{width:100%;height:42px;display:block;margin:6px 0 4px}
-.nc-sub{font:11px var(--mono);color:var(--dim)}
+ .nc-app{font:700 16px var(--mono);color:var(--fg)}
+ .nc-rate{font:600 13px var(--mono);color:var(--accent);flex:0 0 auto}
+.ntspark{width:100%;height:92px;display:block;margin:10px 0 6px}
+.nc-sub{font:12px var(--mono);color:var(--dim)}
 .net-sec{font:600 10.5px var(--mono);text-transform:uppercase;letter-spacing:.6px;color:var(--mut);
   margin:22px 2px 11px;display:flex;gap:8px;align-items:center}
 #net .net-sec:first-child{margin-top:2px}
+.net-collapse{cursor:pointer;user-select:none}
+.net-collapse:hover{color:var(--fg)}
+.net-collapse .caret{color:var(--accent);font-size:11px}
 .nc-legend{display:flex;flex-wrap:wrap;gap:4px 10px;margin-top:7px}
 .nc-leg{display:inline-flex;align-items:center;gap:5px;font:11px var(--mono);color:var(--dim)}
 .nc-leg .sw{width:9px;height:9px;border-radius:2px;flex:0 0 auto}
@@ -1920,7 +1930,9 @@ q.addEventListener("input",()=>{render();if(view==="nodes")renderNodes();});
 // ---- view tabs: grid (live) · ranking · heatmap · risks. Only the active non-grid view
 // polls (slow, 15s); grid status + sparklines + header pills always refresh. -------------
 const VIEWS=[["grid","grid"],["nodes","nodes"],["net","network"],["risk","risks"],["logs","logs"],["cost","cost"]];
-let view="grid",heatMetric="loss",heatHours=24,netMode="fleet";
+let view="grid",heatMetric="loss",heatHours=24,netMode="fleet",heatOpen=false;
+let netData={hm:null,nw:null,node:""};  // last network payloads, so collapsing/expanding the
+                                        // heatmap re-renders instantly without refetching.
 // measured ship-cost cache (/api/cost): actual compressed bytes each node pushed over the wire,
 // per node. shared by cost view, ranking columns and the modal stat line. cached ~25s.
 let foot={},footTs=0,costRate=0,costDayTotal=0;
@@ -2007,11 +2019,20 @@ function heatSectionHtml(d){
   +`<div class="heat-legend"><span>${lab[0]}</span><span class="bar" style="background:${heatGradientCss()}"></span><span>${lab[1]}</span></div></div>`;
  const ns=d&&d.nodes?Object.keys(d.nodes).sort():[],hrs=(d&&d.hours)||[];
  if(!ns.length)return tools+`<div class="empty">no ping/throughput history in this window</div>`;
- const rows=ns.map(n=>`<div class="hrow"><span class="hname" data-node="${esc(n)}">${esc(n)}</span><div class="hcells">`
-  +d.nodes[n].map((v,i)=>`<div class="hcell" style="background:${heatColor(v)}" title="${heatTip(n,hrs[i],v)}"></div>`).join("")
-  +`</div></div>`).join("");
- const axis=`<div class="haxis">`+hrs.map((ts,i)=>`<span>${i%6===0?new Date(ts*1000).getHours():""}</span>`).join("")+`</div>`;
- return tools+`<div class="heatgrid">`+rows+axis+`</div>`;
+ // Transposed grid: one COLUMN per node (diagonal label on top), one ROW per hour (time on the
+ // y-axis). Cells flex to fill the full container width dynamically, so the map scales to any
+ // screen instead of a fixed cell size with names crammed on the left.
+ const labels=`<div class="hh-labels"><span class="hh-corner"></span>`
+  +ns.map(n=>`<span class="hh-name" data-node="${esc(n)}" title="${esc(n)}"><span>${esc(n)}</span></span>`).join("")
+  +`</div>`;
+ const rows=hrs.map((ts,i)=>{
+  const hh=String(new Date(ts*1000).getHours()).padStart(2,"0");
+  const tick=i%3===0?hh+":00":"";  // label every 3rd hour to avoid clutter
+  return `<div class="hh-row"><span class="hh-time">${tick}</span>`
+   +ns.map(n=>{const v=d.nodes[n][i];
+    return `<span class="hh-cell" style="background:${heatColor(v)}" title="${heatTip(n,ts,v)}"></span>`;}).join("")
+   +`</div>`;}).join("");
+ return tools+`<div class="hh-grid">${labels}${rows}</div>`;
 }
 
 // risks (/api/risks): death-clocks (disk-full / SD-wear / throttle) + recent incident feed,
@@ -2186,10 +2207,12 @@ function netMultiSpark(nodesArr){
 async function loadNet(){
  const node=q.value.trim();
  try{
+  // only fetch the (heavier) heatmap when its section is expanded; collapsed -> skip that round-trip.
   const [hm,nw]=await Promise.all([
-   fetch(`/api/heatmap?metric=${heatMetric}&hours=${heatHours}`,{cache:"no-store"}).then(r=>r.ok?r.json():null),
+   heatOpen?fetch(`/api/heatmap?metric=${heatMetric}&hours=${heatHours}`,{cache:"no-store"}).then(r=>r.ok?r.json():null):Promise.resolve(netData.hm),
    fetch(`/api/network?hours=6&by_node=${netMode==="split"?1:0}`+(node?"&node="+encodeURIComponent(node):""),{cache:"no-store"}).then(r=>r.ok?r.json():null),
   ]);
+  netData={hm,nw,node};
   renderNet(hm,nw,node);
  }catch(e){}
 }
@@ -2210,7 +2233,7 @@ function netCardHtml(a,buckets,node){
 }
 function renderNet(hm,nw,node){
  const apps=(nw&&nw.apps)||[],buckets=nw&&nw.buckets,hours=(nw&&nw.hours)||6;
- const heatSec=`<div class="net-sec">heatmap</div>`+heatSectionHtml(hm);
+ // throughput graphs first (the primary view), then a collapsible heatmap below.
  const segBtn=(m,l)=>`<button data-netmode="${m}" class="${netMode===m?"on":""}">${l}</button>`;
  const toggle=`<div class="seg-ctl">${segBtn("fleet","fleet")}${segBtn("split","per-node")}</div>`;
  const scope=`<span class="fnote">${node?("node <b>"+esc(node)+"</b>"):"<b>fleet-wide</b>"} · last ${hours}h`
@@ -2219,12 +2242,20 @@ function renderNet(hm,nw,node){
   +`<div class="logbar">${toggle}${scope}</div>`;
  const tpBody=apps.length?`<div class="netgrid">`+apps.map(a=>netCardHtml(a,buckets,node)).join("")+`</div>`
   :`<div class="empty">no port traffic in this window (is the ports probe deployed?)</div>`;
- viewEl("net").innerHTML=heatSec+tpHdr+tpBody;
+ // collapsible heatmap: a clickable header (data-heattoggle) flips heatOpen; the body only renders
+ // its (heavier) grid markup when open, so a collapsed heatmap costs nothing to paint.
+ const caret=heatOpen?"▾":"▸";
+ const heatHdr=`<div class="net-sec net-collapse" data-heattoggle="1"><span class="caret">${caret}</span> heatmap</div>`;
+ const heatSec=heatHdr+(heatOpen?heatSectionHtml(hm):"");
+ viewEl("net").innerHTML=tpHdr+tpBody+heatSec;
 }
 [viewEl("nodes"),viewEl("net"),viewEl("risk"),viewEl("logs"),viewEl("cost")].forEach(nodeClick);
 // net tab delegated controls: heatmap metric (data-m) / window (data-hh) + throughput fleet/split
 // toggle (data-netmode). Checks these first and returns; otherwise nodeClick handles data-node.
 viewEl("net").addEventListener("click",e=>{
+ const ht=e.target.closest("[data-heattoggle]");if(ht){heatOpen=!heatOpen;
+  // re-render from the cached payloads (no refetch); fetch only if the heatmap was never loaded.
+  if(heatOpen&&!netData.hm)loadNet();else renderNet(netData.hm,netData.nw,netData.node);return;}
  const m=e.target.closest("[data-m]");if(m){heatMetric=m.dataset.m;loadNet();return;}
  const hh=e.target.closest("[data-hh]");if(hh){heatHours=+hh.dataset.hh;loadNet();return;}
  const nm=e.target.closest("[data-netmode]");if(nm){netMode=nm.dataset.netmode;loadNet();}});
