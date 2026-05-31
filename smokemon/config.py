@@ -251,6 +251,11 @@ HUB_LATEST_WINDOW_S = _f("SMOKEMON_HUB_LATEST_WINDOW_S", str(30 * 86400))
 # reruns services - so every dashboard poll, tab, reload and user paid full cost. Serving a value
 # up to this many seconds old makes repeat/concurrent loads instant. 0 disables the cache.
 HUB_CACHE_TTL_S = _f("SMOKEMON_HUB_CACHE_TTL_S", "20")
+# Data-transfer price ($/GB) applied to each node's measured ship volume (ingest_log.wire_bytes)
+# to show an ingest cost per node on the dashboard. Hub-side only - no shipper/edge change. NOTE
+# on AWS: data IN is free, so set this to your ACTUAL cost: 0 if ingress is free, ~0.045 if the
+# hub sits behind a NAT Gateway (per-GB processing), ~0.09 for egress-priced transfer.
+AWS_GB_COST = _f("SMOKEMON_AWS_GB_COST", "0.09")
 
 # Retention / pruning of the node DB (run `python -m smokemon.prune`, e.g. from a daily timer).
 # Rows older than RETENTION_DAYS are deleted, but only once they have been shipped (id <=

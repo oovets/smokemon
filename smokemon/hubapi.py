@@ -263,19 +263,13 @@ def risks(conn, hours: float = 24.0, now: float | None = None) -> dict:
     disk_horizon, wear_horizon = 365 * 86400, 5 * 365 * 86400
     clocks: list[dict] = []
     incidents: list[dict] = []
-    # One fleet-wide query per signal instead of 5 per node (the N+1 that made this slow at scale).
-    ping_f = query.load_ping_agg_fleet(conn, since, now)
-    http_f = query.load_http_fleet(conn, since, now)
-    disk_f = query.load_disk_fleet(conn, since, now)
-    health_f = query.load_disk_health_fleet(conn, since, now)
-    host_f = query.load_host_fleet(conn, since, now)
     for node in nodes(conn):
-        ping = ping_f.get(node, {})
-        http = http_f.get(node, {})
+        ping = query.load_ping_agg(conn, since, now, None, node)
+        http = query.load_http(conn, since, now, node)
         for inc in analyze.detect_incidents(ping, http):
             incidents.append({**inc, "node": node})
         # drop read-only pseudo-mounts (snap/loop squashfs sit at 100% by design -> false "full")
-        disk = {m: v for m, v in disk_f.get(node, {}).items()
+        disk = {m: v for m, v in query.load_disk(conn, since, now, node).items()
                 if not (m.startswith("/snap") or m.startswith("/var/snap") or "/snapd/" in m)}
         full = query.disk_full_eta(disk)
         if full and full[1] <= disk_horizon:
@@ -283,13 +277,13 @@ def risks(conn, hours: float = 24.0, now: float | None = None) -> dict:
             clocks.append({"node": node, "kind": "disk", "eta_s": round(eta),
                            "severity": 3 if eta <= 7 * 86400 else 2 if eta <= 30 * 86400 else 1,
                            "detail": f"{full[0]} full {query.human_eta(eta)}"})
-        wear = query.wear_eta(health_f.get(node, {}))
+        wear = query.wear_eta(query.load_disk_health(conn, since, now, node))
         if wear and wear[1] <= wear_horizon:
             eta = wear[1]
             clocks.append({"node": node, "kind": "sd-wear", "eta_s": round(eta),
                            "severity": 3 if eta <= 90 * 86400 else 2 if eta <= 365 * 86400 else 1,
                            "detail": f"{wear[0]} wear {query.human_eta(eta)}"})
-        host = host_f.get(node, {})
+        host = query.load_host(conn, since, now, node)
         if host:
             temp = query.last_value(host.get("temp", []))
             if temp is not None:
@@ -434,6 +428,7 @@ def ship_volume(conn, hours: float = 24.0, now: float | None = None) -> dict:
     hub shows little until traffic flows."""
     now = time.time() if now is None else now
     since = now - hours * 3600
+    rate = config.AWS_GB_COST  # $/GB applied to measured wire_bytes -> ingest cost per node
     agg: dict[str, dict] = {}
     for node, wire, raw, rows, posts, mn, mx in _rows(
             conn, "SELECT node, SUM(wire_bytes), SUM(raw_bytes), SUM(rows), COUNT(*), MIN(ts), MAX(ts) "
@@ -451,6 +446,9 @@ def ship_volume(conn, hours: float = 24.0, now: float | None = None) -> dict:
                      "rows": int(rows or 0), "posts": int(posts or 0), "observed_s": round(span),
                      "wire_bytes_per_day": round(per_day) if per_day else None,
                      "rows_per_day": round(rpd) if rpd else None,
+                     # ingest cost = measured GB x rate, for the window and projected per-day
+                     "cost_window": round((wire or 0) / 1e9 * rate, 4),
+                     "cost_per_day": round(per_day / 1e9 * rate, 4) if per_day else None,
                      "ratio": round(raw / wire, 1) if wire else None, "top": []}
     # per-table rows received in the window -> the "what kind of data" breakdown (one query/table)
     tabrows: dict[str, dict[str, int]] = {}
@@ -478,11 +476,15 @@ def ship_volume(conn, hours: float = 24.0, now: float | None = None) -> dict:
     for node, s in smoke.items():
         d = agg.setdefault(node, {"node": node, "wire_bytes": 0, "raw_bytes": 0, "rows": 0,
                                   "posts": 0, "observed_s": 0, "wire_bytes_per_day": None,
-                                  "rows_per_day": None, "ratio": None, "top": []})
+                                  "rows_per_day": None, "cost_window": 0.0, "cost_per_day": None,
+                                  "ratio": None, "top": []})
         d["smoke_cpu_pct"] = round(s["cpu"], 1)
         d["smoke_rss_mb"] = round(s["rss"], 1)
     out = sorted(agg.values(), key=lambda r: -(r["wire_bytes"] or 0))
-    return {"now": now, "hours": hours, "nodes": out}
+    cost_day_total = round(sum(n["cost_per_day"] for n in out if n.get("cost_per_day")), 2)
+    cost_window_total = round(sum(n.get("cost_window") or 0 for n in out), 2)
+    return {"now": now, "hours": hours, "nodes": out, "gb_rate": rate,
+            "cost_per_day_total": cost_day_total, "cost_window_total": cost_window_total}
 
 
 def ingest_rate(events, now: float | None = None, window_s: float = 900.0,
@@ -949,6 +951,7 @@ _DASHBOARD_HTML = """<!doctype html>
    overflow:hidden;max-width:520px;min-width:70px}
  .ffill{height:100%;border-radius:5px;background:var(--accent);transition:width .5s ease}
  .fval{flex:0 0 auto;width:96px;text-align:right;font:600 12.5px var(--mono);font-variant-numeric:tabular-nums}
+ .fcost{flex:0 0 auto;width:92px;text-align:right;color:var(--accent);font:600 12px var(--mono);font-variant-numeric:tabular-nums}
  .frpd{flex:0 0 auto;width:128px;text-align:right;color:var(--mut);font-size:11.5px;font-family:var(--mono)}
  .ftop{flex:0 0 auto;width:160px;color:var(--dim);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
  @media(max-width:680px){.frpd,.ftop{display:none}}
@@ -1091,6 +1094,7 @@ const q=document.getElementById("q"),grid=document.getElementById("grid"),
  pills=document.getElementById("pills"),meta=document.getElementById("meta"),
  err=document.getElementById("err");
 let last={nodes:[],counts:{}};
+let gotData=false;  // has the first /api/fleet-status arrived? grid/table show the warm-up until it has
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const fmtRtt=r=>r==null?"--":Math.round(r)+"ms";
 const fmtLoss=l=>l==null?"":"l"+Math.round(l)+"%";
@@ -1122,6 +1126,9 @@ function render(){
   `<span class="pill ${k}"><span class="dot s-${k}"></span><span class="pc">${c[k]||0}</span><span class="pl">${k}</span></span>`).join("");
  ["healthy","warn","down","stale"].forEach(k=>{const el=document.getElementById("hb-"+k);
   if(el)el.style.width=(total?((c[k]||0)/total*100):0).toFixed(2)+"%";});
+ // grid/table paint from the live poll, not a server cache, but on the very first boot last is
+ // still empty until /api/fleet-status returns - show the warm-up instead of an empty shell.
+ if(!gotData&&(view==="grid"||view==="table")){viewEl(view).innerHTML=loadingHtml(view);return;}
  if(view==="grid")renderGrid();
  else if(view==="table"){
   const term=q.value.trim().toLowerCase();
@@ -1193,6 +1200,7 @@ function kpiTone(v,warn,bad){return v==null?"":v>=bad?"bad":v>=warn?"warn":"ok";
 function setKpi(k,text,tone){const v=tileVals[k];v.textContent=text;
  const card=v.parentElement;card.classList.remove("ok","warn","bad");if(tone)card.classList.add(tone);}
 function renderGrid(){
+ if(!gotData)return;  // wait for the first poll; render() is showing the warm-up
  if(!gridBuilt)buildGrid();
  const ns=last.nodes||[],c=last.counts||{},total=ns.length;
  const num=a=>a.filter(v=>v!=null),avg=a=>a.length?a.reduce((s,v)=>s+v,0)/a.length:null;
@@ -1298,7 +1306,7 @@ async function loadSvc(force){
 // live ingest gauge: current KB/s + a 15-min wire-bytes area chart from /api/ingest-rate.
 let ingest=null;
 function renderIngest(){
- if(view!=="grid")return;
+ if(view!=="grid"||!gotData)return;  // don't build the skeleton over the warm-up
  if(!gridBuilt)buildGrid();
  const s=(ingest&&ingest.series_bytes)||[];
  if(!ingest||s.length<2){igRate.textContent="--";igSub.textContent="waiting for ingest…";
@@ -1391,7 +1399,7 @@ async function tick(){
  try{
   const r=await fetch("/api/fleet-status",{cache:"no-store"});
   if(!r.ok)throw new Error("HTTP "+r.status);
-  last=await r.json();err.textContent="";
+  last=await r.json();gotData=true;err.textContent="";
   meta.textContent=`${last.nodes.length} nodes · updated ${new Date().toLocaleTimeString()} · refresh ${REFRESH/1000}s`;
   render();
  }catch(e){err.textContent="fetch error: "+e.message;}
@@ -1404,20 +1412,22 @@ const VIEWS=[["grid","grid"],["table","table"],["rank","ranking"],["heat","heatm
 let view="grid",heatMetric="loss",heatHours=24;
 // measured ship-cost cache (/api/cost): actual compressed bytes each node pushed over the wire,
 // per node. shared by cost view, ranking columns and the modal stat line. cached ~25s.
-let foot={},footTs=0;
+let foot={},footTs=0,costRate=0,costDayTotal=0;
 function fmtKB(b){if(b==null)return"?";const u=["B","KB","MB","GB","TB"];let v=b,i=0;while(v>=1024&&i<u.length-1){v/=1024;i++;}return(i?v.toFixed(1):v.toFixed(0))+" "+u[i];}
 function fmtK(n){return n==null?"--":n>=1000?(n/1000).toFixed(0)+"k":""+n;}
 async function loadFoot(force){
  if(!force&&Object.keys(foot).length&&Date.now()-footTs<25000)return;
  try{const r=await fetch("/api/cost?hours=24",{cache:"no-store"});if(!r.ok)return;
-  const d=await r.json();foot={};(d.nodes||[]).forEach(x=>foot[x.node]=x);footTs=Date.now();}catch(e){}
+  const d=await r.json();foot={};(d.nodes||[]).forEach(x=>foot[x.node]=x);
+  costRate=d.gb_rate||0;costDayTotal=d.cost_per_day_total||0;footTs=Date.now();}catch(e){}
 }
 const tabs=document.getElementById("tabs"),viewEl=id=>document.getElementById(id);
 tabs.innerHTML=VIEWS.map(([id,l])=>`<div class="tab" data-v="${id}">${l}</div>`).join("");
 // these tabs are painted wholesale by an /api/* fetch that hits a server-side cache; the first
 // open is a cache miss (reads history) so it lags. Show why, instead of a grey blank, until the
 // loader overwrites innerHTML. Re-opens already hold content, so no spinner flash on return.
-const WARMUP={rank:"the 24-hour ranking",heat:"the latency heatmap",risk:"the risk death-clocks + incident feed",
+const WARMUP={grid:"the fleet overview",table:"the per-node table",
+ rank:"the 24-hour ranking",heat:"the latency heatmap",risk:"the risk death-clocks + incident feed",
  cost:"the measured ship-cost view",svc:"the fleet service telemetry"};
 function loadingHtml(v){return `<div class="loading"><div class="spin"></div>`
  +`<div class="lt">building ${WARMUP[v]}…</div>`
@@ -1463,10 +1473,13 @@ function renderCost(){const ns=Object.values(foot);
  const val=x=>x.wire_bytes_per_day!=null?x.wire_bytes_per_day:(x.wire_bytes||0);
  ns.sort((a,b)=>val(b)-val(a));
  const max=Math.max(...ns.map(val))||1;
+ const usd=v=>v==null?"--":"$"+(v>=1?v.toFixed(2):v.toFixed(4));
  const bars=ns.map(x=>{const v=val(x),pd=x.wire_bytes_per_day!=null;
   const top=x.top&&x.top.length?x.top.map(t=>t.t.replace("_samples","")).join(", "):"";
-  return `<div class="frow" data-node="${esc(x.node)}" title="${x.posts} posts · observed ${fmtDur(x.observed_s)} · gzip ${x.ratio?x.ratio+":1":"?"} · raw ${fmtKB(x.raw_bytes)}"><span class="fname">${esc(x.node)}</span><div class="fbar"><div class="ffill" style="width:${(100*v/max).toFixed(1)}%"></div></div><span class="fval">${fmtKB(v)}${pd?"/day":""}</span><span class="frpd">${fmtK(x.rows_per_day!=null?x.rows_per_day:x.rows)} rows${pd?"/day":""}</span><span class="ftop">${esc(top)}</span></div>`;}).join("");
- viewEl("cost").innerHTML=`<div class="fnote">actual compressed bytes shipped to the hub per node (gzip on the wire, measured from POST sizes, ~24h). top tables show where the volume goes.</div>${bars}`;
+  const c=pd?x.cost_per_day:x.cost_window;
+  return `<div class="frow" data-node="${esc(x.node)}" title="${x.posts} posts · observed ${fmtDur(x.observed_s)} · gzip ${x.ratio?x.ratio+":1":"?"} · raw ${fmtKB(x.raw_bytes)}"><span class="fname">${esc(x.node)}</span><div class="fbar"><div class="ffill" style="width:${(100*v/max).toFixed(1)}%"></div></div><span class="fval">${fmtKB(v)}${pd?"/day":""}</span><span class="fcost" title="ingest cost @ $${costRate}/GB">${usd(c)}${pd?"/day":""}</span><span class="frpd">${fmtK(x.rows_per_day!=null?x.rows_per_day:x.rows)} rows${pd?"/day":""}</span><span class="ftop">${esc(top)}</span></div>`;}).join("");
+ const tot=costDayTotal?`fleet ingest cost ≈ <b>$${costDayTotal.toFixed(2)}/day</b> @ $${costRate}/GB · `:"";
+ viewEl("cost").innerHTML=`<div class="fnote">${tot}actual compressed bytes shipped to the hub per node (gzip on the wire, measured from POST sizes, ~24h). top tables show where the volume goes. <span style="color:var(--dim)">AWS data-in is free — set SMOKEMON_AWS_GB_COST to your real rate (0 / NAT 0.045 / egress 0.09).</span></div>${bars}`;
 }
 
 // heatmap (/api/heatmap): node×hour grid, metric+window switchable. a smooth interpolated colour

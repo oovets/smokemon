@@ -231,9 +231,11 @@ def test_dashboard_has_loading_warmup():
     assert 'class="loading"' in h and "function loadingHtml" in h
     assert "warms the hub's cache" in h
     assert "const WARMUP=" in h
-    # each heavy, cache-backed view names its warm-up
-    for hint in ("the 24-hour ranking", "the latency heatmap", "the measured ship-cost view"):
+    # every tab names its warm-up, incl. grid/table (shown until the first fleet-status poll)
+    for hint in ("the fleet overview", "the per-node table", "the 24-hour ranking",
+                 "the latency heatmap", "the measured ship-cost view"):
         assert hint in h
+    assert "let gotData=false" in h  # grid/table gate
 
 
 # --- security hardening: ingest auth fails closed, decompression is bounded, hours is clamped ---

@@ -651,65 +651,6 @@ def load_disk_health(conn, since, until, node=None):
     return data
 
 
-# ---------- fleet-wide batch loaders (one query across ALL nodes) ----------
-# risks() needs ping/http/disk/disk-health/host for every node. Calling the per-node loaders in a
-# loop is 5 queries x N nodes - the N+1 that made /api/risks take seconds at fleet scale. These
-# return {node: <the same shape the matching per-node loader returns>} in a single query each, so
-# risks() can then work entirely in memory. Same rows read, ~1/N the per-query overhead.
-
-def load_ping_agg_fleet(conn, since, until):
-    out: dict[str, dict] = {}
-    for node, ts, target, loss, rmin, rmed, rmax in _q(conn,
-            "SELECT node, ts, target, loss_pct, rtt_min, rtt_median, rtt_max FROM ping_runs "
-            "WHERE ts BETWEEN ? AND ? ORDER BY node, target, ts", [since, until]):
-        d = out.setdefault(node, {}).setdefault(target, {"t": [], "min": [], "med": [], "max": [], "loss": []})
-        d["t"].append(ts); d["min"].append(rmin); d["med"].append(rmed); d["max"].append(rmax)
-        d["loss"].append(loss if loss is not None else 0.0)
-    return out
-
-
-def load_http_fleet(conn, since, until):
-    out: dict[str, dict] = {}
-    for node, ts, url, dns, connect, tls, ttfb in _q(conn,
-            "SELECT node, ts, url, dns_ms, connect_ms, tls_ms, ttfb_ms FROM http_samples "
-            "WHERE ts BETWEEN ? AND ? ORDER BY node, url, ts", [since, until]):
-        d = out.setdefault(node, {}).setdefault(url, {"t": [], "ttfb": [], "dns": [], "connect": [], "tls": []})
-        d["t"].append(ts); d["ttfb"].append(ttfb)
-        d["dns"].append(dns); d["connect"].append(connect); d["tls"].append(tls)
-    return out
-
-
-def load_disk_fleet(conn, since, until):
-    out: dict[str, dict] = {}
-    for node, ts, mount, used, inode in _q(conn,
-            "SELECT node, ts, mount, used_pct, inode_used_pct FROM disk_samples "
-            "WHERE ts BETWEEN ? AND ? ORDER BY node, mount, ts", [since, until]):
-        d = out.setdefault(node, {}).setdefault(mount, {"t": [], "used": [], "inode": []})
-        d["t"].append(ts); d["used"].append(used); d["inode"].append(inode)
-    return out
-
-
-def load_disk_health_fleet(conn, since, until):
-    out: dict[str, dict] = {}
-    for node, ts, dev, wear, ioerr in _q(conn,
-            "SELECT node, ts, device, wear_pct, ioerr_count FROM disk_health "
-            "WHERE ts BETWEEN ? AND ? ORDER BY node, device, ts", [since, until]):
-        d = out.setdefault(node, {}).setdefault(dev, {"t": [], "wear": [], "ioerr": []})
-        d["t"].append(ts); d["wear"].append(wear); d["ioerr"].append(ioerr)
-    return out
-
-
-def load_host_fleet(conn, since, until):
-    out: dict[str, dict] = {}
-    for node, ts, cpu, load1, mem, temp, swap, cache in _q(conn,
-            "SELECT node, ts, cpu_pct, load1, mem_used_pct, temp_c, swap_used_pct, cache_mb "
-            "FROM host_samples WHERE ts BETWEEN ? AND ? ORDER BY node, ts", [since, until]):
-        d = out.setdefault(node, {"t": [], "cpu": [], "load1": [], "mem": [], "temp": [], "swap": [], "cache_mb": []})
-        d["t"].append(ts); d["cpu"].append(cpu); d["load1"].append(load1)
-        d["mem"].append(mem); d["temp"].append(temp); d["swap"].append(swap); d["cache_mb"].append(cache)
-    return out
-
-
 # ---------- QW4: death clocks (linear extrapolation) ----------
 
 

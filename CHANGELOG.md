@@ -37,10 +37,11 @@ added:
   /favicon.svg, linked from the dashboard <head>, with /favicon.ico aliased to it - no more 404
   for the tab icon.
 
-- dashboard: first-open warm-up screen on the cache-backed tabs (ranking / heatmap / risks /
-  cost / services). Instead of a grey blank while the hub builds its cache, the view shows a
-  spinner and explains that the first open reads history and warms the cache, then stays instant.
-  Shown only on the initial empty view - returning to a tab refreshes in place with no flash.
+- dashboard: first-open warm-up screen on every tab. The cache-backed tabs (ranking / heatmap /
+  risks / cost / services) show it while the hub builds their cache; grid / table show it until
+  the first /api/fleet-status poll lands. Instead of a grey blank the view shows a spinner and
+  explains that the first open reads history / warms the cache, then stays instant. Shown only
+  on the initial empty view - returning to a tab refreshes in place with no flash.
 
 changed:
 
