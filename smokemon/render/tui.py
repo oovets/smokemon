@@ -425,6 +425,9 @@ def _build(selected, data):  # noqa: C901
             plt.plot(d["t"], d["cpu"], label=_L("cpu%"), color="orange+", marker="braille")
             rss = query.last_value(d["rss"])
             tag = f"   rss {rss:.0f} MB" if rss is not None else ""
+            wr = query.last_value(d.get("write", []))
+            if wr is not None:
+                tag += f"   {wr:.0f} MB/day SD"
             _title(f"smokemon self{tag}")
             _ylabel("MB / %")
             _int_yticks(d["rss"], d["cpu"])

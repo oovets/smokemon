@@ -327,6 +327,9 @@ def _build(selected, data):  # noqa: C901 -- straight-line dispatch, intentional
             ax.plot(t, d["rss"], color="#9467bd", lw=0.9, label="rss MB")
             rss = query.last_value(d["rss"])
             tag = f"   rss {rss:.0f} MB now" if rss is not None else ""
+            wr = query.last_value(d.get("write", []))
+            if wr is not None:
+                tag += f"   {wr:.0f} MB/day SD"
             ax.set_title(f"smokemon self-footprint{tag}", loc="left", fontsize=10, fontweight="bold")
             ax.set_ylabel("MB"); ax.set_ylim(bottom=0)
             if any(v is not None and v > 0 for v in d["cpu"]):

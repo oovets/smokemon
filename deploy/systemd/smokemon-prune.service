@@ -1,0 +1,12 @@
+[Unit]
+Description=smokemon prune (retention: delete shipped+old rows, truncate WAL)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=__USER__
+WorkingDirectory=__SMOKEMON_DIR__
+EnvironmentFile=-__ENV_FILE__
+ExecStart=__PYTHON__ -m smokemon.prune
+Nice=15
+IOSchedulingClass=idle

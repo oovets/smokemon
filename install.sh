@@ -140,10 +140,11 @@ if [ "$MODE" = "hub" ]; then
 else
     for u in smokemon-collect-fast.service smokemon-collect-slow.service \
              smokemon-iperf.service smokemon-iperf.timer \
-             smokemon-shipper.service smokemon-shipper.timer; do install_unit "$u"; done
+             smokemon-shipper.service smokemon-shipper.timer \
+             smokemon-prune.service smokemon-prune.timer; do install_unit "$u"; done
     systemctl daemon-reload
     systemctl enable --now smokemon-collect-fast.service smokemon-collect-slow.service \
-        smokemon-iperf.timer smokemon-shipper.timer
+        smokemon-iperf.timer smokemon-shipper.timer smokemon-prune.timer
     echo "==> done. journalctl -u smokemon-collect-fast -f"
     echo "    try now:  smoke   (give the collectors a minute to gather data first)"
 fi

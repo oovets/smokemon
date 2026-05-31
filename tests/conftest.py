@@ -35,3 +35,15 @@ def hub_db(tmp_path, monkeypatch):
 def ts0():
     """A stable timestamp slightly in the past so test windows include it."""
     return time.time() - 600
+
+
+@pytest.fixture
+def node_db(tmp_db):
+    """An initialised node-schema SQLite connection on an isolated DB; closed on teardown."""
+    from smokemon import core, schema
+    conn = core.connect(str(tmp_db))
+    schema.init_node(conn)
+    try:
+        yield conn
+    finally:
+        conn.close()

@@ -17,8 +17,10 @@ from urllib.parse import parse_qs, urlparse
 
 from . import config, core, hubapi, schema
 
-_conn = None
+_conn = None              # writer connection: ingest + housekeeping, guarded by _lock
 _lock = threading.Lock()  # serialize writes to the single sqlite connection
+_ro_conn = None           # read-only connection: dashboard/API GETs, guarded by _read_lock
+_read_lock = threading.Lock()  # serialize reads among themselves; WAL lets them run beside ingest
 _render_lock = threading.Lock()  # serialize the (heavy) PNG subprocess renders
 _hub_cols: dict[str, set[str]] = {}
 _last_prune = 0.0  # ingest_log housekeeping throttle (prune at most hourly)
@@ -238,55 +240,59 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):  # noqa: N802
-        """Read-only S2/S3 surfaces. The hub shares one sqlite connection across threads,
-        so every read takes the same write lock the ingest path uses."""
+        """Read-only S2/S3 surfaces. Reads go through a dedicated read-only connection under
+        _read_lock; WAL lets them run concurrently with ingest instead of queuing behind the
+        writer's _lock, so the dashboard never competes with intake."""
         u = urlparse(self.path)
         qs = parse_qs(u.query)
         hours = _clamp_hours(qs)
         try:
             if u.path == "/metrics":
-                with _lock:
-                    text = hubapi.prometheus(_conn)
+                with _read_lock:
+                    text = hubapi.prometheus(_ro_conn)
                 return self._send_text(200, text, "text/plain; version=0.0.4; charset=utf-8")
             if u.path == "/":
                 return self._send_text(200, hubapi.dashboard_html(), "text/html; charset=utf-8")
             if u.path == "/health":
                 return self._send(200, {"ok": True, "service": "smokemon-hub"})
             if u.path == "/api/fleet-status":
-                with _lock:
-                    return self._send(200, hubapi.fleet_status(_conn))
+                with _read_lock:
+                    return self._send(200, hubapi.fleet_status(_ro_conn))
             if u.path == "/api/nodes":
-                with _lock:
-                    return self._send(200, {"nodes": hubapi.nodes(_conn)})
+                with _read_lock:
+                    return self._send(200, {"nodes": hubapi.nodes(_ro_conn)})
             if u.path == "/api/latest":
-                with _lock:
-                    return self._send(200, hubapi.latest_metrics(_conn))
+                with _read_lock:
+                    return self._send(200, hubapi.latest_metrics(_ro_conn))
             if u.path == "/api/fleet":
-                with _lock:
-                    return self._send(200, {"fleet": hubapi.fleet(_conn, hours)})
+                with _read_lock:
+                    return self._send(200, {"fleet": hubapi.fleet(_ro_conn, hours)})
             if u.path == "/api/heatmap":
                 metric = qs.get("metric", ["loss"])[0]
-                with _lock:
-                    return self._send(200, hubapi.heatmap(_conn, metric, hours))
+                with _read_lock:
+                    return self._send(200, hubapi.heatmap(_ro_conn, metric, hours))
             if u.path == "/api/spark":
                 spark_hours = _clamp_hours(qs, default=2.0)
-                with _lock:
-                    return self._send(200, {"spark": hubapi.sparklines(_conn, spark_hours)})
+                with _read_lock:
+                    return self._send(200, {"spark": hubapi.sparklines(_ro_conn, spark_hours)})
             if u.path == "/api/risks":
-                with _lock:
-                    return self._send(200, hubapi.risks(_conn, hours))
+                with _read_lock:
+                    return self._send(200, hubapi.risks(_ro_conn, hours))
             if u.path == "/api/cost":
-                with _lock:
-                    return self._send(200, hubapi.ship_volume(_conn, hours))
+                with _read_lock:
+                    return self._send(200, hubapi.ship_volume(_ro_conn, hours))
             if u.path == "/api/services":
-                with _lock:
-                    return self._send(200, hubapi.services(_conn))
+                with _read_lock:
+                    return self._send(200, hubapi.services(_ro_conn))
             if u.path == "/api/ports":
                 node = qs.get("node", [""])[0]
                 if not node:
                     return self._send(400, {"error": "node required"})
-                with _lock:
-                    return self._send(200, hubapi.ports(_conn, node))
+                with _read_lock:
+                    return self._send(200, hubapi.ports(_ro_conn, node))
+            if u.path == "/api/inventory":
+                with _read_lock:
+                    return self._send(200, hubapi.inventory(_ro_conn))
             if u.path == "/api/ingest-rate":
                 # in-memory ring buffer, not the DB - no _lock needed (own buffer lock)
                 return self._send(200, hubapi.ingest_rate(_ingest_snapshot()))
@@ -357,18 +363,21 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> int:
-    global _conn
+    global _conn, _ro_conn
     if config.HUB_SECRET == "changeme":
         core.log("WARNING: SMOKEMON_HUB_SECRET is default 'changeme' - set a real secret.")
     _conn = core.connect(config.HUB_DB, check_same_thread=False)
     schema.init_hub(_conn)
+    # Dashboard/API reads use a separate read-only connection (opened after the schema exists)
+    # so GETs read under WAL without contending on the writer's lock.
+    _ro_conn = core.connect_ro(config.HUB_DB)
     _hub_cols.update({t: {r[1] for r in _conn.execute(f"PRAGMA table_info({t})").fetchall()}
                       for t in schema.STD_TABLES})
     srv = ThreadingHTTPServer((config.HUB_BIND, config.HUB_PORT), Handler)
     core.log(f"hub listening on {config.HUB_BIND}:{config.HUB_PORT} db={config.HUB_DB} "
              "(dashboard GET / · POST /ingest · GET /metrics /api/fleet-status "
              "/api/latest /api/fleet /api/heatmap /api/nodes /api/services "
-             "/api/ingest-rate /api/png)")
+             "/api/ports /api/inventory /api/ingest-rate /api/png)")
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
@@ -376,6 +385,8 @@ def main() -> int:
     finally:
         srv.server_close()
         _conn.close()
+        if _ro_conn is not None:
+            _ro_conn.close()
     return 0
 
 

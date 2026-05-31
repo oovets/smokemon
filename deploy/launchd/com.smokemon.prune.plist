@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.smokemon.prune</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__PYTHON__</string>
+    <string>-m</string><string>smokemon.prune</string>
+  </array>
+  <key>WorkingDirectory</key><string>__SMOKEMON_DIR__</string>
+  <key>EnvironmentVariables</key>
+  <dict><key>PYTHONPATH</key><string>__SMOKEMON_DIR__</string></dict>
+  <key>StartCalendarInterval</key>
+  <dict><key>Hour</key><integer>0</integer><key>Minute</key><integer>20</integer></dict>
+  <key>StandardOutPath</key><string>__SMOKEMON_DIR__/logs/prune.out.log</string>
+  <key>StandardErrorPath</key><string>__SMOKEMON_DIR__/logs/prune.err.log</string>
+</dict>
+</plist>

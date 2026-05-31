@@ -8,8 +8,10 @@ CHANGELOG) - the analysis engine (`smokemon/analyze.py`), text surfaces (`smokem
 `smoke status|incidents|digest`, `smoke replay`), alerting (`smokemon/notify.py`), the hub
 `/metrics` + `/api/*` + live dashboard (`GET /`) and terminal `smoke fleet`
 (`smokemon/hubapi.py`), the `self` panel and the opt-in `smokemon/probes/synthetic.py`.
-[deferred] needs hardware / a gpu / a multi-day redesign that can't be built + verified
-blind: X1 (gpio/led), X3 (jetson on-device ml), X4 (hubless mesh gossip).
+tier 6 (edge hardening, ADR-0001) shipped in 0.14.0: retention/governor/transport/inventory/
+log-excerpts/jitter/hub-read-split. [deferred] needs hardware / a gpu / a multi-day redesign
+that can't be built + verified blind: X1 (gpio/led), X3 (jetson on-device ml), X4 (hubless
+mesh gossip).
 
 the thread running through all of it: smokemon's untapped edge is synchronized
 multi-signal data on one timeline per node. smokeping sees only the network, netdata only the
@@ -135,13 +137,42 @@ X6  [done] synthetic transactions. scripted multi-step checks beyond single-shot
 ```
 
 ```
-== recommended build order ==
+== tier 6 - edge hardening (ADR-0001, shipped 0.14.0) ==
 
-1. QW1 + QW2 + QW4   cheapest, data already present, immediate wow.
-2. F1 + F2           the genuinely novel core, in a new read-only smokemon/analyze.py.
-3. F3 + S4           digest + alerting on top of F2.
-4. S2                prometheus endpoint - large ecosystem reach for little code.
-5. P1-P3 / X*        predictive + frontier, by appetite.
+E1  [done] node-db retention/prune. without it the append-only tables grew forever and wore out
+    the sd card. deletes rows older than RETENTION_DAYS but only once shipped (id <= ship_state
+    cursor) when a hub is set, so a hub outage backs up on disk instead of losing data; WAL
+    truncate + optional VACUUM reclaim space. code: smokemon/prune.py (`python -m smokemon.prune`,
+    daily timer/plist). surface: cli/timer. effort M. stdlib, node-side, no schema change.
+
+E2  [done] transport hardening. ship refuses to send when HUB_URL is plaintext http:// to a
+    non-loopback host (the shared X-Smokemon-Key would cross the wire in clear); allow https,
+    loopback, or SMOKEMON_HUB_INSECURE=1 for a trusted LAN. code: ship.hub_url_ok. effort S.
+    (deferred follow-up: per-node token / HMAC instead of one shared secret.)
+
+E3  [done] footprint governor (opt-in). when the collector exceeds SMOKEMON_MAX_RSS_MB /
+    SMOKEMON_MAX_DB_MB it sheds its costliest probes (ext/synthetic/mtr) for that cycle and writes
+    a throttled ext_events row - detail degrades gracefully instead of the footprint overrunning
+    target. code: smokemon/governor.py + collect._guarded. effort M. node-side, off by default.
+
+E4  [done] device/environment inventory. delta-coded device_facts (model, kernel, os/jetpack,
+    cpu/mem, interfaces, gateway, boot id): a row written only when a fact changes, ~zero
+    steady-state cost. answers "what exactly is this box" with no log streaming. code:
+    probes/inventory.py; hub GET /api/inventory. effort M. additive table, vslow tier.
+
+E5  [done] event-driven log excerpts (opt-in). a capped, redacted last-N-KB tail of configured
+    log files, shipped only when a warn/error+ ext_events row just appeared - NOT a stream.
+    byte-offset cursor (never resends), drop-oldest cap, secret redaction; shipper gzips the wire.
+    code: probes/logexcerpt.py, new log_excerpts table. effort M. off by default.
+
+E6  [done] honest self footprint + de-synced cadence. self panel rss summed over ALL smokemon
+    pids (not one process) + write_mb_day projecting the SD-write rate, so wear is as visible as
+    rss; cadence carries a stable per-node jitter (hash -> 0..interval/4) so the fleet no longer
+    pings/ships in lockstep. code: host._fleet_footprint_linux, core._jitter. effort S-M.
+
+E7  [done] hub read/write split. dashboard/API GETs read through a dedicated read-only connection
+    (own lock, WAL) so they run concurrently with ingest instead of queuing behind the writer's
+    lock. code: core.connect_ro + hub._ro_conn. effort S. hub-side.
 ```
 
 ```

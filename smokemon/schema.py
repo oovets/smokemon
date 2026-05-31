@@ -33,7 +33,9 @@ _BODY = {
                     "cpu_freq_mhz REAL, cpu_throttle_count INTEGER, pi_throttle_bits INTEGER",
     "disk_samples": "ts REAL NOT NULL, mount TEXT NOT NULL, used_pct REAL, free_gb REAL, "
                     "inode_used_pct REAL",
-    "proc_samples": "ts REAL NOT NULL, pid INTEGER, name TEXT, cpu_pct REAL, rss_mb REAL",
+    # write_mb_day is populated only on the self row (name='smokemon'): the fleet's projected
+    # SD-write rate, so card wear is as visible as RSS. NULL for ordinary top-N proc rows.
+    "proc_samples": "ts REAL NOT NULL, pid INTEGER, name TEXT, cpu_pct REAL, rss_mb REAL, write_mb_day REAL",
     "thermal_zones": "ts REAL NOT NULL, zone TEXT NOT NULL, temp_c REAL",
     "power_samples": "ts REAL NOT NULL, rail TEXT NOT NULL, watts REAL, volts REAL, amps REAL",
     "tcp_samples": "ts REAL NOT NULL, retrans_segs INTEGER, out_rsts INTEGER, estab_resets INTEGER, "
@@ -56,12 +58,22 @@ _BODY = {
     "stream_probes": "ts REAL NOT NULL, url TEXT NOT NULL, ok INTEGER, latency_ms REAL, status TEXT",
     "port_samples": "ts REAL NOT NULL, proto TEXT NOT NULL, dir TEXT NOT NULL, port INTEGER NOT NULL, "
                     "conns INTEGER, peers INTEGER, listening INTEGER, bytes_sent INTEGER, bytes_recv INTEGER",
+    # device/environment inventory (delta-coded: a row is written only when a fact's value
+    # changes), so this carries "everything about the device and its environment" for ~zero
+    # steady-state cost. kind groups facts for rendering (hw / os / net / runtime).
+    "device_facts": "ts REAL NOT NULL, key TEXT NOT NULL, value TEXT, kind TEXT",
+    # event-driven, capped, redacted log tails (opt-in). reason = what triggered the capture;
+    # dropped = bytes skipped by the drop-oldest cap; excerpt = redacted text (wire-gzipped by
+    # the shipper). Written only on incident, never as a stream.
+    "log_excerpts": "ts REAL NOT NULL, source TEXT NOT NULL, path TEXT, reason TEXT, "
+                    "bytes INTEGER, dropped INTEGER, excerpt TEXT",
 }
 _IX = {"ping_runs": "target", "net_samples": "iface", "http_samples": "url", "mtr_hops": "target",
        "thermal_zones": "zone", "power_samples": "rail", "disk_health": "device",
        "synthetic_samples": "probe", "ext_metrics": "source", "ext_events": "source",
        "redis_samples": "instance", "gpu_samples": "gpu", "docker_samples": "name",
-       "proc_watch": "label", "stream_probes": "url", "port_samples": "port"}
+       "proc_watch": "label", "stream_probes": "url", "port_samples": "port",
+       "device_facts": "key", "log_excerpts": "source"}
 
 STD_TABLES = tuple(_BODY)  # generic append-only tables (id + body + node [+ src_id])
 
@@ -88,7 +100,16 @@ def _hub_ddl() -> str:
     for t, body in _BODY.items():
         parts.append(f"CREATE TABLE IF NOT EXISTS {t} (id INTEGER PRIMARY KEY, {body}, "
                      f"node TEXT, src_id INTEGER, UNIQUE(node, src_id));")
+        # (node, ts): per-node time-range scans (the fleet/risks per-node loaders) + GROUP BY node.
         parts.append(f"CREATE INDEX IF NOT EXISTS ix_{t}_node_ts ON {t}(node, ts);")
+        # (ts): the dashboard runs many CROSS-node `WHERE ts >= ?` windows. Without a leading-ts
+        # index those full-scan the table - a big reason a large hub DB makes GETs time out.
+        parts.append(f"CREATE INDEX IF NOT EXISTS ix_{t}_ts ON {t}(ts);")
+        # (node, <entity>, ts): the "latest value per (node, entity)" queries - latest_metrics
+        # (ping per target), /metrics, services (docker/redis/proc per name), inventory - become a
+        # loose index scan that jumps to each group's max-ts tail instead of scanning all history.
+        if t in _IX:
+            parts.append(f"CREATE INDEX IF NOT EXISTS ix_{t}_node_{_IX[t]}_ts ON {t}(node, {_IX[t]}, ts);")
     parts.append("CREATE TABLE IF NOT EXISTS ping_rtts (id INTEGER PRIMARY KEY, run_id INTEGER, rtt_ms REAL);")
     parts.append("CREATE INDEX IF NOT EXISTS ix_ping_rtts_run ON ping_rtts(run_id);")
     return "\n".join(parts)
@@ -163,6 +184,16 @@ def init_hub(conn: sqlite3.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS ix_ingest_log_ts ON ingest_log (ts);")
     conn.commit()
     ensure_body_columns(conn)
+    # Give the planner stats so it picks the loose-index scan over a full (node,ts) scan for the
+    # latest-value queries. analysis_limit caps the sampling so this stays cheap even on a large
+    # hub DB (a few hundred index rows per table, not a full ANALYZE).
+    try:
+        conn.execute("PRAGMA analysis_limit=400")
+        conn.execute("PRAGMA optimize")
+    except sqlite3.OperationalError as e:
+        # optimize is advisory; never let a stats hiccup stop the hub from starting.
+        import sys
+        print(f"[schema] PRAGMA optimize skipped: {e!r}", file=sys.stderr)
 
 
 _SQL_CACHE: dict[str, tuple[str, list[str]]] = {}
