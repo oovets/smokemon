@@ -53,6 +53,24 @@ changed:
 - hub serves dashboard/API GETs through a dedicated read-only connection (own lock, WAL) so
   reads run concurrently with ingest instead of queuing behind the writer's lock.
 
+performance (fixes intermittent dashboard "fetch error / NetworkError" on a large hub DB):
+
+- hub sample tables now also get a plain (ts) index and a per-entity (node, <entity>, ts) index,
+  not just (node, ts). cross-node `WHERE ts >= ?` windows (heatmap/spark/cost/services) seek the
+  (ts) index instead of full-scanning, and the latest-value queries (latest_metrics, /metrics,
+  services) become a loose index scan that jumps to each group's newest row instead of scanning
+  all history + a temp b-tree. created on next hub start (one-time index build on existing DBs).
+
+- latest_metrics is bounded to SMOKEMON_HUB_LATEST_WINDOW_S (default 30d; 0 = unbounded) so the
+  live/latest surfaces only consider recent rows; a node silent longer drops out of "latest".
+
+- init_hub runs a bounded PRAGMA optimize (analysis_limit=400) so the planner has the stats to
+  pick the new loose-index scans.
+
+note: these are read-path/index changes only - no sample data is deleted. the hub DB itself is
+still not pruned (it keeps full history for replay/baselines); bound its growth with a hub-side
+retention pass if/when needed.
+
 security:
 
 - ship now refuses to send when SMOKEMON_HUB_URL is plaintext http:// to a non-loopback

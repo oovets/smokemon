@@ -30,17 +30,28 @@ def nodes(conn) -> list[str]:
     return sorted(seen)
 
 
-def latest_metrics(conn) -> dict[str, dict]:
-    """{node: {cpu, mem, temp, ts, targets:{name:{rtt,loss}}}} most-recent values."""
+def latest_metrics(conn, now: float | None = None) -> dict[str, dict]:
+    """{node: {cpu, mem, temp, ts, targets:{name:{rtt,loss}}}} most-recent values.
+
+    Bounded to the last HUB_LATEST_WINDOW_S so the per-group MAX(ts) seeks the recent tail of the
+    (ts) index instead of scanning all history (the unbounded GROUP BY here was the hot path that
+    made a large hub DB time out). A node silent longer than the window drops out of 'latest'.
+    Window 0 = unbounded (legacy)."""
+    now = time.time() if now is None else now
+    win = config.HUB_LATEST_WINDOW_S
+    floor = (now - win) if win > 0 else None
+    where, params = (" WHERE ts >= ?", [floor]) if floor is not None else ("", [])
     out: dict[str, dict] = {}
     for node, cpu, mem, temp, ts in _rows(
-            conn, "SELECT node, cpu_pct, mem_used_pct, temp_c, MAX(ts) FROM host_samples GROUP BY node"):
+            conn, "SELECT node, cpu_pct, mem_used_pct, temp_c, MAX(ts) FROM host_samples"
+            + where + " GROUP BY node", params):
         out.setdefault(node, {})["cpu"] = cpu
         out[node]["mem"] = mem
         out[node]["temp"] = temp
         out[node]["ts"] = ts
     for node, target, rtt, loss, ts in _rows(
-            conn, "SELECT node, target, rtt_median, loss_pct, MAX(ts) FROM ping_runs GROUP BY node, target"):
+            conn, "SELECT node, target, rtt_median, loss_pct, MAX(ts) FROM ping_runs"
+            + where + " GROUP BY node, target", params):
         d = out.setdefault(node, {}).setdefault("targets", {})
         d[target] = {"rtt_ms": rtt, "loss_pct": loss, "ts": ts}
     return out
@@ -186,7 +197,7 @@ def fleet_status(conn, stale_after_s: float = FLEET_STALE_AFTER_S, now: float | 
     worst-first. Returns {now, stale_after_s, counts:{state:n}, nodes:[{node, state,
     rtt_ms, loss_pct, cpu, temp, age_s}]}."""
     now = time.time() if now is None else now
-    latest = latest_metrics(conn)
+    latest = latest_metrics(conn, now)
     counts = {"healthy": 0, "warn": 0, "down": 0, "stale": 0}
     out = []
     for node, d in latest.items():

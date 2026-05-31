@@ -208,6 +208,11 @@ SHIP_RTTS = os.environ.get("SMOKEMON_SHIP_RTTS", "0") != "0"
 HUB_BIND = os.environ.get("SMOKEMON_HUB_BIND", "0.0.0.0")
 HUB_PORT = _i("SMOKEMON_HUB_PORT", "8765")
 HUB_MAX_BODY = _i("SMOKEMON_HUB_MAX_BODY", str(64 * 1024 * 1024))
+# latest-value endpoints (/api/latest, /metrics, /api/fleet-status) only need the most recent
+# row per node/target. Bounding the lookup to a recent window keeps the MAX(ts) GROUP BY off the
+# full history as the hub DB grows; a node silent longer than this drops out of "latest". 0 =
+# unbounded (old behaviour). Default 30 days - generous enough to still show recently-dead nodes.
+HUB_LATEST_WINDOW_S = _f("SMOKEMON_HUB_LATEST_WINDOW_S", str(30 * 86400))
 
 # Retention / pruning of the node DB (run `python -m smokemon.prune`, e.g. from a daily timer).
 # Rows older than RETENTION_DAYS are deleted, but only once they have been shipped (id <=

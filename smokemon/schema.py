@@ -100,7 +100,16 @@ def _hub_ddl() -> str:
     for t, body in _BODY.items():
         parts.append(f"CREATE TABLE IF NOT EXISTS {t} (id INTEGER PRIMARY KEY, {body}, "
                      f"node TEXT, src_id INTEGER, UNIQUE(node, src_id));")
+        # (node, ts): per-node time-range scans (the fleet/risks per-node loaders) + GROUP BY node.
         parts.append(f"CREATE INDEX IF NOT EXISTS ix_{t}_node_ts ON {t}(node, ts);")
+        # (ts): the dashboard runs many CROSS-node `WHERE ts >= ?` windows. Without a leading-ts
+        # index those full-scan the table - a big reason a large hub DB makes GETs time out.
+        parts.append(f"CREATE INDEX IF NOT EXISTS ix_{t}_ts ON {t}(ts);")
+        # (node, <entity>, ts): the "latest value per (node, entity)" queries - latest_metrics
+        # (ping per target), /metrics, services (docker/redis/proc per name), inventory - become a
+        # loose index scan that jumps to each group's max-ts tail instead of scanning all history.
+        if t in _IX:
+            parts.append(f"CREATE INDEX IF NOT EXISTS ix_{t}_node_{_IX[t]}_ts ON {t}(node, {_IX[t]}, ts);")
     parts.append("CREATE TABLE IF NOT EXISTS ping_rtts (id INTEGER PRIMARY KEY, run_id INTEGER, rtt_ms REAL);")
     parts.append("CREATE INDEX IF NOT EXISTS ix_ping_rtts_run ON ping_rtts(run_id);")
     return "\n".join(parts)
@@ -175,6 +184,16 @@ def init_hub(conn: sqlite3.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS ix_ingest_log_ts ON ingest_log (ts);")
     conn.commit()
     ensure_body_columns(conn)
+    # Give the planner stats so it picks the loose-index scan over a full (node,ts) scan for the
+    # latest-value queries. analysis_limit caps the sampling so this stays cheap even on a large
+    # hub DB (a few hundred index rows per table, not a full ANALYZE).
+    try:
+        conn.execute("PRAGMA analysis_limit=400")
+        conn.execute("PRAGMA optimize")
+    except sqlite3.OperationalError as e:
+        # optimize is advisory; never let a stats hiccup stop the hub from starting.
+        import sys
+        print(f"[schema] PRAGMA optimize skipped: {e!r}", file=sys.stderr)
 
 
 _SQL_CACHE: dict[str, tuple[str, list[str]]] = {}
