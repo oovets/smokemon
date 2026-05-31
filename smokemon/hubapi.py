@@ -1310,11 +1310,13 @@ _DASHBOARD_HTML = """<!doctype html>
     axis). cells flex to fill the full width dynamically. --tw = the time-gutter width, shared by
     the label header and every row so columns line up. */
  .hh-grid{--tw:52px;width:100%}
- .hh-labels{display:flex;align-items:flex-end;height:70px;gap:2px;margin-bottom:3px}
+ .hh-labels{display:flex;align-items:flex-end;height:96px;gap:2px;margin-bottom:3px}
  .hh-corner{width:var(--tw);flex:0 0 auto}
- .hh-name{flex:1 1 0;min-width:0;display:flex;justify-content:flex-start;align-items:flex-end;cursor:pointer}
- .hh-name>span{transform:rotate(-45deg);transform-origin:left bottom;white-space:nowrap;
-   font:600 11px var(--mono);color:var(--mut);max-width:130px;overflow:hidden;text-overflow:ellipsis}
+ /* host name stands straight up (90deg) centred over its column; tiny font + the column width as
+    the rotated line's height cap, so it never spills past the heatmap square's width. */
+ .hh-name{flex:1 1 0;min-width:0;display:flex;justify-content:center;align-items:flex-end;cursor:pointer;overflow:hidden}
+ .hh-name>span{writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap;
+   font:600 9px var(--mono);color:var(--mut);max-height:92px;overflow:hidden;text-overflow:ellipsis;line-height:1}
  .hh-name:hover>span{color:var(--fg)}
  .hh-row{display:flex;align-items:center;gap:2px;height:16px;margin-bottom:2px}
  .hh-time{width:var(--tw);flex:0 0 auto;text-align:right;padding-right:8px;
@@ -2204,31 +2206,50 @@ function netMultiSpark(nodesArr){
  }).join("");
  return `<svg class="ntspark" viewBox="0 0 100 40" preserveAspectRatio="none">${paths}</svg>`;
 }
-async function loadNet(){
+// We always request the by_node breakdown: its payload is a superset (each app carries the fleet
+// `series` AND the per-node `nodes`), so the fleet/per-node toggle is a pure client-side re-render
+// with zero refetch. Combined with painting cached data first, the tab feels instant after the
+// first load. A short in-tab cache also collapses the 15s auto-refresh + rapid interactions.
+let netFetchTs=0;
+async function loadNet(opts){
  const node=q.value.trim();
+ const force=opts&&opts.force;
+ // optimistic paint: if we already hold data for this node, render it immediately so a toggle /
+ // re-open never shows a blank or stale spinner while the background refresh runs.
+ if(netData.nw&&netData.node===node)renderNet(netData.hm,netData.nw,node);
+ // throttle: skip the network round-trip if we refreshed very recently for the same node, unless
+ // forced (metric/window change on the heatmap forces a fetch).
+ const fresh=netData.nw&&netData.node===node&&Date.now()-netFetchTs<12000;
+ const needHeat=heatOpen&&(force||!netData.hm);
+ if(fresh&&!needHeat&&!force)return;
  try{
-  // only fetch the (heavier) heatmap when its section is expanded; collapsed -> skip that round-trip.
   const [hm,nw]=await Promise.all([
-   heatOpen?fetch(`/api/heatmap?metric=${heatMetric}&hours=${heatHours}`,{cache:"no-store"}).then(r=>r.ok?r.json():null):Promise.resolve(netData.hm),
-   fetch(`/api/network?hours=6&by_node=${netMode==="split"?1:0}`+(node?"&node="+encodeURIComponent(node):""),{cache:"no-store"}).then(r=>r.ok?r.json():null),
+   needHeat?fetch(`/api/heatmap?metric=${heatMetric}&hours=${heatHours}`).then(r=>r.ok?r.json():null):Promise.resolve(netData.hm),
+   (force||!fresh)?fetch(`/api/network?hours=6&by_node=1`+(node?"&node="+encodeURIComponent(node):"")).then(r=>r.ok?r.json():null):Promise.resolve(netData.nw),
   ]);
-  netData={hm,nw,node};
-  renderNet(hm,nw,node);
+  netData={hm:hm||netData.hm,nw:nw||netData.nw,node};netFetchTs=Date.now();
+  renderNet(netData.hm,netData.nw,node);
  }catch(e){}
 }
-// fleet mode: one area card per app (summed across nodes). split mode: each card also overlays a
-// per-node breakdown (capped + "+N more" by the backend) with a colour-swatch legend.
+// fleet mode: one area card per app (summed across nodes), header = fleet peak/avg. split mode:
+// drop the fleet total entirely (it dwarfs individual nodes) and show only the per-node series +
+// a colour-swatch legend; the header then reads the BUSIEST node's peak so the chart scale is
+// framed by an actual node, not the sum.
 function netCardHtml(a,buckets,node){
- const peak=Math.max(0,...a.series),avg=buckets?a.total/buckets:0,dn=node?` data-node="${esc(node)}"`:"";
- const hdr=`<div class="nc-h"><span class="nc-app">${esc(a.app)}</span>`
-  +`<span class="nc-rate">${fmtKB(peak)}/s peak</span></div>`;
- const sub=`<div class="nc-sub">:${esc(String(a.port))} · ${fmtKB(avg)}/s avg</div>`;
+ const dn=node?` data-node="${esc(node)}"`:"";
+ const title=`<span class="nc-app">${esc(a.app)}</span>`;
  if(netMode==="split"&&a.nodes&&a.nodes.length){
+  const nodePeak=Math.max(0,...a.nodes.map(x=>Math.max(0,...(x.series||[]).map(v=>v||0))));
+  const hdr=`<div class="nc-h">${title}<span class="nc-rate">${fmtKB(nodePeak)}/s peak node</span></div>`;
+  const sub=`<div class="nc-sub">:${esc(String(a.port))} · ${a.nodes.length} node${a.nodes.length===1?"":"s"}</span>`;
   const leg=`<div class="nc-legend">`+a.nodes.map((x,k)=>{const c=NET_COLORS[k%NET_COLORS.length];
    return `<span class="nc-leg"><span class="sw" style="background:${c}"></span>${esc(x.node)}`
     +`<b>${fmtKB(x.total/(buckets||1))}/s</b></span>`;}).join("")+`</div>`;
   return `<div class="netcard"${dn}>${hdr}${netMultiSpark(a.nodes)}${sub}${leg}</div>`;
  }
+ const peak=Math.max(0,...a.series),avg=buckets?a.total/buckets:0;
+ const hdr=`<div class="nc-h">${title}<span class="nc-rate">${fmtKB(peak)}/s peak</span></div>`;
+ const sub=`<div class="nc-sub">:${esc(String(a.port))} · ${fmtKB(avg)}/s avg</div>`;
  return `<div class="netcard"${dn}>${hdr}${netSpark(a.series)}${sub}</div>`;
 }
 function renderNet(hm,nw,node){
@@ -2255,10 +2276,13 @@ function renderNet(hm,nw,node){
 viewEl("net").addEventListener("click",e=>{
  const ht=e.target.closest("[data-heattoggle]");if(ht){heatOpen=!heatOpen;
   // re-render from the cached payloads (no refetch); fetch only if the heatmap was never loaded.
-  if(heatOpen&&!netData.hm)loadNet();else renderNet(netData.hm,netData.nw,netData.node);return;}
- const m=e.target.closest("[data-m]");if(m){heatMetric=m.dataset.m;loadNet();return;}
- const hh=e.target.closest("[data-hh]");if(hh){heatHours=+hh.dataset.hh;loadNet();return;}
- const nm=e.target.closest("[data-netmode]");if(nm){netMode=nm.dataset.netmode;loadNet();}});
+  if(heatOpen&&!netData.hm)loadNet({force:true});else renderNet(netData.hm,netData.nw,netData.node);return;}
+ // metric / window changes only affect the heatmap -> force a (heatmap) fetch.
+ const m=e.target.closest("[data-m]");if(m){heatMetric=m.dataset.m;loadNet({force:true});return;}
+ const hh=e.target.closest("[data-hh]");if(hh){heatHours=+hh.dataset.hh;loadNet({force:true});return;}
+ // fleet / per-node is a pure client-side re-render: the cached by_node payload serves both.
+ const nm=e.target.closest("[data-netmode]");if(nm){netMode=nm.dataset.netmode;
+  renderNet(netData.hm,netData.nw,netData.node);}});
 // logs: severity / kind / source filters + sortable headers (delegated, all client-side so they
 // survive innerHTML re-renders and never refetch). The #q node filter + #logq text both call drawLogs.
 viewEl("logs").addEventListener("click",e=>{
