@@ -1040,6 +1040,27 @@ def nodes_detail(conn, hours: float = 24.0, now: float | None = None) -> dict:
     return {"now": now, "hours": hours, "nodes": out}
 
 
+def node_series(conn, node: str, hours: float = 6.0, now: float | None = None) -> dict:
+    """Lightweight per-node time-series for the modal's live canvas chart: the handful of signals
+    it draws (rtt, loss, cpu, mem, temp) as plain arrays on one bucket grid, plus incident windows
+    as annotations. Built from the existing analysis frame + incident detector in a SINGLE read -
+    no matplotlib, no subprocess - so the modal can animate JSON instead of polling a PNG render.
+    nulls are preserved (gaps in coverage); read-only."""
+    now = time.time() if now is None else now
+    since = now - hours * 3600
+    frame = analyze.build_frame(conn, since, now, node)
+    s = frame.get("series", {})
+    incidents = analyze.detect_incidents(frame.get("ping", {}), frame.get("http", {}))
+    annotations = [{"start": i["start"], "end": i["end"], "klass": i["klass"],
+                    "severity": i.get("severity", 1), "detail": i.get("detail", "")}
+                   for i in incidents]
+    keep = ("rtt", "loss", "cpu", "mem", "temp")
+    return {"now": now, "node": node, "hours": hours, "bucket": frame.get("bucket"),
+            "t": frame.get("t", []),
+            "series": {k: s.get(k, []) for k in keep},
+            "annotations": annotations}
+
+
 def inventory(conn, now: float | None = None) -> dict:
     """Per-node device/environment facts for the dashboard inventory view, from the delta-coded
     device_facts table: the latest value per (node, key) via the MAX(ts) bare-column trick (one
@@ -1436,6 +1457,9 @@ _DASHBOARD_HTML = """<!doctype html>
  #dplot[hidden]{display:none}
  /* risks tab inside the detail modal: detailed per-node risk list */
  #drisk{margin:0;padding:12px 14px;background:var(--bg);overflow-y:auto;height:80vh}
+ #dlive{margin:0;background:var(--bg);height:80vh}
+ #dlive[hidden]{display:none}
+ #dcanvas{display:block;width:100%;height:100%;cursor:crosshair}
  #drisk[hidden]{display:none}
  .rd-sec{font:600 10.5px var(--mono);text-transform:uppercase;letter-spacing:.6px;color:var(--mut);
    margin:18px 2px 9px;display:flex;gap:8px;align-items:center}
@@ -1574,6 +1598,7 @@ _DASHBOARD_HTML = """<!doctype html>
   <pre id="dplot" hidden></pre>
   <div id="drisk" hidden></div>
   <div id="dports" hidden></div>
+  <div id="dlive" hidden><canvas id="dcanvas"></canvas></div>
   <div class="dfoot" id="dfoot"></div>
  </div>
 </div>
@@ -2322,11 +2347,12 @@ const detail=document.getElementById("detail"),dgraph=document.getElementById("d
  dover=document.getElementById("dover"),dmsg=document.getElementById("dmsg"),
  dfoot=document.getElementById("dfoot"),dplot=document.getElementById("dplot"),
  dimg=document.getElementById("dimg"),dmode=document.getElementById("dmode"),
- drisk=document.getElementById("drisk"),dports=document.getElementById("dports");
+ drisk=document.getElementById("drisk"),dports=document.getElementById("dports"),
+ dlive=document.getElementById("dlive"),dcanvas=document.getElementById("dcanvas");
 // render mode: png (matplotlib), plot (TUI plotext braille graphs), risks (per-node risk list)
 // or ports (per-node connection counts). plot is the default; the rest are opt-in / contextual.
-let dMode="plot";
-dmode.innerHTML=[["png","png"],["plot","plot"],["risks","risks"],["ports","ports"]].map(([m,l])=>`<button data-m2="${m}">${l}</button>`).join("");
+let dMode="live";
+dmode.innerHTML=[["live","live"],["png","png"],["plot","plot"],["risks","risks"],["ports","ports"]].map(([m,l])=>`<button data-m2="${m}">${l}</button>`).join("");
 // xterm 256-colour index -> rgb, for converting plotext's ANSI (only 0 + 38;5;N appear).
 function xterm256(n){
  const base=[[0,0,0],[205,0,0],[0,205,0],[205,205,0],[0,0,238],[205,0,205],[0,205,205],[229,229,229],
@@ -2396,7 +2422,7 @@ function syncCtl(){
  dhours.querySelectorAll("button").forEach(b=>b.classList.toggle("on",+b.dataset.h===dH));
  dcols.querySelectorAll("button").forEach(b=>b.classList.toggle("on",+b.dataset.c===dC));
  dmode.querySelectorAll("button").forEach(b=>b.classList.toggle("on",b.dataset.m2===dMode));}
-function paintActive(){return dMode==="risks"?paintRisks():dMode==="ports"?paintPorts():dMode==="plot"?paintPlot():paintGraph();}
+function paintActive(){return dMode==="risks"?paintRisks():dMode==="ports"?paintPorts():dMode==="plot"?paintPlot():dMode==="png"?paintGraph():paintLive();}
 // ports tab: latest per-port connection counts for this node (/api/ports). Two columns:
 // listening/inbound services and outbound remote-service ports, busiest-first.
 async function paintPorts(){
@@ -2532,10 +2558,114 @@ async function paintPlot(){
   dplot.innerHTML=ansiToHtml(await r.text());
  }catch(e){dplot.textContent="fetch error";}
 }
+// ---- live mode: an animated, vanilla-canvas multi-signal chart for the open node. Draws JSON from
+// /api/series (no subprocess), reveals left-to-right with a playhead, fades in incident callouts as
+// the sweep passes them, then rests with a soft highlight on the worst moment. Live data appends to
+// the right edge without a flicker. rAF runs only during the reveal + on hover; idle = no repaint.
+const LIVE_SIGNALS=[["rtt","rtt","ms","#7c83ff"],["loss","loss","%","#f85149"],
+ ["cpu","cpu","%","#3fb950"],["mem","mem","%","#56d4dd"],["temp","temp","\\u00b0C","#e3b341"]];
+let liveData=null,liveAnim=0,liveRAF=0,liveHoverX=null,liveNode="";
+function liveEase(t){return t<0?0:t>1?1:1-Math.pow(1-t,3);}  // easeOutCubic
+async function paintLive(){
+ if(!dNode)return;
+ const fresh=liveNode!==dNode;  // node change -> replay the reveal; same node -> live append, no replay
+ try{
+  const r=await fetch(`/api/series?node=${encodeURIComponent(dNode)}&hours=${dH}`,{cache:"no-store"});
+  if(!r.ok){liveData=null;drawLive(1);return;}
+  liveData=await r.json();
+ }catch(e){return;}
+ sizeLiveCanvas();
+ if(fresh){liveNode=dNode;liveAnim=performance.now();startLiveRAF();}
+ else drawLive(1);  // already revealed -> just redraw with the appended data
+}
+function sizeLiveCanvas(){const dpr=window.devicePixelRatio||1;
+ const w=dlive.clientWidth||900,h=dlive.clientHeight||560;
+ dcanvas.width=Math.round(w*dpr);dcanvas.height=Math.round(h*dpr);
+ dcanvas.style.width=w+"px";dcanvas.style.height=h+"px";
+ const ctx=dcanvas.getContext("2d");ctx.setTransform(dpr,0,0,dpr,0,0);}
+function startLiveRAF(){cancelAnimationFrame(liveRAF);
+ const step=()=>{const el=performance.now()-liveAnim,dur=850,p=liveEase(el/dur);
+  drawLive(p);if(el<dur)liveRAF=requestAnimationFrame(step);};
+ liveRAF=requestAnimationFrame(step);}
+function drawLive(p){
+ const ctx=dcanvas.getContext&&dcanvas.getContext("2d");if(!ctx||dMode!=="live")return;
+ const W=dlive.clientWidth||900,H=dlive.clientHeight||560;
+ ctx.clearRect(0,0,W,H);
+ if(!liveData||!liveData.t||!liveData.t.length){
+  ctx.fillStyle="#8b949e";ctx.font="13px ui-monospace,monospace";
+  ctx.fillText("no data in this window",16,28);return;}
+ const t=liveData.t,n=t.length,sigs=LIVE_SIGNALS.filter(s=>(liveData.series[s[0]]||[]).some(v=>v!=null));
+ const rows=sigs.length||1,padL=54,padR=16,padT=10,padB=18,gap=12;
+ const rowH=(H-padT-padB-gap*(rows-1))/rows;
+ const t0=t[0],t1=t[n-1]||t0+1,span=Math.max(1,t1-t0);
+ const xAt=ts=>padL+(ts-t0)/span*(W-padL-padR);
+ const cut=t0+span*p;  // reveal sweep position in time
+ sigs.forEach((sig,ri)=>{const[key,label,unit,color]=sig;
+  const arr=liveData.series[key]||[],y0=padT+ri*(rowH+gap),y1=y0+rowH;
+  const fin=arr.filter(v=>v!=null&&v===v);const mx=Math.max(1e-9,...fin),mn=Math.min(0,...fin);
+  const rng=(mx-mn)||1,yAt=v=>y1-((v-mn)/rng)*(rowH-4)-2;
+  // row frame + label + latest value
+  ctx.fillStyle="rgba(255,255,255,.02)";roundRect(ctx,padL,y0,W-padL-padR,rowH,6);ctx.fill();
+  ctx.fillStyle="#8b949e";ctx.font="10px ui-monospace,monospace";ctx.textAlign="left";
+  ctx.fillText(label,8,y0+12);
+  const lastV=(()=>{for(let i=arr.length-1;i>=0;i--)if(arr[i]!=null)return arr[i];return null;})();
+  if(lastV!=null){ctx.fillStyle=color;ctx.font="600 11px ui-monospace,monospace";ctx.textAlign="right";
+   ctx.fillText(Math.round(lastV)+unit,padL-6,y0+12);ctx.textAlign="left";}
+  // the revealed area + line (only points whose ts <= the sweep cut)
+  ctx.beginPath();let started=false,lastX=padL;
+  for(let i=0;i<n;i++){if(t[i]>cut)break;const v=arr[i];if(v==null||v!==v)continue;
+   const x=xAt(t[i]),y=yAt(v);if(!started){ctx.moveTo(x,y);started=true;}else ctx.lineTo(x,y);lastX=x;}
+  if(started){ctx.lineWidth=1.6;ctx.strokeStyle=color;ctx.stroke();
+   ctx.lineTo(lastX,y1);ctx.lineTo(padL,y1);ctx.closePath();
+   const grad=ctx.createLinearGradient(0,y0,0,y1);grad.addColorStop(0,color+"33");grad.addColorStop(1,color+"00");
+   ctx.fillStyle=grad;ctx.fill();
+   // playhead dot at the leading edge while revealing
+   if(p<1){const yv=(()=>{for(let i=n-1;i>=0;i--)if(t[i]<=cut&&arr[i]!=null)return yAt(arr[i]);return y1;})();
+    ctx.fillStyle=color;ctx.beginPath();ctx.arc(lastX,yv,2.6,0,7);ctx.fill();}}
+ });
+ // incident annotations: a soft band + label on the top track, fading in as the sweep passes start
+ const top=padT,botY=padT+(sigs.length?rows*(rowH+gap)-gap:rowH);
+ (liveData.annotations||[]).forEach(a=>{if(a.start>cut)return;
+  const x0=xAt(a.start),x1=xAt(Math.min(a.end,cut)),aw=Math.max(2,x1-x0);
+  const fade=Math.min(1,(cut-a.start)/(span*0.04)||1),sev=a.severity||1;
+  ctx.fillStyle=(sev>=3?"#f85149":sev>=2?"#e3b341":"#8b949e")+Math.round(18*fade).toString(16).padStart(2,"0");
+  ctx.fillRect(x0,top,aw,botY-top);
+  ctx.fillStyle=(sev>=3?"#f85149":"#e3b341");ctx.globalAlpha=fade;ctx.font="600 9.5px ui-monospace,monospace";
+  ctx.textAlign="left";ctx.fillText(a.klass,x0+3,top+10);ctx.globalAlpha=1;});
+ // after the reveal completes, rest a soft focus highlight on the worst moment (or peak rtt)
+ if(p>=1)drawLiveFocus(ctx,xAt,top,botY,span);
+ // hover guide: a vertical line + per-row readout at the cursor time
+ if(liveHoverX!=null&&liveHoverX>=padL&&liveHoverX<=W-padR){
+  ctx.strokeStyle="rgba(255,255,255,.25)";ctx.lineWidth=1;ctx.beginPath();
+  ctx.moveTo(liveHoverX,padT);ctx.lineTo(liveHoverX,H-padB);ctx.stroke();
+  const ts=t0+(liveHoverX-padL)/(W-padL-padR)*span,idx=nearestIdx(t,ts);
+  ctx.fillStyle="#e6edf3";ctx.font="10px ui-monospace,monospace";ctx.textAlign="left";
+  ctx.fillText(new Date(t[idx]*1000).toLocaleTimeString(),liveHoverX+4,padT+10);}
+}
+function drawLiveFocus(ctx,xAt,top,botY,span){
+ const ann=(liveData.annotations||[]);let mark=null;
+ if(ann.length){mark=ann.slice().sort((a,b)=>(b.severity||1)-(a.severity||1))[0];}
+ if(!mark){const rtt=liveData.series.rtt||[];let pk=-1,pv=-1;
+  rtt.forEach((v,i)=>{if(v!=null&&v>pv){pv=v;pk=i;}});if(pk>=0)mark={start:liveData.t[pk],end:liveData.t[pk],peak:pv};}
+ if(!mark)return;
+ const x=xAt(mark.start);ctx.strokeStyle="rgba(124,131,255,.5)";ctx.lineWidth=1;
+ ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(x,top);ctx.lineTo(x,botY);ctx.stroke();ctx.setLineDash([]);
+ ctx.fillStyle="#c9d1d9";ctx.font="600 10px ui-monospace,monospace";ctx.textAlign="left";
+ const labl=mark.detail||(mark.peak!=null?("peak "+Math.round(mark.peak)+"ms"):"");
+ if(labl)ctx.fillText(labl,Math.min(x+5,xAt(liveData.t[liveData.t.length-1])-90),top+22);
+}
+function roundRect(ctx,x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);
+ ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+function nearestIdx(arr,v){let lo=0,hi=arr.length-1;while(lo<hi){const m=(lo+hi)>>1;if(arr[m]<v)lo=m+1;else hi=m;}return lo;}
+dcanvas.addEventListener("mousemove",e=>{const rect=dcanvas.getBoundingClientRect();
+ liveHoverX=e.clientX-rect.left;if(dMode==="live")drawLive(1);});
+dcanvas.addEventListener("mouseleave",()=>{liveHoverX=null;if(dMode==="live")drawLive(1);});
 function setMode(m){dMode=m;const graph=(m==="png"||m==="plot");
  dimg.hidden=(m!=="png");dplot.hidden=(m!=="plot");drisk.hidden=(m!=="risks");dports.hidden=(m!=="ports");
- // hours/cols/panels are graph-only -> hide them on the risks/ports tabs
- [dhours,dcols,dpanels].forEach(el=>el.style.display=graph?"":"none");
+ dlive.hidden=(m!=="live");
+ // cols/panels are PNG/plot-only; hours also drives the live chart, so keep it on live too.
+ dcols.style.display=graph?"":"none";dpanels.style.display=graph?"":"none";
+ dhours.style.display=(graph||m==="live")?"":"none";
  syncCtl();paintActive();}
 function openDetail(node){dNode=node;detail.hidden=false;
  // name + a status dot looked up from the latest fleet-status, built via safe DOM (no innerHTML)
@@ -2546,7 +2676,7 @@ function openDetail(node){dNode=node;detail.hidden=false;
  dfoot.textContent="";loadFoot().then(renderFoot);  // footprint stat line under the graphs
  // opening from the risks tab -> start on the risks list; otherwise the graph (never auto-open
  // risks from a graph view, so fall back to plot if that was the last sticky mode).
- const startMode=(view==="risk")?"risks":(dMode==="risks"?"plot":dMode);
+ const startMode=(view==="risk")?"risks":(dMode==="risks"?"live":dMode);
  dmsg.hidden=true;setMode(startMode);clearInterval(dTimer);dTimer=setInterval(paintActive,15000);}
 function closeDetail(){detail.hidden=true;dNode=null;clearInterval(dTimer);dover.innerHTML="";freeBlob();dgraph.removeAttribute("src");}
 dmode.addEventListener("click",e=>{if(e.target.dataset.m2)setMode(e.target.dataset.m2);});

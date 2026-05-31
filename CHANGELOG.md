@@ -12,6 +12,16 @@ tagged; dated entries begin at the first release, 0.11.0.)
 
 added:
 
+- hub dashboard: the node detail modal gets a live, animated "live" mode (now the default) that
+  replaces the matplotlib-PNG subprocess as the first thing you see. It draws a node's key signals
+  (rtt/loss/cpu/mem/temp) on an HTML canvas from a new lightweight GET /api/series endpoint (JSON
+  built from the existing analysis frame + incident detector in one read - no subprocess, no
+  matplotlib), so opening a node is instant. The chart reveals left-to-right with a playhead,
+  fades in incident callouts as the sweep passes them, rests with a soft highlight on the worst
+  moment, appends new data without flicker, and shows an in-canvas hover readout. Pure inline
+  vanilla JS + requestAnimationFrame - no build step, no external dependencies, works offline. The
+  png/plot deep multi-panel modes and risks/ports remain available via the mode buttons.
+
 - hub dashboard: the network tab is now the home for both throughput and the heatmap (the separate
   heatmap tab is gone). The throughput graphs lead the tab as large cards, two per row (responsive
   to one on narrow screens), with the heatmap in a collapsible section below (collapsed by default,

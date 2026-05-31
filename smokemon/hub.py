@@ -365,6 +365,14 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(400, {"error": "node required"})
                 data = _cached(f"ports:{node}", lambda: _ro_call(lambda c: hubapi.ports(c, node)))
                 return self._send(200, data)
+            if u.path == "/api/series":
+                node = qs.get("node", [""])[0]
+                if not node:
+                    return self._send(400, {"error": "node required"})
+                shours = _clamp_hours(qs, default=6.0)
+                data = _cached(f"series:{node}:{shours}",
+                               lambda: _ro_call(lambda c: hubapi.node_series(c, node, shours)))
+                return self._send(200, data)
             if u.path == "/api/network":
                 node = qs.get("node", [""])[0]
                 nhours = _clamp_hours(qs, default=6.0)

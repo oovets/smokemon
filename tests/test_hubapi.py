@@ -189,6 +189,27 @@ def test_fleet_stats_fast_uptime_outage_and_agrees_with_fleet(tmp_db, ts0):
     conn.close()
 
 
+def test_node_series_shape_and_annotations(tmp_db, ts0):
+    """node_series returns aligned signal arrays on one grid plus incident annotations, all from a
+    single read (the data the live canvas chart animates)."""
+    conn = core.connect(str(tmp_db))
+    _seed(conn, ts0)
+    d = hubapi.node_series(conn, "pi01", hours=24, now=ts0 + 100)
+    assert d["node"] == "pi01"
+    assert {"t", "series", "annotations", "bucket"} <= set(d)
+    assert {"rtt", "loss", "cpu", "mem", "temp"} == set(d["series"])
+    # every signal array aligns to the time grid length
+    n = len(d["t"])
+    for k, arr in d["series"].items():
+        assert len(arr) == n, f"{k} not aligned to grid"
+    # pi01 had a full internet outage in the seed -> at least one incident annotation
+    assert any(a["klass"] in ("isp-outage", "link-down", "packet-loss") for a in d["annotations"])
+    # a clean node yields aligned arrays and (typically) no hard-outage annotation
+    clean = hubapi.node_series(conn, "app01", hours=24, now=ts0 + 100)
+    assert len(clean["series"]["rtt"]) == len(clean["t"])
+    conn.close()
+
+
 def test_app_label_custom_ports():
     assert hubapi.app_label(8554) == "rtsp"
     assert hubapi.app_label(5000) == "raw-video"

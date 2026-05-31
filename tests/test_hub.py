@@ -317,6 +317,20 @@ def test_hub_housekeeping_builds_rollups(hub_ready, monkeypatch):
     assert n2 == n
 
 
+def test_dashboard_has_live_canvas_mode():
+    """The node detail modal has a vanilla-canvas 'live' mode (the new default) driven by
+    /api/series, alongside the existing png/plot/risks/ports modes."""
+    h = hubapi.dashboard_html()
+    assert '["live","live"]' in h and 'id="dlive"' in h and 'id="dcanvas"' in h
+    assert "function paintLive(" in h and "function drawLive(" in h
+    assert 'let dMode="live"' in h          # live is the default modal mode
+    assert "/api/series?node=" in h          # canvas pulls JSON series, not a PNG subprocess
+    assert "requestAnimationFrame" in h      # animated reveal
+    # the heavier deep-dive modes are still available
+    for mode in ('["png","png"]', '["plot","plot"]', '["risks","risks"]', '["ports","ports"]'):
+        assert mode in h
+
+
 def test_dashboard_risk_tab_renders_anomalies():
     """The risk tab + per-node risk modal fold the new multivariate anomaly tier into their
     issue list / sections, so the anomaly markup and glyph must be present."""
@@ -380,6 +394,36 @@ def test_api_logs_route(hub_ready):
             assert r.status == 200
             d = json.loads(r.read())
             assert d["node"] == "pi9" and any(x["kind"] == "log" for x in d["rows"])
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_api_series_route(hub_ready):
+    """/api/series returns the lightweight per-node signal arrays + annotations that the modal's
+    live canvas chart animates (no subprocess); a missing node param 400s."""
+    now = time.time()
+    schema.insert(hub_ready, "ping_runs", [{
+        "ts": now - 30, "target": "1.1.1.1", "sent": 20, "recv": 20, "loss_pct": 0.0,
+        "rtt_min": 5.0, "rtt_median": 8.0, "rtt_max": 12.0}], node="pi9")
+    schema.insert(hub_ready, "host_samples", [{"ts": now - 30, "cpu_pct": 22.0,
+                  "mem_used_pct": 40.0, "temp_c": 50.0}], node="pi9")
+    hub_ready.commit()
+    srv = core_http_server()
+    try:
+        port = srv.server_address[1]
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/series?node=pi9&hours=6", timeout=5) as r:
+            assert r.status == 200
+            d = json.loads(r.read())
+            assert d["node"] == "pi9"
+            assert {"t", "series", "annotations"} <= set(d)
+            assert {"rtt", "loss", "cpu", "mem", "temp"} == set(d["series"])
+        # node is required
+        try:
+            urllib.request.urlopen(f"http://127.0.0.1:{port}/api/series", timeout=5)
+            raise AssertionError("expected 400 without node")
+        except urllib.error.HTTPError as e:
+            assert e.code == 400
     finally:
         srv.shutdown()
         srv.server_close()
