@@ -22,6 +22,12 @@ _lock = threading.Lock()  # serialize writes to the single sqlite connection
 _ro_conn = None           # read-only connection: dashboard/API GETs, guarded by _read_lock
 _read_lock = threading.Lock()  # serialize reads among themselves; WAL lets them run beside ingest
 _render_lock = threading.Lock()  # serialize the (heavy) PNG subprocess renders
+# Short-TTL memoization for the expensive aggregate endpoints. Keyed by path+params; a per-key
+# lock makes concurrent identical misses collapse into a single recompute (single-flight) so the
+# dashboard's polls/tabs/reloads/users share one result instead of each paying seconds.
+_resp_cache: dict[str, tuple[float, object]] = {}
+_resp_cache_locks: dict[str, threading.Lock] = {}
+_resp_meta_lock = threading.Lock()
 _hub_cols: dict[str, set[str]] = {}
 _last_prune = 0.0  # ingest_log housekeeping throttle (prune at most hourly)
 _INGEST_LOG_RETENTION_S = 14 * 86400
@@ -223,6 +229,33 @@ def _clamp_hours(qs: dict, default: float = 24.0) -> float:
 _CLIENT_GONE = (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)
 
 
+def _ro_call(fn):
+    """Run a read-only query under the read lock against the read-only connection."""
+    with _read_lock:
+        return fn(_ro_conn)
+
+
+def _cached(key: str, producer):
+    """Serve `producer()` memoized for up to HUB_CACHE_TTL_S. On a miss a single thread recomputes
+    while concurrent callers wait on the per-key lock and then get the fresh value (single-flight),
+    so the dashboard's repeated/parallel polls don't each pay the full recompute. TTL<=0 = off."""
+    ttl = config.HUB_CACHE_TTL_S
+    if ttl <= 0:
+        return producer()
+    hit = _resp_cache.get(key)
+    if hit and time.time() - hit[0] < ttl:
+        return hit[1]
+    with _resp_meta_lock:
+        lock = _resp_cache_locks.setdefault(key, threading.Lock())
+    with lock:
+        hit = _resp_cache.get(key)  # another thread may have refreshed while we waited
+        if hit and time.time() - hit[0] < ttl:
+            return hit[1]
+        val = producer()
+        _resp_cache[key] = (time.time(), val)
+        return val
+
+
 class Handler(BaseHTTPRequestHandler):
     def _write(self, code: int, data: bytes, content_type: str,
                extra: dict | None = None, no_store: bool = False) -> None:
@@ -275,25 +308,26 @@ class Handler(BaseHTTPRequestHandler):
                 with _read_lock:
                     return self._send(200, hubapi.latest_metrics(_ro_conn))
             if u.path == "/api/fleet":
-                with _read_lock:
-                    return self._send(200, {"fleet": hubapi.fleet(_ro_conn, hours)})
+                data = _cached(f"fleet:{hours}", lambda: {"fleet": _ro_call(lambda c: hubapi.fleet(c, hours))})
+                return self._send(200, data)
             if u.path == "/api/heatmap":
                 metric = qs.get("metric", ["loss"])[0]
-                with _read_lock:
-                    return self._send(200, hubapi.heatmap(_ro_conn, metric, hours))
+                data = _cached(f"heatmap:{metric}:{hours}",
+                               lambda: _ro_call(lambda c: hubapi.heatmap(c, metric, hours)))
+                return self._send(200, data)
             if u.path == "/api/spark":
                 spark_hours = _clamp_hours(qs, default=2.0)
                 with _read_lock:
                     return self._send(200, {"spark": hubapi.sparklines(_ro_conn, spark_hours)})
             if u.path == "/api/risks":
-                with _read_lock:
-                    return self._send(200, hubapi.risks(_ro_conn, hours))
+                data = _cached(f"risks:{hours}", lambda: _ro_call(lambda c: hubapi.risks(c, hours)))
+                return self._send(200, data)
             if u.path == "/api/cost":
-                with _read_lock:
-                    return self._send(200, hubapi.ship_volume(_ro_conn, hours))
+                data = _cached(f"cost:{hours}", lambda: _ro_call(lambda c: hubapi.ship_volume(c, hours)))
+                return self._send(200, data)
             if u.path == "/api/services":
-                with _read_lock:
-                    return self._send(200, hubapi.services(_ro_conn))
+                data = _cached("services", lambda: _ro_call(hubapi.services))
+                return self._send(200, data)
             if u.path == "/api/ports":
                 node = qs.get("node", [""])[0]
                 if not node:

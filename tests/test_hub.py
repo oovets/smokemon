@@ -158,7 +158,7 @@ def test_rtts_not_shipped_by_default(node_conn, monkeypatch):
     """Default: raw ping_rtts stay node-local; the aggregated ping_run still ships."""
     monkeypatch.setattr(config, "SHIP_RTTS", False)
     conn, _ = node_conn
-    payload, maxids = ship.gather(conn)
+    payload, maxids = ship.gather(conn, "d")
     assert "ping_runs" in payload
     assert "ping_rtts" not in payload
     assert "ping_rtts" not in maxids
@@ -168,7 +168,7 @@ def test_rtts_shipped_when_opted_in(node_conn, monkeypatch):
     """SHIP_RTTS=1: raw rtts ship, capped to already-gathered ping_runs."""
     monkeypatch.setattr(config, "SHIP_RTTS", True)
     conn, rid = node_conn
-    payload, maxids = ship.gather(conn)
+    payload, maxids = ship.gather(conn, "d")
     assert payload["ping_rtts"]["rows"] == [[rid, 1.0], [rid, 2.0], [rid, 3.0]]
     assert maxids["ping_rtts"] == rid
 

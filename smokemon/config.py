@@ -1,5 +1,6 @@
 """Central configuration: all SMOKEMON_* env vars, node identity, paths, render constants."""
 
+import hashlib
 import os
 import shutil
 import socket
@@ -205,6 +206,38 @@ SHIP_INTERVAL = _f("SMOKEMON_SHIP_INTERVAL", "0")  # 0 = drain once and exit
 # fresh rows, so shipping them is ~85% of ship traffic for zero hub-side gain. Opt in if a
 # hub-side consumer ever needs the raw distribution.
 SHIP_RTTS = os.environ.get("SMOKEMON_SHIP_RTTS", "0") != "0"
+
+
+def hub_dest(url: str) -> str:
+    """Stable per-hub cursor key derived from the URL. If a hub's URL changes its dest changes
+    too and that hub's ship_state cursor resets to 0 - the node then re-ships its un-pruned
+    backlog to it, which is safe because the hub is idempotent on UNIQUE(node, src_id). Egress
+    is wasted once, correctness never. Kept short so cursor rows stay compact."""
+    return "h" + hashlib.sha1(url.encode()).hexdigest()[:12]
+
+
+def _hubs() -> list[tuple[str, str]]:
+    """Resolve the fan-out hub list as [(url, secret), ...]. Multiple hubs via the semicolon
+    list SMOKEMON_HUB_URLS (URLs may contain commas); falls back to the single SMOKEMON_HUB_URL
+    so existing single-hub setups are unchanged. Per-hub secret is optional and positional via
+    SMOKEMON_HUB_SECRETS (an empty slot means "use the shared HUB_SECRET"); the common case sets
+    nothing and every hub shares HUB_SECRET. URLs are de-duplicated preserving order."""
+    urls = _semi_list("SMOKEMON_HUB_URLS", "") or ([HUB_URL] if HUB_URL else [])
+    raw = os.environ.get("SMOKEMON_HUB_SECRETS", "")
+    # split (not _semi_list) so empty positional slots survive and keep alignment with urls
+    secrets = [s.strip() for s in raw.split(";")] if raw else []
+    out: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for i, u in enumerate(urls):
+        if u in seen:
+            continue
+        seen.add(u)
+        sec = secrets[i] if i < len(secrets) and secrets[i] else HUB_SECRET
+        out.append((u, sec))
+    return out
+
+
+HUBS = _hubs()  # [(url, secret), ...] - the fan-out destinations
 HUB_BIND = os.environ.get("SMOKEMON_HUB_BIND", "0.0.0.0")
 HUB_PORT = _i("SMOKEMON_HUB_PORT", "8765")
 HUB_MAX_BODY = _i("SMOKEMON_HUB_MAX_BODY", str(64 * 1024 * 1024))
@@ -213,6 +246,11 @@ HUB_MAX_BODY = _i("SMOKEMON_HUB_MAX_BODY", str(64 * 1024 * 1024))
 # full history as the hub DB grows; a node silent longer than this drops out of "latest". 0 =
 # unbounded (old behaviour). Default 30 days - generous enough to still show recently-dead nodes.
 HUB_LATEST_WINDOW_S = _f("SMOKEMON_HUB_LATEST_WINDOW_S", str(30 * 86400))
+# Short-TTL response cache for the expensive aggregate endpoints (risks/services/fleet/heatmap/
+# cost). These recompute from scratch per request - risks loops every node x several loaders and
+# reruns services - so every dashboard poll, tab, reload and user paid full cost. Serving a value
+# up to this many seconds old makes repeat/concurrent loads instant. 0 disables the cache.
+HUB_CACHE_TTL_S = _f("SMOKEMON_HUB_CACHE_TTL_S", "20")
 
 # Retention / pruning of the node DB (run `python -m smokemon.prune`, e.g. from a daily timer).
 # Rows older than RETENTION_DAYS are deleted, but only once they have been shipped (id <=

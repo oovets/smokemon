@@ -26,17 +26,26 @@ def _has_table(conn: sqlite3.Connection, table: str) -> bool:
     return row is not None
 
 
-def _shipped_last(conn: sqlite3.Connection, table: str) -> int:
-    """The ship_state cursor for `table` (0 if never shipped / no ship_state)."""
+def _shipped_last(conn: sqlite3.Connection, table: str, dests: list[str]) -> int:
+    """Highest ship_state cursor for `table` across the configured destinations - i.e. the row
+    id that AT LEAST ONE hub has confirmed (the delete-when-one-confirmed policy). Restricting to
+    `dests` means a never-reachable hub (cursor 0) can't block pruning of data another hub took,
+    and a stale/orphan dest can't influence it either. 0 if nothing shipped / no ship_state."""
+    if not dests:
+        return 0
+    placeholders = ",".join("?" * len(dests))
     try:
-        row = conn.execute("SELECT last_id FROM ship_state WHERE table_name=?", (table,)).fetchone()
+        row = conn.execute(
+            f"SELECT MAX(last_id) FROM ship_state WHERE table_name=? AND dest IN ({placeholders})",
+            (table, *dests)).fetchone()
     except sqlite3.OperationalError:
         return 0
-    return row[0] if row else 0
+    return row[0] if row and row[0] is not None else 0
 
 
 def prune(conn: sqlite3.Connection, now: float | None = None,
-          retention_days: float | None = None, require_shipped: bool | None = None) -> dict[str, int]:
+          retention_days: float | None = None, require_shipped: bool | None = None,
+          dests: list[str] | None = None) -> dict[str, int]:
     """Delete shipped rows older than the retention window. Returns {table: rows_deleted}.
     Does not checkpoint/vacuum - main() does that after, so the function stays pure/testable."""
     now = time.time() if now is None else now
@@ -44,7 +53,9 @@ def prune(conn: sqlite3.Connection, now: float | None = None,
     if retention_days <= 0:
         return {}  # pruning disabled
     if require_shipped is None:
-        require_shipped = bool(config.HUB_URL)
+        require_shipped = bool(config.HUBS)
+    if dests is None:
+        dests = [config.hub_dest(u) for u, _ in config.HUBS]
     cutoff = now - retention_days * 86400.0
     deleted: dict[str, int] = {}
 
@@ -52,7 +63,7 @@ def prune(conn: sqlite3.Connection, now: float | None = None,
         if not _has_table(conn, t):
             continue
         if require_shipped:
-            safe_id = _shipped_last(conn, t)
+            safe_id = _shipped_last(conn, t, dests)
             cur = conn.execute(f"DELETE FROM {t} WHERE ts < ? AND id <= ?", (cutoff, safe_id))
         else:
             cur = conn.execute(f"DELETE FROM {t} WHERE ts < ?", (cutoff,))
@@ -95,7 +106,7 @@ def main() -> int:
     conn.close()
     detail = ", ".join(f"{t}={n}" for t, n in sorted(deleted.items(), key=lambda kv: -kv[1])) or "nothing"
     core.log(f"prune: deleted {total} rows ({detail}) older than {config.RETENTION_DAYS}d "
-             f"(require_shipped={bool(config.HUB_URL)}, vacuum={config.PRUNE_VACUUM})")
+             f"(require_shipped={bool(config.HUBS)}, vacuum={config.PRUNE_VACUUM})")
     return 0
 
 

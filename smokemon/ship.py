@@ -51,26 +51,49 @@ def hub_url_ok(url: str) -> tuple[bool, str]:
 
 
 def init_state(conn: sqlite3.Connection) -> None:
-    conn.execute("CREATE TABLE IF NOT EXISTS ship_state "
-                 "(table_name TEXT PRIMARY KEY, last_id INTEGER NOT NULL DEFAULT 0)")
-    conn.commit()
+    """Ensure ship_state has the per-destination composite key (dest, table_name). Migrates an
+    old single-cursor table (table_name PRIMARY KEY) in one transaction, mapping its rows to the
+    primary hub's dest. Idempotent on fresh and already-migrated DBs. Finally drops cursor rows
+    for destinations that are no longer configured (only when hubs are configured) so a repointed
+    or removed hub can't leave a stale cursor that skews prune's MAX."""
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(ship_state)").fetchall()]
+    if not cols:  # fresh DB
+        conn.execute("CREATE TABLE ship_state (dest TEXT NOT NULL, table_name TEXT NOT NULL, "
+                     "last_id INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (dest, table_name))")
+        conn.commit()
+    elif "dest" not in cols:  # old schema -> migrate atomically
+        primary = config.hub_dest(config.HUBS[0][0]) if config.HUBS else "legacy"
+        conn.execute("BEGIN")  # explicit: legacy isolation doesn't wrap DDL, so make it atomic
+        conn.execute("ALTER TABLE ship_state RENAME TO ship_state_old")
+        conn.execute("CREATE TABLE ship_state (dest TEXT NOT NULL, table_name TEXT NOT NULL, "
+                     "last_id INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (dest, table_name))")
+        conn.execute("INSERT INTO ship_state (dest, table_name, last_id) "
+                     "SELECT ?, table_name, last_id FROM ship_state_old", (primary,))
+        conn.execute("DROP TABLE ship_state_old")
+        conn.commit()
+    if config.HUBS:  # orphan cleanup: forget cursors for destinations no longer configured
+        keep = [config.hub_dest(u) for u, _ in config.HUBS]
+        conn.execute(f"DELETE FROM ship_state WHERE dest NOT IN ({','.join('?' * len(keep))})", keep)
+        conn.commit()
 
 
-def _last(conn, table: str) -> int:
-    row = conn.execute("SELECT last_id FROM ship_state WHERE table_name=?", (table,)).fetchone()
+def _last(conn, dest: str, table: str) -> int:
+    row = conn.execute("SELECT last_id FROM ship_state WHERE dest=? AND table_name=?",
+                       (dest, table)).fetchone()
     return row[0] if row else 0
 
 
-def _set_last(conn, table: str, value: int) -> None:
-    conn.execute("INSERT INTO ship_state (table_name,last_id) VALUES (?,?) "
-                 "ON CONFLICT(table_name) DO UPDATE SET last_id=excluded.last_id", (table, value))
+def _set_last(conn, dest: str, table: str, value: int) -> None:
+    conn.execute("INSERT INTO ship_state (dest,table_name,last_id) VALUES (?,?,?) "
+                 "ON CONFLICT(dest,table_name) DO UPDATE SET last_id=excluded.last_id",
+                 (dest, table, value))
 
 
-def gather(conn) -> tuple[dict, dict]:
+def gather(conn, dest: str) -> tuple[dict, dict]:
     payload: dict[str, dict] = {}
     maxids: dict[str, int] = {}
     for t in schema.STD_TABLES:
-        last = _last(conn, t)
+        last = _last(conn, dest, t)
         try:
             cur = conn.execute(f"SELECT * FROM {t} WHERE id>? ORDER BY id LIMIT ?", (last, config.SHIP_BATCH))
         except sqlite3.OperationalError:
@@ -82,8 +105,8 @@ def gather(conn) -> tuple[dict, dict]:
             maxids[t] = rows[-1][cols.index("id")]
     # ping_rtts ships keyed to already-shipped ping_runs (run_id <= their max).
     # Off by default (SHIP_RTTS): the hub reads percentiles from ping_runs, not raw rtts.
-    runs_cap = maxids.get("ping_runs", _last(conn, "ping_runs"))
-    rtt_last = _last(conn, "ping_rtts")
+    runs_cap = maxids.get("ping_runs", _last(conn, dest, "ping_runs"))
+    rtt_last = _last(conn, dest, "ping_rtts")
     if config.SHIP_RTTS and runs_cap > rtt_last:
         try:
             rrows = conn.execute("SELECT run_id, rtt_ms FROM ping_rtts WHERE run_id>? AND run_id<=? ORDER BY run_id",
@@ -96,68 +119,110 @@ def gather(conn) -> tuple[dict, dict]:
     return payload, maxids
 
 
-def _post(payload: dict) -> bool:
+def _compress(payload: dict) -> bytes:
     # gzip the body: numeric row-JSON compresses ~5-10x. level 3 captures almost all of the
     # ratio for sub-millisecond CPU on Pi-class hardware. The hub decompresses by header, so
     # an old hub (which would 500 on a gzipped body) is the only incompatibility - both ends
     # ship together. The hub's 413/MAX_BODY guard then applies to the compressed size.
-    body = gzip.compress(json.dumps(payload).encode(), compresslevel=3)
+    return gzip.compress(json.dumps(payload).encode(), compresslevel=3)
+
+
+def _post_body(url: str, secret: str, body: bytes) -> bool:
     req = urllib.request.Request(
-        config.HUB_URL, data=body, method="POST",
+        url, data=body, method="POST",
         headers={"Content-Type": "application/json", "Content-Encoding": "gzip",
-                 "X-Smokemon-Key": config.HUB_SECRET})
+                 "X-Smokemon-Key": secret})
     try:
         with urllib.request.urlopen(req, timeout=60) as resp:
             return resp.status == 200
     except (urllib.error.URLError, OSError) as e:
-        core.log(f"POST failed: {e!r}")
+        core.log(f"POST to {url} failed: {e!r}")
         return False
 
 
-def drain(conn) -> int:
+def _frontier(conn, dest: str) -> tuple:
+    """Signature of everything gather() reads for a dest, so hubs at an identical cursor position
+    can share one gather + one compressed body (the fan-out CPU-1x optimization)."""
+    sig = tuple((t, _last(conn, dest, t)) for t in schema.STD_TABLES)
+    return sig + (("ping_rtts", _last(conn, dest, "ping_rtts")),)
+
+
+def drain(conn, hubs: list[tuple[str, str]] | None = None) -> int:
+    """Fan out to every hub: each gets a full copy. Hubs sharing a cursor frontier are gathered
+    and gzipped ONCE and the same body is POSTed to all of them (CPU ~1x, egress xN). A hub that
+    has lagged behind (was unreachable) gets its own gather/compress. A failed POST leaves that
+    hub's cursor untouched and drops it for the rest of this drain (retried next run) - it never
+    blocks or rolls back another hub. Returns total rows shipped (summed across hubs)."""
+    hubs = config.HUBS if hubs is None else hubs
     total = 0
-    while not core.stopping():
-        payload, maxids = gather(conn)
-        if not payload:
-            if "ping_rtts" in maxids:  # only cursor advance, nothing to send
-                _set_last(conn, "ping_rtts", maxids["ping_rtts"])
+    active = [(u, s, config.hub_dest(u)) for u, s in hubs]
+    while active and not core.stopping():
+        groups: dict[tuple, list] = {}
+        for h in active:
+            groups.setdefault(_frontier(conn, h[2]), []).append(h)
+        next_active: list = []
+        for members in groups.values():
+            payload, maxids = gather(conn, members[0][2])  # identical frontier -> identical payload
+            if not payload:
+                if "ping_rtts" in maxids:  # only a cursor advance, nothing to send
+                    for _u, _s, dest in members:
+                        _set_last(conn, dest, "ping_rtts", maxids["ping_rtts"])
+                    conn.commit()
+                continue  # group drained
+            body = _compress({"node": config.NODE, "tables": payload})
+            rows_n = sum(len(t["rows"]) for t in payload.values())
+            # ping_rtts is capped to already-shipped runs, not SHIP_BATCH, so exclude it: if no
+            # std table filled a full batch, this hub's backlog is drained after this round.
+            more = any(len(v["rows"]) >= config.SHIP_BATCH for k, v in payload.items() if k != "ping_rtts")
+            for u, s, dest in members:
+                if not _post_body(u, s, body):
+                    continue  # cursor unchanged; drop from active this drain
+                for t, mid in maxids.items():
+                    _set_last(conn, dest, t, mid)
                 conn.commit()
-            break
-        if not _post({"node": config.NODE, "tables": payload}):
-            break  # retry next run; cursor unchanged
-        for t, mid in maxids.items():
-            _set_last(conn, t, mid)
-        conn.commit()
-        total += sum(len(t["rows"]) for t in payload.values())
-        # ping_rtts is capped to already-shipped runs, not SHIP_BATCH, so exclude it:
-        # if no std table filled a full batch, the backlog is drained and we can stop.
-        if not any(len(v["rows"]) >= config.SHIP_BATCH for k, v in payload.items() if k != "ping_rtts"):
-            break
+                total += rows_n
+                if more:
+                    next_active.append((u, s, dest))
+        active = next_active
     return total
 
 
+def valid_hubs(hubs: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    """Drop hubs whose URL would leak the shared secret in clear (per hub_url_ok), logging each.
+    Availability over strictness: one misconfigured hub must not stop shipping to the good ones."""
+    out: list[tuple[str, str]] = []
+    for u, s in hubs:
+        ok, reason = hub_url_ok(u)
+        if ok:
+            out.append((u, s))
+        else:
+            core.log(f"ship: skipping hub {u}: {reason}")
+    return out
+
+
 def main() -> int:
-    if not config.HUB_URL:
-        core.log("ship: SMOKEMON_HUB_URL not set, nothing to do")
+    if not config.HUBS:
+        core.log("ship: no hub configured (SMOKEMON_HUB_URL / SMOKEMON_HUB_URLS unset), nothing to do")
         return 0
-    ok, reason = hub_url_ok(config.HUB_URL)
-    if not ok:
-        core.log(f"ship: {reason}")
+    valid = valid_hubs(config.HUBS)
+    if not valid:  # every configured hub failed validation - surface loudly (matches old exit 2)
+        core.log("ship: no valid hubs after transport validation")
         return 2
     core.install_signals()
     conn = core.connect(config.DB_PATH)
     init_state(conn)
+    urls = [u for u, _ in valid]
 
     def once() -> None:
-        n = drain(conn)
+        n = drain(conn, valid)
         if n:
-            core.log(f"shipped {n} rows")
+            core.log(f"shipped {n} rows to {len(valid)} hub(s)")
 
     if config.SHIP_INTERVAL > 0:
-        core.log(f"ship daemon: node={config.NODE} hub={config.HUB_URL} interval={config.SHIP_INTERVAL}s")
+        core.log(f"ship daemon: node={config.NODE} hubs={urls} interval={config.SHIP_INTERVAL}s")
         core.run_scheduler([(config.SHIP_INTERVAL, once)])  # runs now, then every interval
     else:
-        core.log(f"ship once: node={config.NODE} hub={config.HUB_URL} shipped {drain(conn)} rows")
+        core.log(f"ship once: node={config.NODE} hubs={len(valid)} shipped {drain(conn, valid)} rows")
     conn.close()
     return 0
 
