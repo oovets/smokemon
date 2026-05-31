@@ -2,6 +2,7 @@
   fast = ping + net (10s);  slow = http + mtr + wifi + host;  all = both (one thread).
 Production runs `fast` and `slow` as two services so a slow probe never delays ping."""
 
+import sqlite3
 import sys
 
 from . import adapters, config, core, events, expedite, governor, schema
@@ -62,6 +63,19 @@ def _guarded(name: str, fn, conn):
             return
         try:
             fn(conn)
+        except sqlite3.OperationalError as e:
+            # WAL writer-lock contention (multiple node writers on a slow disk), not a probe bug:
+            # surface it ONCE as a warn (edge-triggered) - never a per-cycle error, and never a
+            # trigger for expedite (which ignores collector-sourced events), so it can't cascade.
+            msg = str(e).lower()
+            if "lock" in msg or "busy" in msg:
+                core.log(f"probe {name}: transient DB contention: {e}")
+                events.trip(conn, f"dbcontention:{name}", source="collector", severity="warn",
+                            event="db-contention", detail=f"{name}: {e}")
+                return
+            core.log(f"probe {name} crashed: {e!r}")
+            events.trip(conn, f"probe:{name}", source="collector", severity="error",
+                        event="probe-crash", detail=f"{name}: {type(e).__name__}: {e}")
         except Exception as e:  # noqa: BLE001 - one probe must never kill the loop
             core.log(f"probe {name} crashed: {e!r}")
             events.trip(conn, f"probe:{name}", source="collector", severity="error",
@@ -69,6 +83,8 @@ def _guarded(name: str, fn, conn):
         else:
             events.clear(conn, f"probe:{name}", source="collector",
                          event="probe-recovered", detail=f"{name} ok")
+            events.clear(conn, f"dbcontention:{name}", source="collector",
+                         event="db-contention-recovered", detail=f"{name} ok")
     return run
 
 

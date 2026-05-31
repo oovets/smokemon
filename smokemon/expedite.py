@@ -31,7 +31,13 @@ def should_ship(conn) -> bool:
     _seen_id = cur_max
     if first or cur_max <= prev:
         return False
-    for (sev,) in conn.execute("SELECT severity FROM ext_events WHERE id>? ORDER BY id", (prev,)):
+    for source, sev in conn.execute(
+            "SELECT source, severity FROM ext_events WHERE id>? ORDER BY id", (prev,)):
+        # The collector's own events (probe-crash / db-contention) must NOT trigger expedite: an
+        # expedited ship is another local writer, so reacting to a local DB-contention event would
+        # add write pressure and feed a crash->ship->crash loop. Ship those on the normal bulk tick.
+        if source == "collector":
+            continue
         if is_elevated(sev):
             return True
     return False

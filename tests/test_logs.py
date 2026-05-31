@@ -107,6 +107,21 @@ def test_should_ship_ignores_quiet(node_db, monkeypatch):
     assert expedite.should_ship(node_db) is False  # only an info row -> no expedite
 
 
+def test_should_ship_ignores_collector_events(node_db, monkeypatch):
+    """A collector probe-crash / db-contention event must not trigger expedite (would pile another
+    local writer onto a contended DB); host/service events still do."""
+    monkeypatch.setattr(expedite, "_seen_id", None)
+    expedite.should_ship(node_db)  # seed
+    schema.insert(node_db, "ext_events", [{"ts": time.time(), "source": "collector",
+                  "severity": "error", "event": "probe-crash", "detail": "ping: locked"}])
+    node_db.commit()
+    assert expedite.should_ship(node_db) is False
+    schema.insert(node_db, "ext_events", [{"ts": time.time(), "source": "host",
+                  "severity": "crit", "event": "oom-kill", "detail": "1 new"}])
+    node_db.commit()
+    assert expedite.should_ship(node_db) is True
+
+
 def test_check_noop_without_hubs(node_db, monkeypatch):
     fired = []
     monkeypatch.setattr(config, "HUBS", [])

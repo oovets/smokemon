@@ -9,35 +9,45 @@ re-trips on its next observation).
 severity convention: bad states use warn/error/crit (elevated -> shown in the logs tab + expedited
 to the hub); the paired recovery uses info (quiet -> visible only in the 'all' filter)."""
 
+import sqlite3
 import time
 
-from . import schema
+from . import core, schema
 
 _active: set[str] = set()        # keys currently in their bad state (so trip fires once)
 _counters: dict[str, int] = {}   # last seen value of a monotonic counter, per key
 
 
-def _emit(conn, source: str, severity: str, event: str, detail: str) -> None:
-    schema.insert(conn, "ext_events",
-                  [{"ts": time.time(), "source": source, "severity": severity,
-                    "event": event, "detail": detail}])
-    conn.commit()
+def _emit(conn, source: str, severity: str, event: str, detail: str) -> bool:
+    """Record one ext_events row. Best-effort: if the DB is contended (the very thing some of
+    these events report), swallow the lock error rather than cascade - the condition re-trips on
+    its next observation. Returns True iff the row was written (so callers only mark state then)."""
+    try:
+        schema.insert(conn, "ext_events",
+                      [{"ts": time.time(), "source": source, "severity": severity,
+                        "event": event, "detail": detail}])
+        conn.commit()
+        return True
+    except sqlite3.OperationalError as e:
+        core.log(f"events: could not record {event}: {e}")
+        return False
 
 
 def trip(conn, key: str, *, source: str, severity: str, event: str, detail: str) -> None:
-    """Fire `event` once when `key` enters its bad state; a no-op while it stays bad."""
+    """Fire `event` once when `key` enters its bad state; a no-op while it stays bad. State is
+    marked only on a successful write, so a write that loses to DB contention retries next cycle."""
     if key in _active:
         return
-    _active.add(key)
-    _emit(conn, source, severity, event, detail)
+    if _emit(conn, source, severity, event, detail):
+        _active.add(key)
 
 
 def clear(conn, key: str, *, source: str, event: str = "recovered", detail: str = "") -> None:
     """Fire a quiet (info) recovery once when `key` leaves its bad state; a no-op otherwise."""
     if key not in _active:
         return
-    _active.discard(key)
-    _emit(conn, source, "info", event, detail)
+    if _emit(conn, source, "info", event, detail):
+        _active.discard(key)
 
 
 def edge(conn, bad: bool, key: str, *, source: str, severity: str, event: str,

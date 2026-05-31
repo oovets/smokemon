@@ -35,6 +35,14 @@ added:
   default (each app summed across nodes); drill into one node via the filter box. Well-known ports
   map to service names (https/redis/ssh/postgres/…) for labels.
 
+fixed:
+
+- collector: a transient SQLite "database is locked" (WAL writer contention on a busy node, not a
+  probe bug) is now surfaced once as an edge-triggered warn (db-contention) instead of a per-cycle
+  error, and expedite ignores collector-sourced events - closing a crash -> expedite-ship ->
+  more-contention -> crash feedback loop that flapped ping on multi-writer nodes. Event recording
+  is itself best-effort (a locked DB while logging the event no longer cascades).
+
 changed:
 
 - hub: /api/ports is now cached (was an uncached MAX(ts) scan + full fetch on every modal open),

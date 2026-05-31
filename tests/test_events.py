@@ -1,6 +1,8 @@
 """Edge/delta ext_events emitters: fire once on transition, quiet recovery, monotonic deltas,
 and the collector probe-crash hook."""
 
+import sqlite3
+
 import pytest
 
 from smokemon import collect, events
@@ -68,3 +70,19 @@ def test_probe_crash_recorded_then_recovers(node_db, monkeypatch):
     assert "ValueError" in rows[0][3] and "ping" in rows[0][3]
     collect._guarded("ping", lambda c: None, node_db)()  # next success clears it (quiet)
     assert [r[2] for r in _evs(node_db)] == ["probe-crash", "probe-recovered"]
+
+
+def test_db_contention_is_warn_not_crash(node_db, monkeypatch):
+    """A transient 'database is locked' is contention, not a probe bug: one warn (edge), never a
+    per-cycle error - so it can't spam or (with expedite ignoring collector events) cascade."""
+    monkeypatch.setattr(collect.governor, "should_shed", lambda name: (False, ""))
+
+    def locked(conn):
+        raise sqlite3.OperationalError("database is locked")
+
+    collect._guarded("ping", locked, node_db)()
+    collect._guarded("ping", locked, node_db)()  # still locked -> no second event (edge)
+    rows = _evs(node_db)
+    assert len(rows) == 1 and rows[0][:3] == ("collector", "warn", "db-contention")
+    collect._guarded("ping", lambda c: None, node_db)()  # recovers quietly
+    assert [r[2] for r in _evs(node_db)] == ["db-contention", "db-contention-recovered"]
