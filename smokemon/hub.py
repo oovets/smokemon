@@ -296,6 +296,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_text(200, text, "text/plain; version=0.0.4; charset=utf-8")
             if u.path == "/":
                 return self._send_text(200, hubapi.dashboard_html(), "text/html; charset=utf-8")
+            if u.path in ("/favicon.svg", "/favicon.ico"):  # tab icon = the header sparkline; no more 404
+                return self._send_bytes(200, hubapi.FAVICON_SVG, "image/svg+xml")
             if u.path == "/health":
                 return self._send(200, {"ok": True, "service": "smokemon-hub"})
             if u.path == "/api/fleet-status":

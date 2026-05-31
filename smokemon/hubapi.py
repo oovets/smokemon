@@ -636,10 +636,21 @@ def dashboard_html() -> str:
     return _DASHBOARD_HTML
 
 
+# Favicon: the exact brand sparkline (same path as the header logo, stroke #58a6ff) on the
+# dashboard's dark rounded tile, so the browser tab matches the header and /favicon.ico stops 404ing.
+FAVICON_SVG = (
+    b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="32" height="32">'
+    b'<rect width="24" height="24" rx="5" fill="#0b0e14"/>'
+    b'<path d="M2 12h3.5l2-7 4 15 3-10 1.5 3H22" fill="none" stroke="#58a6ff" stroke-width="2" '
+    b'stroke-linecap="round" stroke-linejoin="round"/></svg>'
+)
+
+
 _DASHBOARD_HTML = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>smokemon fleet</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <style>
  :root{
   --bg:#0b0e14;--bg2:#0e1118;--card:#11151d;--card2:#161b24;--line:#202632;--line2:#2c3340;

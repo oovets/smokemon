@@ -33,6 +33,10 @@ added:
   takes several hosts to set up fan-out (writes SMOKEMON_HUB_URLS) and clears the single-var form
   so the two can't shadow each other.
 
+- hub: serve a favicon (the header sparkline, brand-blue on the dashboard's dark tile) at
+  /favicon.svg, linked from the dashboard <head>, with /favicon.ico aliased to it - no more 404
+  for the tab icon.
+
 changed:
 
 - ship_state migrates in place from a single per-table cursor (table_name PK) to a per-destination

@@ -202,6 +202,28 @@ def core_http_server():
     return srv
 
 
+def test_favicon_served_not_404(hub_ready):
+    """Both /favicon.svg and the browser's implicit /favicon.ico return the brand sparkline (200),
+    so the dashboard no longer logs a 404 for the tab icon."""
+    srv = core_http_server()
+    try:
+        port = srv.server_address[1]
+        for path in ("/favicon.svg", "/favicon.ico"):
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=5) as resp:
+                assert resp.status == 200
+                assert resp.headers["Content-Type"] == "image/svg+xml"
+                body = resp.read()
+                assert body.startswith(b"<svg") and b"#58a6ff" in body  # the brand-blue sparkline
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_dashboard_links_favicon():
+    assert 'rel="icon"' in hubapi.dashboard_html() and "/favicon.svg" in hubapi.dashboard_html()
+    assert hubapi.FAVICON_SVG.startswith(b"<svg")
+
+
 # --- security hardening: ingest auth fails closed, decompression is bounded, hours is clamped ---
 
 def _ingest_post(port, body, headers):
