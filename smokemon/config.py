@@ -243,6 +243,19 @@ SHIP_RTTS = os.environ.get("SMOKEMON_SHIP_RTTS", "0") != "0"
 _SHIP_EXCLUDE_DEFAULT = frozenset({"synthetic_samples"})
 SHIP_INCLUDE = frozenset(_list("SMOKEMON_SHIP_INCLUDE", ""))
 SHIP_EXCLUDE = (_SHIP_EXCLUDE_DEFAULT | frozenset(_list("SMOKEMON_SHIP_EXCLUDE", ""))) - SHIP_INCLUDE
+# proc_samples ship mode. The node records the top-N processes by cpu plus its own 'smokemon' row
+# every host cycle (~30s); the hub only ever reads the 'smokemon' row (footprint panel + ship cost)
+# and, during incident windows, the names/cpu of processes that were busy. So shipping every idle
+# top-N row is mostly dead weight. Modes:
+#   active (default) - always ship the 'smokemon' row; ship other proc rows only when their cpu_pct
+#                      is >= SHIP_PROC_MIN_CPU (idle top-N rows stay node-local, kept for local
+#                      `smoke incidents`). This is the new default: it trims the bulk of proc rows.
+#   all              - ship every proc row (the prior behaviour; pick this if you attribute
+#                      historical incidents to low-cpu processes hub-side).
+#   self             - ship only the 'smokemon' row (most aggressive; drops hub-side proc
+#                      attribution entirely).
+SHIP_PROC = os.environ.get("SMOKEMON_SHIP_PROC", "active").strip().lower()
+SHIP_PROC_MIN_CPU = _f("SMOKEMON_SHIP_PROC_MIN_CPU", "5.0")
 
 
 def hub_dest(url: str) -> str:

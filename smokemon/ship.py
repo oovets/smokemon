@@ -104,6 +104,32 @@ def _ordered_tables() -> tuple[str, ...]:
     return priority + rest
 
 
+def _filter_rows(table: str, cols: list[str], rows: list) -> list[list]:
+    """Per-table row filter applied at ship time (rows stay node-local either way). Only
+    proc_samples is filtered, by config.SHIP_PROC: 'all' ships everything; 'self' ships only the
+    node's own 'smokemon' row; 'active' (default) ships 'smokemon' plus any process whose cpu_pct
+    is >= SHIP_PROC_MIN_CPU, dropping idle top-N rows the hub never reads. The 'smokemon' row is
+    always kept so the hub's footprint panel + ship-cost view keep working. Unknown modes fall
+    back to shipping everything (fail safe -> never silently drop data)."""
+    if table != "proc_samples" or config.SHIP_PROC == "all":
+        return [list(r) for r in rows]
+    name_i = cols.index("name")
+    cpu_i = cols.index("cpu_pct")
+    out = []
+    for r in rows:
+        if r[name_i] == "smokemon":
+            out.append(list(r))
+        elif config.SHIP_PROC == "self":
+            continue
+        elif config.SHIP_PROC == "active":
+            cpu = r[cpu_i]
+            if cpu is not None and cpu >= config.SHIP_PROC_MIN_CPU:
+                out.append(list(r))
+        else:  # unknown mode -> fail safe, ship the row
+            out.append(list(r))
+    return out
+
+
 def gather(conn, dest: str) -> tuple[dict, dict]:
     payload: dict[str, dict] = {}
     maxids: dict[str, int] = {}
@@ -115,9 +141,14 @@ def gather(conn, dest: str) -> tuple[dict, dict]:
             continue  # table not present on this node yet
         cols = [d[0] for d in cur.description]
         rows = cur.fetchall()
-        if rows:
-            payload[t] = {"columns": cols, "rows": [list(r) for r in rows]}
-            maxids[t] = rows[-1][cols.index("id")]
+        if not rows:
+            continue
+        # Advance the cursor to the last RAW row id first: even rows we drop below have been
+        # examined, so they must never be re-fetched on the next drain.
+        maxids[t] = rows[-1][cols.index("id")]
+        ship_rows = _filter_rows(t, cols, rows)
+        if ship_rows:
+            payload[t] = {"columns": cols, "rows": ship_rows}
     # ping_rtts ships keyed to already-shipped ping_runs (run_id <= their max).
     # Off by default (SHIP_RTTS): the hub reads percentiles from ping_runs, not raw rtts.
     runs_cap = maxids.get("ping_runs", _last(conn, dest, "ping_runs"))
@@ -179,9 +210,14 @@ def drain(conn, hubs: list[tuple[str, str]] | None = None) -> int:
         for members in groups.values():
             payload, maxids = gather(conn, members[0][2])  # identical frontier -> identical payload
             if not payload:
-                if "ping_rtts" in maxids:  # only a cursor advance, nothing to send
+                # Nothing to send, but gather may still have advanced cursors: ping_rtts (cursor
+                # bump only) or a table whose rows were all filtered out at ship time (e.g. an
+                # all-idle proc_samples batch under SHIP_PROC=active/self). Persist every advance
+                # so those examined rows are never re-fetched on the next drain.
+                if maxids:
                     for _u, _s, dest in members:
-                        _set_last(conn, dest, "ping_rtts", maxids["ping_rtts"])
+                        for t, mid in maxids.items():
+                            _set_last(conn, dest, t, mid)
                     conn.commit()
                 continue  # group drained
             body = _compress({"node": config.NODE, "tables": payload})

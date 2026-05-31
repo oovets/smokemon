@@ -20,6 +20,16 @@ added:
   exclusion; SMOKEMON_SHIP_INCLUDE force-ships a defaulted-out table (e.g. to re-enable
   synthetic_samples once a hub-side consumer for it exists).
 
+- ship: proc_samples row trimming via SMOKEMON_SHIP_PROC (active | all | self, default active).
+  the node records top-N processes by cpu + its own 'smokemon' row every host cycle, but the hub
+  only reads the 'smokemon' row (footprint panel + ship cost) and the busy processes at incident
+  time. active (new default) ships the 'smokemon' row + procs whose cpu_pct >=
+  SMOKEMON_SHIP_PROC_MIN_CPU (default 5.0) and drops idle top-N rows from the push (kept
+  node-local for `smoke incidents`); all keeps the prior full-history behaviour; self ships only
+  the 'smokemon' row. dropped rows still advance the ship cursor, so they are never re-examined,
+  and an all-dropped batch advances the cursor without a POST. backward compatible (same table
+  key, fewer rows).
+
 - hub storage: downsampling/rollups (smokemon/rollup.py, hub-side, pure stdlib) wired into the
   heavy read paths. the hub aggregates the bulky time-series tables (ping_runs/host_samples/
   net_samples/tcp_samples/wifi_samples) into additive <table>_1m and <table>_1h tables, driven by

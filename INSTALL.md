@@ -288,6 +288,14 @@ ship (push -> hub)   (repoint a node any time with `smoke hub NEW-HUB`)
   SMOKEMON_SHIP_INCLUDE    comma-sep table names to force-ship even if defaulted-out. e.g.
                            SMOKEMON_SHIP_INCLUDE=synthetic_samples to ship the synthetic checks
                            after all (only useful once a hub-side consumer for them exists).
+  SMOKEMON_SHIP_PROC       proc_samples ship mode: active (default) | all | self. the node records
+                           the top-N processes by cpu + its own 'smokemon' row every host cycle, but
+                           the hub only reads the 'smokemon' row (footprint + ship cost) and, at
+                           incident time, the busy processes. active ships 'smokemon' + procs whose
+                           cpu_pct >= SMOKEMON_SHIP_PROC_MIN_CPU and drops idle top-N rows (kept
+                           node-local); all ships every proc row (prior behaviour); self ships only
+                           the 'smokemon' row. dropped rows are never re-examined (cursor advances).
+  SMOKEMON_SHIP_PROC_MIN_CPU  cpu_pct floor for active mode (default 5.0)
 
 retention / prune (node DB; `python -m smokemon.prune`, daily timer)
   SMOKEMON_RETENTION_DAYS  delete rows older than N days (default 14); 0 = keep everything.

@@ -148,6 +148,96 @@ def test_ordered_tables_can_exclude_a_priority_table(monkeypatch):
     assert ordered[0] == "ext_events"  # the remaining priority table still leads
 
 
+# --- SHIP_PROC: trim idle top-N proc rows at ship time (kept node-local) ---
+
+def _seed_procs(conn, ts):
+    """Two busy procs (>5% cpu), two idle (<5%), plus the node's own 'smokemon' row."""
+    schema.insert(conn, "proc_samples", [
+        {"ts": ts, "pid": 1, "name": "busy-a", "cpu_pct": 40.0, "rss_mb": 100.0},
+        {"ts": ts, "pid": 2, "name": "busy-b", "cpu_pct": 6.0, "rss_mb": 50.0},
+        {"ts": ts, "pid": 3, "name": "idle-a", "cpu_pct": 1.0, "rss_mb": 20.0},
+        {"ts": ts, "pid": 4, "name": "idle-b", "cpu_pct": 0.0, "rss_mb": 10.0},
+        {"ts": ts, "pid": 9, "name": "smokemon", "cpu_pct": 0.2, "rss_mb": 30.0, "write_mb_day": 5.0},
+    ])
+    conn.commit()
+
+
+def _proc_names(payload):
+    p = payload.get("proc_samples")
+    if not p:
+        return set()
+    ni = p["columns"].index("name")
+    return {r[ni] for r in p["rows"]}
+
+
+def test_ship_proc_active_keeps_self_and_busy(tmp_db, monkeypatch):
+    """active (default): the smokemon row always ships, plus procs >= SHIP_PROC_MIN_CPU; idle
+    top-N rows are dropped from the push but the cursor still advances past them."""
+    monkeypatch.setattr(config, "SHIP_PROC", "active")
+    monkeypatch.setattr(config, "SHIP_PROC_MIN_CPU", 5.0)
+    conn = core.connect(str(tmp_db))
+    schema.init_node(conn)
+    ship.init_state(conn)
+    _seed_procs(conn, time.time())
+    payload, maxids = ship.gather(conn, "d")
+    assert _proc_names(payload) == {"smokemon", "busy-a", "busy-b"}  # idle-a/idle-b dropped
+    # cursor advanced past ALL raw rows (incl. the dropped ones) so they never re-ship
+    assert maxids["proc_samples"] == conn.execute("SELECT MAX(id) FROM proc_samples").fetchone()[0]
+    conn.close()
+
+
+def test_ship_proc_self_keeps_only_smokemon(tmp_db, monkeypatch):
+    monkeypatch.setattr(config, "SHIP_PROC", "self")
+    conn = core.connect(str(tmp_db))
+    schema.init_node(conn)
+    ship.init_state(conn)
+    _seed_procs(conn, time.time())
+    payload, maxids = ship.gather(conn, "d")
+    assert _proc_names(payload) == {"smokemon"}
+    assert maxids["proc_samples"] == conn.execute("SELECT MAX(id) FROM proc_samples").fetchone()[0]
+    conn.close()
+
+
+def test_ship_proc_all_unchanged(tmp_db, monkeypatch):
+    monkeypatch.setattr(config, "SHIP_PROC", "all")
+    conn = core.connect(str(tmp_db))
+    schema.init_node(conn)
+    ship.init_state(conn)
+    _seed_procs(conn, time.time())
+    payload, _ = ship.gather(conn, "d")
+    assert _proc_names(payload) == {"smokemon", "busy-a", "busy-b", "idle-a", "idle-b"}
+    conn.close()
+
+
+def test_ship_proc_default_is_active():
+    assert config.SHIP_PROC == "active" and config.SHIP_PROC_MIN_CPU == 5.0
+
+
+def test_drain_advances_cursor_when_all_proc_rows_filtered(tmp_db, monkeypatch):
+    """Regression: if a drain's only pending rows are proc rows that all get filtered out at ship
+    time (empty payload), the proc cursor must STILL advance - otherwise those rows are re-examined
+    on every drain forever. No POST happens (nothing to send), but the cursor moves."""
+    monkeypatch.setattr(config, "SHIP_PROC", "self")  # drop every non-smokemon proc row
+    hubs = [("https://a/ingest", "s")]
+    posted = []
+    monkeypatch.setattr(ship, "_post_body", lambda u, s, b: posted.append(u) or True)
+    conn = core.connect(str(tmp_db))
+    schema.init_node(conn)
+    ship.init_state(conn)
+    # only idle/non-self proc rows exist -> 'self' mode yields an empty payload
+    schema.insert(conn, "proc_samples", [
+        {"ts": time.time(), "pid": 3, "name": "idle-a", "cpu_pct": 1.0, "rss_mb": 20.0},
+        {"ts": time.time(), "pid": 4, "name": "idle-b", "cpu_pct": 0.0, "rss_mb": 10.0},
+    ])
+    conn.commit()
+    mx = conn.execute("SELECT MAX(id) FROM proc_samples").fetchone()[0]
+    ship.drain(conn, hubs)
+    dest = config.hub_dest("https://a/ingest")
+    assert ship._last(conn, dest, "proc_samples") == mx  # cursor advanced past the dropped rows
+    assert posted == []  # nothing was actually sent (empty payload)
+    conn.close()
+
+
 def test_gather_skips_excluded_table(tmp_db, monkeypatch):
     """An excluded table with real rows must not appear in the gathered payload, while a
     non-excluded table written in the same cycle still ships."""
