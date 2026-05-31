@@ -25,6 +25,14 @@ _DAEMON = "__daemon__"  # sentinel row name recorded when the socket is unreacha
 # cgroup-v2 cumulative cpu usage per container id: {cid: (usage_usec, ts)} for cpu% deltas.
 _prev_cpu: dict[str, tuple[int, float]] = {}
 
+# Daemon reachability is EDGE-triggered: a __daemon__ row is written only when reachability
+# changes (up<->down), never every cycle. Without this an unreachable socket would append a down
+# row every interval forever - spamming the hub and, worse, making the dashboard's daemon-down
+# alert STICKY: services() takes the latest __daemon__ row, so once a down row exists and no up
+# row ever follows, a node with healthy containers keeps showing "daemon unreachable" long after
+# docker recovered. None = unknown (first cycle). See collect().
+_prev_daemon_up: bool | None = None
+
 
 def _raw_get(path: str) -> bytes:
     """Bounded HTTP/1.0 GET over the docker unix socket; returns the response body.
@@ -122,6 +130,7 @@ def _inspect(cid: str) -> dict:
 
 
 def collect(conn) -> None:
+    global _prev_daemon_up
     if not config.DOCKER_ENABLED:
         return
     # Auto-detect: no socket means no docker on this node -> silent no-op. Only when the
@@ -132,12 +141,23 @@ def collect(conn) -> None:
     try:
         containers = _get_json("/containers/json?all=1")
     except (OSError, ValueError, json.JSONDecodeError) as e:
-        core.log(f"docker probe failed: {e.__class__.__name__}")
-        schema.insert(conn, "docker_samples", [{"ts": ts, "name": _DAEMON, "running": 0}])
-        conn.commit()
+        # Edge-triggered: record the down row + log only on the up->down transition (or the very
+        # first cycle), not every interval, so an unreachable socket can't spam down rows.
+        if _prev_daemon_up is not False:
+            core.log(f"docker probe failed: {e.__class__.__name__}")
+            schema.insert(conn, "docker_samples", [{"ts": ts, "name": _DAEMON, "running": 0}])
+            conn.commit()
+        _prev_daemon_up = False
         return
 
     rows = []
+    # Write one __daemon__ up row on the down->up transition AND on the first cycle after start
+    # (prev is None): a process restart loses the in-memory state, and the hub may still hold a
+    # stale down sentinel from before — emitting an up row on first success clears it. Steady-state
+    # success (prev already True) writes no daemon row at all.
+    if _prev_daemon_up is not True:
+        rows.append({"ts": ts, "name": _DAEMON, "running": 1})
+    _prev_daemon_up = True
     live_cids: set[str] = set()
     for c in containers[:config.DOCKER_MAX]:
         cid = c.get("Id") or ""

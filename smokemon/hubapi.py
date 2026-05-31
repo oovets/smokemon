@@ -720,9 +720,9 @@ def services(conn, hours: float = 168.0, now: float | None = None) -> dict:
         return round(now - ts) if ts is not None else None
 
     docker, docker_down = [], []
-    for (node, name, state, running, health, exit_code, restart_count,
+    for (node, name, image, state, running, health, exit_code, restart_count,
          oom, cpu, mem, pids, ts) in _rows(
-            conn, "SELECT node, name, state, running, health, exit_code, restart_count, "
+            conn, "SELECT node, name, image, state, running, health, exit_code, restart_count, "
             "oom_killed, cpu_pct, mem_mb, pids, MAX(ts) FROM docker_samples "
             "WHERE ts >= ? GROUP BY node, name", (since,)):
         if node is None:
@@ -731,7 +731,7 @@ def services(conn, hours: float = 168.0, now: float | None = None) -> dict:
             if not running:
                 docker_down.append(node)
             continue
-        v = {"node": node, "name": name, "state": state, "running": running,
+        v = {"node": node, "name": name, "image": image, "state": state, "running": running,
              "health": health, "exit_code": exit_code, "restart_count": restart_count,
              "oom_killed": oom, "cpu_pct": cpu, "mem_mb": mem, "pids": pids, "age_s": age(ts)}
         v["bad"] = query.docker_bad(v)
