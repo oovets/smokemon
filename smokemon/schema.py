@@ -55,7 +55,7 @@ _BODY = {
                   "uptime_s REAL, restarts INTEGER",
     "stream_probes": "ts REAL NOT NULL, url TEXT NOT NULL, ok INTEGER, latency_ms REAL, status TEXT",
     "port_samples": "ts REAL NOT NULL, proto TEXT NOT NULL, dir TEXT NOT NULL, port INTEGER NOT NULL, "
-                    "conns INTEGER, peers INTEGER, listening INTEGER",
+                    "conns INTEGER, peers INTEGER, listening INTEGER, bytes_sent INTEGER, bytes_recv INTEGER",
 }
 _IX = {"ping_runs": "target", "net_samples": "iface", "http_samples": "url", "mtr_hops": "target",
        "thermal_zones": "zone", "power_samples": "rail", "disk_health": "device",

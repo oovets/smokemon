@@ -394,13 +394,17 @@ def ports(conn, node: str, now: float | None = None) -> dict:
     if ts is None:
         return {"now": now, "node": node, "ts": None, "listen": [], "out": []}
     listen, out = [], []
-    for proto, d, port, conns, peers in _rows(
-            conn, "SELECT proto, dir, port, conns, peers FROM port_samples "
+    for proto, d, port, conns, peers, bsent, brecv in _rows(
+            conn, "SELECT proto, dir, port, conns, peers, bytes_sent, bytes_recv FROM port_samples "
             "WHERE node = ? AND ts = ?", (node, ts)):
-        rec = {"proto": proto, "port": port, "conns": conns or 0, "peers": peers or 0}
+        rec = {"proto": proto, "port": port, "conns": conns or 0, "peers": peers or 0,
+               "bytes_sent": bsent, "bytes_recv": brecv}
         (listen if d == "in" else out).append(rec)
-    listen.sort(key=lambda r: (-r["conns"], r["port"]))
-    out.sort(key=lambda r: (-r["conns"], r["port"]))
+    # busiest first: by bytes moved (sent+recv) then connection count
+    def _busy(r):
+        return (-((r["bytes_sent"] or 0) + (r["bytes_recv"] or 0)), -r["conns"], r["port"])
+    listen.sort(key=_busy)
+    out.sort(key=_busy)
     return {"now": now, "node": node, "ts": ts, "listen": listen, "out": out}
 
 
@@ -1626,8 +1630,9 @@ async function paintPorts(){
   if(!r.ok){dports.innerHTML='<div class="empty">no port data</div>';return;}
   const d=await r.json();
   if(!d.ts){dports.innerHTML='<div class="empty">no port data for this node yet (ports probe not deployed here)</div>';return;}
-  const tbl=rows=>rows.length?('<table class="pt-tbl"><thead><tr><th>proto</th><th>port</th><th>conns</th><th>peers</th></tr></thead><tbody>'
-   +rows.map(p=>`<tr><td>${esc(p.proto)}</td><td class="pt-port">${p.port}</td><td class="${p.conns?"pt-hot":""}">${p.conns}</td><td>${p.peers}</td></tr>`).join("")+'</tbody></table>'):'<div class="empty">none</div>';
+  const kb=v=>v==null?"--":fmtKB(v);
+  const tbl=rows=>rows.length?('<table class="pt-tbl"><thead><tr><th>proto</th><th>port</th><th>conns</th><th>peers</th><th>sent</th><th>recv</th></tr></thead><tbody>'
+   +rows.map(p=>`<tr><td>${esc(p.proto)}</td><td class="pt-port">${p.port}</td><td class="${p.conns?"pt-hot":""}">${p.conns}</td><td>${p.peers}</td><td>${kb(p.bytes_sent)}</td><td class="${p.bytes_recv?"pt-hot":""}">${kb(p.bytes_recv)}</td></tr>`).join("")+'</tbody></table>'):'<div class="empty">none</div>';
   dports.innerHTML=`<div class="pt-cols">`
    +`<div><div class="rd-sec">listening / inbound <span>${d.listen.length}</span></div>${tbl(d.listen)}</div>`
    +`<div><div class="rd-sec">outbound (remote service ports) <span>${d.out.length}</span></div>${tbl(d.out)}</div></div>`;
