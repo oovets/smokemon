@@ -239,9 +239,22 @@ _CLIENT_GONE = (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)
 
 
 def _ro_call(fn):
-    """Run a read-only query under the read lock against the read-only connection."""
+    """Run a read-only query under the read lock against the read-only connection.
+
+    Always commits afterwards: sqlite3's deferred isolation opens an implicit
+    transaction on the first SELECT and keeps it open until commit/rollback,
+    which pins a WAL snapshot. Across many requests that snapshot drifts further
+    and further behind the writer's head, so the WAL file cannot be checkpointed
+    forward (we observed a 3 GB+ WAL on a hub that had been up for days). The
+    commit ends that transaction; the next SELECT picks up a fresh snapshot."""
     with _read_lock:
-        return fn(_ro_conn)
+        try:
+            return fn(_ro_conn)
+        finally:
+            try:
+                _ro_conn.commit()
+            except Exception:  # noqa: BLE001 - never fail a request because of cleanup
+                pass
 
 
 def _cached(key: str, producer, ttl: float | None = None):
@@ -305,8 +318,7 @@ class Handler(BaseHTTPRequestHandler):
         hours = _clamp_hours(qs)
         try:
             if u.path == "/metrics":
-                with _read_lock:
-                    text = hubapi.prometheus(_ro_conn)
+                text = _ro_call(hubapi.prometheus)
                 return self._send_text(200, text, "text/plain; version=0.0.4; charset=utf-8")
             if u.path == "/":
                 return self._send_text(200, hubapi.dashboard_html(), "text/html; charset=utf-8")
@@ -325,11 +337,9 @@ class Handler(BaseHTTPRequestHandler):
                                lambda: _ro_call(lambda c: hubapi.nodes_detail(c, hours)))
                 return self._send(200, data)
             if u.path == "/api/nodes":
-                with _read_lock:
-                    return self._send(200, {"nodes": hubapi.nodes(_ro_conn)})
+                return self._send(200, {"nodes": _ro_call(hubapi.nodes)})
             if u.path == "/api/latest":
-                with _read_lock:
-                    return self._send(200, hubapi.latest_metrics(_ro_conn))
+                return self._send(200, _ro_call(hubapi.latest_metrics))
             if u.path == "/api/fleet":
                 data = _cached(f"fleet:{hours}", lambda: {"fleet": _ro_call(lambda c: hubapi.fleet(c, hours))})
                 return self._send(200, data)
@@ -387,8 +397,7 @@ class Handler(BaseHTTPRequestHandler):
                                                                          by_node=by_node)))
                 return self._send(200, data)
             if u.path == "/api/inventory":
-                with _read_lock:
-                    return self._send(200, hubapi.inventory(_ro_conn))
+                return self._send(200, _ro_call(hubapi.inventory))
             if u.path == "/api/ingest-rate":
                 # in-memory ring buffer, not the DB - no _lock needed (own buffer lock)
                 return self._send(200, hubapi.ingest_rate(_ingest_snapshot()))
@@ -462,6 +471,55 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
+# How often the background checkpoint thread runs. SQLite's autocheckpoint
+# triggers PASSIVE checkpoints (which reset the WAL header but never shrink
+# the file). TRUNCATE actually collapses the file - we run it on a slow
+# cadence so a busy hub doesn't accumulate WAL pages forever, but rarely
+# enough that the per-checkpoint write/read pause is invisible.
+_CHECKPOINT_INTERVAL_S = 60.0
+
+
+def _checkpoint_once(reason: str) -> None:
+    """Run a single TRUNCATE checkpoint with the same locking the request path
+    uses. Acquires _lock (so no concurrent ingest writes a frame mid-truncate)
+    AND _read_lock (so any in-flight GET's deferred read snapshot is released
+    before we ask SQLite to recycle the WAL). Logs the page counts so the hub's
+    operator can confirm checkpoints are progressing."""
+    with _lock:
+        with _read_lock:
+            try:
+                _ro_conn.commit()  # drop the RO connection's snapshot, if any
+            except Exception:  # noqa: BLE001 - never fail a checkpoint on cleanup
+                pass
+            try:
+                cur = _conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                row = cur.fetchone() or (None, None, None)
+                _conn.commit()
+                busy, log_pages, ckpt_pages = row
+                core.log(f"hub: wal checkpoint {reason} busy={busy} "
+                         f"pages={ckpt_pages}/{log_pages}")
+            except Exception as e:  # noqa: BLE001
+                core.log(f"hub: wal checkpoint {reason} failed: {e!r}")
+
+
+def _checkpoint_loop() -> None:
+    """Periodic WAL truncation. The hub's _ro_conn used to hold a single deferred
+    read transaction across the entire process lifetime, which pinned an old
+    WAL snapshot and prevented autocheckpoint from advancing - the WAL file
+    grew unbounded (we observed >3 GB on a busy fleet, with /api/ports SELECTs
+    blowing past 90s because each had to walk the WAL). _ro_call now commits
+    after every read, so the pin is released between requests; this loop is
+    the belt-and-braces guarantee that any worst-case accumulation is reclaimed
+    on a minute cadence. Daemonised so it never prevents process exit; never
+    lets an exception kill the loop."""
+    while True:
+        time.sleep(_CHECKPOINT_INTERVAL_S)
+        try:
+            _checkpoint_once("periodic")
+        except Exception as e:  # noqa: BLE001
+            core.log(f"hub: checkpoint loop error: {e!r}")
+
+
 def _alert_loop() -> None:
     """Background alert pass. Reuses the same detector the Risk tab shows; tracks every firing
     alert in alert_state (powering the dashboard's firing-since), and pushes the page-able subset
@@ -474,8 +532,7 @@ def _alert_loop() -> None:
         time.sleep(max(5.0, config.ALERT_EVAL_INTERVAL))
         try:
             now = time.time()
-            with _read_lock:
-                current = alerts.evaluate(_ro_conn, now)
+            current = _ro_call(lambda c: alerts.evaluate(c, now))
             with _lock:
                 state = alerts.load_state(_conn)
             firing, resolved = alerts.plan(current, state, now)
@@ -501,6 +558,11 @@ def main() -> int:
     _ro_conn = core.connect_ro(config.HUB_DB)
     _hub_cols.update({t: {r[1] for r in _conn.execute(f"PRAGMA table_info({t})").fetchall()}
                       for t in schema.STD_TABLES})
+    # One eager checkpoint at startup to shrink any pre-existing WAL bloat from a
+    # previous run that didn't have the periodic checkpoint thread; subsequent
+    # checkpoints run on the _checkpoint_loop cadence.
+    _checkpoint_once("startup")
+    threading.Thread(target=_checkpoint_loop, name="smokemon-checkpoint", daemon=True).start()
     if config.ALERT_TRACK or config.NOTIFY_URL:  # background alert pass (track always, page if URL)
         threading.Thread(target=_alert_loop, name="smokemon-alerts", daemon=True).start()
         if config.NOTIFY_URL:
