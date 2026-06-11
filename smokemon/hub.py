@@ -229,7 +229,9 @@ def _clamp_hours(qs: dict, default: float = 24.0) -> float:
         hours = float(qs.get("hours", [str(default)])[0])
     except (TypeError, ValueError):
         hours = default
-    return max(0.0, min(hours, _MAX_HOURS))
+    # round so the value can't mint unbounded cache keys (?hours=1.0000001, 1.0000002, ...
+    # would otherwise each get their own _resp_cache entry + lock, forever)
+    return round(max(0.0, min(hours, _MAX_HOURS)), 2)
 
 
 # A client that reloads, navigates away, or hits its own fetch timeout aborts the in-flight
@@ -333,8 +335,16 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, data)
             if u.path == "/api/nodes-detail":
                 # composite per-node row for the merged 'nodes' tab (live + 24h + svc + cost).
-                data = _cached(f"nodes-detail:{hours}",
-                               lambda: _ro_call(lambda c: hubapi.nodes_detail(c, hours)))
+                # the services() building block (4 GROUP BY scans) changes slowly, so it is
+                # cached under its own longer-lived key and handed in, instead of being
+                # recomputed on every composite refresh. computed OUTSIDE the producer's
+                # _ro_call - _read_lock is not reentrant, nesting would deadlock.
+                def _nodes_detail(hours=hours):
+                    svc = _cached(f"services:{hours}",
+                                  lambda: _ro_call(lambda c: hubapi.services(c, hours)),
+                                  ttl=60.0)
+                    return _ro_call(lambda c: hubapi.nodes_detail(c, hours, svc_data=svc))
+                data = _cached(f"nodes-detail:{hours}", _nodes_detail)
                 return self._send(200, data)
             if u.path == "/api/nodes":
                 return self._send(200, {"nodes": _ro_call(hubapi.nodes)})
@@ -478,6 +488,30 @@ class Handler(BaseHTTPRequestHandler):
 # enough that the per-checkpoint write/read pause is invisible.
 _CHECKPOINT_INTERVAL_S = 60.0
 
+# Entries older than this are dead under every per-key ttl in use (longest is the
+# 10-minute heatmap); anything beyond it only pins memory. Cache keys embed raw
+# request params (node names, hours), so without a sweep the dicts grow with every
+# distinct value ever requested - including from scanners hitting bogus nodes.
+_CACHE_SWEEP_MAX_AGE_S = 1800.0
+
+
+def _cache_sweep() -> None:
+    """Evict expired _resp_cache entries and their per-key locks. Runs on the checkpoint
+    cadence under _resp_meta_lock; a thread holding an evicted lock keeps its own reference,
+    so the worst case is one duplicated recompute, never a deadlock."""
+    cutoff = time.time() - _CACHE_SWEEP_MAX_AGE_S
+    with _resp_meta_lock:
+        dead = [k for k, (ts, _) in _resp_cache.items() if ts < cutoff]
+        for k in dead:
+            _resp_cache.pop(k, None)
+            _resp_cache_locks.pop(k, None)
+        # locks created for keys whose producer raised never get a cache entry; drop those too
+        for k in [k for k in _resp_cache_locks if k not in _resp_cache]:
+            _resp_cache_locks.pop(k, None)
+    if dead:
+        core.log(f"hub: cache sweep evicted {len(dead)} entries "
+                 f"({len(_resp_cache)} live)")
+
 
 def _checkpoint_once(reason: str) -> None:
     """Run a single TRUNCATE checkpoint with the same locking the request path
@@ -516,6 +550,7 @@ def _checkpoint_loop() -> None:
         time.sleep(_CHECKPOINT_INTERVAL_S)
         try:
             _checkpoint_once("periodic")
+            _cache_sweep()  # same slow cadence keeps the response cache bounded
         except Exception as e:  # noqa: BLE001
             core.log(f"hub: checkpoint loop error: {e!r}")
 

@@ -87,13 +87,22 @@ def _cpu_throttle_linux() -> int | None:
 
 # ---------- Memory / swap / OOM ----------
 
+# the only /proc/meminfo keys _mem_linux consumes; all sit in the first ~16 lines,
+# so the parse can stop there instead of walking the remaining ~35 every cycle
+_MEMINFO_KEYS = frozenset(("MemTotal", "MemFree", "MemAvailable", "Buffers", "Cached",
+                           "SwapTotal", "SwapFree"))
+
+
 def _meminfo() -> dict[str, int]:
     info: dict[str, int] = {}
     try:
         with open("/proc/meminfo") as f:
             for line in f:
                 k, _, v = line.partition(":")
-                info[k] = int(v.strip().split()[0])  # kB
+                if k in _MEMINFO_KEYS:
+                    info[k] = int(v.strip().split()[0])  # kB
+                    if len(info) == len(_MEMINFO_KEYS):
+                        break
     except (OSError, ValueError, IndexError):
         return {}
     return info

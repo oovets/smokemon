@@ -1002,7 +1002,8 @@ def services_rollup(svc: dict) -> dict[str, dict]:
     return out
 
 
-def nodes_detail(conn, hours: float = 24.0, now: float | None = None) -> dict:
+def nodes_detail(conn, hours: float = 24.0, now: float | None = None,
+                 svc_data: dict | None = None) -> dict:
     """Composite per-node row for the merged 'nodes' dashboard tab: the union of the old table
     (live latest), rank (24h aggregate) and services (per-entity) tabs, assembled from one pass
     of each cheap building block instead of three separate endpoints + an N+1 incident loop.
@@ -1011,11 +1012,16 @@ def nodes_detail(conn, hours: float = 24.0, now: float | None = None) -> dict:
     uptime/rtt/outage (fleet_stats_fast, no detect_incidents), ship cost (ship_volume node
     slice), and a service rollup count block (services_rollup). Returns {now, hours, nodes:[...]}
     sorted worst-first by live state then 24h uptime. True incident detail stays on the risk tab;
-    the table shows outage_pct as the cheap health proxy. Read-only; cached by the hub."""
+    the table shows outage_pct as the cheap health proxy. Read-only; cached by the hub.
+
+    `svc_data` lets the caller hand in an already-computed services() result (the hub caches
+    it under its own longer TTL) so the 4-table services scan isn't repeated every time this
+    composite refreshes."""
     now = time.time() if now is None else now
     live = fleet_status(conn, now=now)            # live fields + state, already sorted
     stats = fleet_stats_fast(conn, hours, until=now)  # 24h uptime/rtt/outage
-    svc = services_rollup(services(conn, hours, now=now))  # per-node service counts
+    svc = services_rollup(svc_data if svc_data is not None
+                          else services(conn, hours, now=now))  # per-node service counts
     cost = ship_volume(conn, hours, now=now)      # node cost slice
     cost_nodes = {c["node"]: c for c in cost.get("nodes", [])}
 
