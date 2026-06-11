@@ -15,7 +15,7 @@ webhook POST outside any lock; the steps are also unit-testable without a server
 import fnmatch
 import time
 
-from . import config, hubapi, notify
+from . import config, hubapi
 
 
 def _key(a: dict) -> str:
@@ -67,9 +67,8 @@ def plan(current: dict[str, dict], state: dict[str, dict],
     firing = []
     for k, a in current.items():
         prev = state.get(k)
-        if prev is None:
-            firing.append(a)
-        elif prev["notified_ts"] is None or now - prev["notified_ts"] >= config.ALERT_RENOTIFY_S:
+        if (prev is None or prev["notified_ts"] is None
+                or now - prev["notified_ts"] >= config.ALERT_RENOTIFY_S):
             firing.append(a)
     resolved = [{"key": k, **state[k]} for k in state if k not in current]
     return firing, resolved

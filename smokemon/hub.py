@@ -519,21 +519,20 @@ def _checkpoint_once(reason: str) -> None:
     AND _read_lock (so any in-flight GET's deferred read snapshot is released
     before we ask SQLite to recycle the WAL). Logs the page counts so the hub's
     operator can confirm checkpoints are progressing."""
-    with _lock:
-        with _read_lock:
-            try:
-                _ro_conn.commit()  # drop the RO connection's snapshot, if any
-            except Exception:  # noqa: BLE001 - never fail a checkpoint on cleanup
-                pass
-            try:
-                cur = _conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-                row = cur.fetchone() or (None, None, None)
-                _conn.commit()
-                busy, log_pages, ckpt_pages = row
-                core.log(f"hub: wal checkpoint {reason} busy={busy} "
-                         f"pages={ckpt_pages}/{log_pages}")
-            except Exception as e:  # noqa: BLE001
-                core.log(f"hub: wal checkpoint {reason} failed: {e!r}")
+    with _lock, _read_lock:
+        try:
+            _ro_conn.commit()  # drop the RO connection's snapshot, if any
+        except Exception:  # noqa: BLE001 - never fail a checkpoint on cleanup
+            pass
+        try:
+            cur = _conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            row = cur.fetchone() or (None, None, None)
+            _conn.commit()
+            busy, log_pages, ckpt_pages = row
+            core.log(f"hub: wal checkpoint {reason} busy={busy} "
+                     f"pages={ckpt_pages}/{log_pages}")
+        except Exception as e:  # noqa: BLE001
+            core.log(f"hub: wal checkpoint {reason} failed: {e!r}")
 
 
 def _checkpoint_loop() -> None:
@@ -567,7 +566,7 @@ def _alert_loop() -> None:
         time.sleep(max(5.0, config.ALERT_EVAL_INTERVAL))
         try:
             now = time.time()
-            current = _ro_call(lambda c: alerts.evaluate(c, now))
+            current = _ro_call(lambda c, now=now: alerts.evaluate(c, now))
             with _lock:
                 state = alerts.load_state(_conn)
             firing, resolved = alerts.plan(current, state, now)
