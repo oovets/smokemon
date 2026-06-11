@@ -282,15 +282,23 @@ _BLAME_SIGNALS = [
 BLAME_Z = 3.0  # robust-sigma deviation in-window vs baseline to call a signal a suspect
 
 
+PEARSON_TAG_R = 0.5  # |r| against the impact series needed to annotate a suspect
+
+
 def explain_incident(frame: dict, start: float, end: float, conn=None, node=None) -> list[str]:
     """F1 blame: for an incident window, name every signal that was anomalous relative
     to its own out-of-window baseline, plus any process that appeared during it. Ranked
-    by deviation magnitude. Returns human-readable strings; empty when nothing stands out."""
+    by deviation magnitude, tie-broken by Pearson correlation against the impact series
+    (rtt, else loss) over the window - a suspect that moves *with* the symptom outranks
+    one that merely happened to deviate. Returns human-readable strings; empty when
+    nothing stands out."""
     grid = frame["t"]
     in_idx = [i for i, g in enumerate(grid) if start - 1e-6 <= g <= end + frame["bucket"]]
     out_idx = [i for i in range(len(grid)) if i not in set(in_idx)]
     if not in_idx:
         return []
+    impact = frame["series"].get("rtt") or frame["series"].get("loss") or []
+    impact_in = [impact[i] for i in in_idx] if impact else []
     suspects = []
     for key, label, direction, unit in _BLAME_SIGNALS:
         series = frame["series"].get(key)
@@ -309,9 +317,13 @@ def explain_incident(frame: dict, start: float, end: float, conn=None, node=None
         score = z if direction == "+" else -z
         if score >= BLAME_Z:
             arrow = "up" if direction == "+" else "down"
-            suspects.append((score, f"{label} {in_mean:.0f}{unit} ({arrow} from ~{center:.0f}{unit}, {score:.1f}sigma)"))
+            r = pearson(impact_in, [series[i] for i in in_idx])
+            tag = f", r={r:+.2f}" if r is not None and abs(r) >= PEARSON_TAG_R else ""
+            suspects.append((score, abs(r or 0.0),
+                             f"{label} {in_mean:.0f}{unit} ({arrow} from ~{center:.0f}{unit}, "
+                             f"{score:.1f}sigma{tag})"))
     suspects.sort(reverse=True)
-    causes = [s for _, s in suspects]
+    causes = [s for _, _, s in suspects]
     if conn is not None:
         procs = new_processes(conn, start, end, node)
         if procs:
@@ -452,6 +464,12 @@ def change_points(t, vals, min_seg: int = 5, min_shift_ratio: float = 0.4) -> li
     noise; min_shift_ratio is the |after-before|/max(|before|,eps) needed to report."""
     pts = [(ti, float(v)) for ti, v in zip(t, vals) if v is not None and v == v]
     out: list[dict] = []
+    # Prefix sums make every candidate boundary's two means O(1), so a split scan is
+    # O(n) instead of O(n^2); the medians are computed once, for the winner only.
+    # (The naive version made risks() 3x slower fleet-wide at 1440 buckets/node.)
+    prefix = [0.0]
+    for _, v in pts:
+        prefix.append(prefix[-1] + v)
 
     def split(lo, hi):
         if hi - lo + 1 < 2 * min_seg:
@@ -460,19 +478,20 @@ def change_points(t, vals, min_seg: int = 5, min_shift_ratio: float = 0.4) -> li
         # segment sizes (nL*nR/n * (meanL-meanR)^2). This peaks at the true regime
         # boundary; a plain median-gap scan ties along the whole flat run and would
         # report the earliest tie instead of the change point.
-        best_i, best_score, best_lr = None, 0.0, None
+        total = prefix[hi + 1] - prefix[lo]
+        n_all = hi - lo + 1
+        best_i, best_score = None, 0.0
         for i in range(lo + min_seg, hi - min_seg + 2):
-            left_vals = [p[1] for p in pts[lo:i]]
-            right_vals = [p[1] for p in pts[i:hi + 1]]
-            nl, nr = len(left_vals), len(right_vals)
-            ml, mr = sum(left_vals) / nl, sum(right_vals) / nr
-            score = nl * nr / (nl + nr) * (ml - mr) ** 2
+            nl, nr = i - lo, hi - i + 1
+            sl = prefix[i] - prefix[lo]
+            ml, mr = sl / nl, (total - sl) / nr
+            score = nl * nr / n_all * (ml - mr) ** 2
             if score > best_score:
                 best_score, best_i = score, i
-                best_lr = (statistics.median(left_vals), statistics.median(right_vals))
         if best_i is None:
             return
-        left, right = best_lr
+        left = statistics.median(p[1] for p in pts[lo:best_i])
+        right = statistics.median(p[1] for p in pts[best_i:hi + 1])
         ratio = abs(right - left) / max(abs(left), 1e-9)
         if ratio < min_shift_ratio:
             return

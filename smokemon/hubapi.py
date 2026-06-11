@@ -338,10 +338,11 @@ def sparklines(conn, hours: float = 2.0, buckets: int = 30, now: float | None = 
 
 
 def risks(conn, hours: float = 24.0, now: float | None = None) -> dict:
-    """Fleet-wide 'what's failing / about to fail', in three tiers:
+    """Fleet-wide 'what's failing / about to fail', in four tiers:
       clocks    - predictive death-clock ETAs: disk-full, SD wear, memory exhaustion, thermal
       alerts    - current service/host degradations (see _service_alerts)
       incidents - recent network/HTTP incident feed (loss/latency/dns/http-error)
+      shifts    - sustained RTT regime changes (P2 change-point detection on the frame)
     Reuses the same detectors + ETA projections as `smoke incidents` / the PNG titles and the
     services view. On-demand (the risks tab fetches it), so per-node loads stay off the 5s path."""
     now = time.time() if now is None else now
@@ -358,6 +359,7 @@ def risks(conn, hours: float = 24.0, now: float | None = None) -> dict:
     clocks: list[dict] = []
     incidents: list[dict] = []
     anomalies: list[dict] = []
+    shifts: list[dict] = []
     for node in nodes(conn):
         ping = query.load_ping_agg(conn, since, now, None, node, res=res)
         http = query.load_http(conn, since, now, node)
@@ -366,6 +368,16 @@ def risks(conn, hours: float = 24.0, now: float | None = None) -> dict:
         # Multivariate anomalies: joint co-deviation across host/network signals that the
         # per-signal incident detectors miss. Reuses the analysis frame; numpy-optional.
         frame = analyze.build_frame(conn, since, now, node, res=res)
+        # P2 regime shifts: sustained RTT level changes (ISP tier drop, route change that
+        # holds) that the spike/threshold detectors miss. Reuses the frame's rtt series -
+        # no extra query.
+        for cp in analyze.change_points(frame["t"], frame["series"].get("rtt", [])):
+            shifts.append({
+                "node": node, "ts": cp["ts"], "before": round(cp["before"], 1),
+                "after": round(cp["after"], 1), "ratio": round(cp["ratio"], 2),
+                "severity": 2 if cp["ratio"] >= 1.0 else 1,
+                "detail": f"rtt ~{cp['before']:.0f} → {cp['after']:.0f} ms (sustained)",
+            })
         for a in mlanomaly.multivariate_anomalies(frame):
             sigs = ", ".join(f"{name} {z:.0f}sigma" for name, z in a["signals"])
             anomalies.append({
@@ -403,11 +415,13 @@ def risks(conn, hours: float = 24.0, now: float | None = None) -> dict:
     incidents += _http_error_incidents(conn, since, now)
     incidents.sort(key=lambda i: -i["start"])
     anomalies.sort(key=lambda a: -a["score"])
+    shifts.sort(key=lambda s: -s["ts"])
     return {"now": now, "hours": hours, "clocks": clocks,
             "alerts": _annotate_alerts(conn, _service_alerts(conn, hours, now), now),
             "incidents": incidents[:50],
             "incident_groups": _group_incidents(incidents),
-            "anomalies": anomalies[:20]}
+            "anomalies": anomalies[:20],
+            "shifts": shifts[:20]}
 
 
 def _group_incidents(incidents: list[dict]) -> list[dict]:
@@ -2098,6 +2112,8 @@ function drawRisk(){
   i.scope+" · "+i.detail,{ago:i.start}));
  anomalies.forEach(a=>add(a.node,a.severity||1,"anomaly","anomaly","co-deviation ·"+a.score,
   a.detail,{ago:a.ts}));
+ (d.shifts||[]).forEach(s=>add(s.node,s.severity||1,"rtt-shift","shift",s.detail,
+  s.detail,{ago:s.ts}));
  const allKinds=[...new Set(issues.map(x=>x.kind))].sort();
  const f=riskFilter,hostq=(view==="risk"?q.value.trim().toLowerCase():"");
  const pass=x=>{
@@ -2530,11 +2546,14 @@ async function paintRisks(){
  const al=(d.alerts||[]).filter(x=>x.node===dNode).sort((a,b)=>b.severity-a.severity);
  const inc=(d.incidents||[]).filter(x=>x.node===dNode).sort((a,b)=>b.start-a.start);
  const an=(d.anomalies||[]).filter(x=>x.node===dNode).sort((a,b)=>b.score-a.score);
+ const sh=(d.shifts||[]).filter(x=>x.node===dNode).sort((a,b)=>b.ts-a.ts);
  let h="";
  if(cl.length)h+='<div class="rd-sec">death clocks <span>'+cl.length+'</span></div>'
   +cl.map(c=>row(c.severity||1,c.kind,c.detail,c.eta_s!=null?"in "+fmtDur(c.eta_s):"")).join("");
  if(al.length)h+='<div class="rd-sec">service alerts <span>'+al.length+'</span></div>'
   +al.map(arow).join("");
+ if(sh.length)h+='<div class="rd-sec">regime shifts <span>'+sh.length+'</span></div>'
+  +sh.map(s=>row(s.severity||1,"rtt shift",s.detail,tago(s.ts))).join("");
  if(an.length)h+='<div class="rd-sec">anomalies <span>'+an.length+'</span></div>'
   +an.map(a=>row(a.severity||1,"anomaly",a.detail,tago(a.ts))).join("");
  if(inc.length)h+='<div class="rd-sec">recent incidents <span>'+inc.length+'</span></div>'
@@ -2697,7 +2716,9 @@ function openDetail(node){dNode=node;detail.hidden=false;
  // opening from the risks tab -> start on the risks list; otherwise the graph (never auto-open
  // risks from a graph view, so fall back to plot if that was the last sticky mode).
  const startMode=(view==="risk")?"risks":(dMode==="risks"?"live":dMode);
- dmsg.hidden=true;setMode(startMode);clearInterval(dTimer);dTimer=setInterval(paintActive,15000);}
+ // 30s: paintLive fetches /api/series whose build_frame is the hub's heaviest per-node read;
+ // an open-and-forgotten modal should sip, not gulp.
+ dmsg.hidden=true;setMode(startMode);clearInterval(dTimer);dTimer=setInterval(paintActive,30000);}
 function closeDetail(){detail.hidden=true;dNode=null;clearInterval(dTimer);dover.innerHTML="";freeBlob();dgraph.removeAttribute("src");}
 dmode.addEventListener("click",e=>{if(e.target.dataset.m2)setMode(e.target.dataset.m2);});
 dhours.addEventListener("click",e=>{if(e.target.dataset.h){dH=+e.target.dataset.h;paintActive();}});
@@ -2715,7 +2736,9 @@ tick();setInterval(tick,REFRESH);
 sparkTick();setInterval(sparkTick,30000);                 // sparklines: slow 2h trend (grid + table)
 ingestTick();setInterval(ingestTick,REFRESH);             // live ingest gauge (grid)
 setInterval(()=>{if(view==="grid")loadSvc().then(()=>{if(view==="grid")renderHosts();});},20000); // service badges (grid)
-setInterval(()=>{if(view!=="grid")refreshView();},15000); // active non-grid view auto-refresh
+// 25s, just past the server's 20s cache TTL: at 15s nearly every poll landed on a
+// just-expired entry and paid the full recompute; now most polls are cache hits.
+setInterval(()=>{if(view!=="grid")refreshView();},25000); // active non-grid view auto-refresh
 setView("grid");
 </script>
 </body></html>

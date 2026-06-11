@@ -79,15 +79,17 @@ F3  [done] plain-english daily digest. narrative built on F1/F2: uptime %, blips
 
 P1  [done] time-of-day anomaly baseline. "abnormal for a tuesday 14:00" with no thresholds, no ml.
     baseline per hour-of-day/day-of-week from retained raw ping_rtts; flag via rolling
-    median + MAD z-score. code: analyze.py. effort M. hub-side.
+    median + MAD z-score. code: analyze.py. surface: `smoke digest` ("Unusual for the hour",
+    judged against the preceding week). effort M. hub-side.
 
 P2  [done] change-point / regime-shift detection. catch silent changes - isp dropped your speed
     tier, a new device saturates wifi, a route changed permanently ("bandwidth regime shift
-    03:00 - median 940->230 Mbps"). cusum or rolling mean-shift. code: analyze.py. effort M.
+    03:00 - median 940->230 Mbps"). cusum or rolling mean-shift. code: analyze.py. surface:
+    `smoke digest` ("RTT shift") + the risks tab/API "regime shifts" section. effort M.
 
 P3  [done] path intelligence from mtr. detect route changes over time, attribute the bad hop (which
-    hop adds loss/latency), compute a path-stability score from mtr_hops. surface: enhanced
-    mtr panel + incidents. effort M.
+    hop adds loss/latency), compute a path-stability score from mtr_hops. surface:
+    `smoke digest` ("Paths:") + `smoke incidents` route-change footer. effort M.
 ```
 
 ```
@@ -130,7 +132,7 @@ X4  [deferred] hubless mesh gossip. nodes exchange row deltas peer-to-peer so a 
 
 X5  [done] bandwidth attribution. "what's hammering my network" - correlate net_samples spikes with
     proc_samples (optionally per-process net counters) to name the culprit process. code:
-    analyze.py + optional probe. effort M.
+    analyze.py + optional probe. surface: `smoke digest` ("Bandwidth spikes"). effort M.
 
 X6  [done] synthetic transactions. scripted multi-step checks beyond single-shot probes - login
     flow, dns-over-https, captive-portal detection. new module under probes/. effort M.

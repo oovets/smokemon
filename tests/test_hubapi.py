@@ -393,3 +393,23 @@ def test_risks_shape_and_anomalies(tmp_db, ts0):
     names = {n for n, _z in an[0]["signals"]}
     assert {"cpu", "mem", "temp"} <= names
     conn.close()
+
+
+def test_risks_regime_shifts(tmp_db, ts0):
+    """P2: a sustained RTT level change on a node surfaces in the risks 'shifts' tier."""
+    conn = core.connect(str(tmp_db))
+    schema.init_node(conn)
+    start = ts0 - 1800
+    rows = []
+    for i in range(180):
+        med = 8.0 if i < 90 else 30.0
+        rows.append({"ts": start + i * 10, "target": "1.1.1.1", "sent": 20, "recv": 20,
+                     "loss_pct": 0.0, "rtt_min": med, "rtt_p25": med, "rtt_median": med,
+                     "rtt_p75": med, "rtt_avg": med, "rtt_max": med, "rtt_stddev": 0.3})
+    schema.insert(conn, "ping_runs", rows, node="pi01")
+    conn.commit()
+    out = hubapi.risks(conn, hours=1, now=start + 1800)
+    sh = [s for s in out["shifts"] if s["node"] == "pi01"]
+    assert sh and sh[0]["after"] > sh[0]["before"]
+    assert "30 ms" in sh[0]["detail"]
+    conn.close()

@@ -256,3 +256,20 @@ def test_correlate_incidents_splits_distant():
 
 def test_correlate_incidents_empty():
     assert analyze.correlate_incidents([]) == []
+
+
+def test_explain_incident_pearson_annotation():
+    """A suspect whose series moves with the impact (rtt) series in-window gets an r= tag."""
+    n = 10
+    frame = {
+        "t": [i * 60.0 for i in range(n)], "bucket": 60.0,
+        "series": {
+            # rtt rises through the incident window (last 5 buckets)
+            "rtt": [10.0] * 5 + [100.0, 110.0, 120.0, 130.0, 140.0],
+            # cpu rises in lockstep -> pearson r = +1.0 against rtt
+            "cpu": [20.0] * 5 + [50.0, 60.0, 70.0, 80.0, 90.0],
+        },
+    }
+    causes = analyze.explain_incident(frame, 300.0, 540.0)
+    assert causes and causes[0].startswith("cpu")
+    assert "r=+1.00" in causes[0]

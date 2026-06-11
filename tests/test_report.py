@@ -91,3 +91,90 @@ def test_digest_narrative(tmp_db, ts0):
     assert "Hard downtime:" in out      # outage spans merged + reported
     assert "Thermals:" in out
     conn.close()
+
+
+# ---------- P2/P3/X5/P1 digest + incident surfaces ----------
+
+
+def _ping_row(ts, target, med, loss=0.0):
+    recv = 0 if loss >= 100.0 else 20
+    m = None if loss >= 100.0 else med
+    return {"ts": ts, "target": target, "sent": 20, "recv": recv, "loss_pct": loss,
+            "rtt_min": m, "rtt_p25": m, "rtt_median": m, "rtt_p75": m,
+            "rtt_avg": m, "rtt_max": m, "rtt_stddev": 0.3}
+
+
+def test_digest_rtt_shift_and_paths(tmp_db, ts0):
+    """P2: a sustained 8->30 ms level change makes an 'RTT shift' digest line; P3: an
+    mtr hop whose host changed makes a 'Paths:' line."""
+    conn = core.connect(str(tmp_db))
+    schema.init_node(conn)
+    start = ts0 - 1800
+    rows = [_ping_row(start + i * 10, "1.1.1.1", 8.0 if i < 90 else 30.0)
+            for i in range(180)]
+    schema.insert(conn, "ping_runs", rows)
+    schema.insert(conn, "mtr_hops", [
+        {"ts": start + 60, "target": "1.1.1.1", "hop_no": 3, "host": "hop-a.example",
+         "loss_pct": 0.0, "sent": 10, "avg_ms": 5.0},
+        {"ts": start + 960, "target": "1.1.1.1", "hop_no": 3, "host": "hop-b.example",
+         "loss_pct": 0.0, "sent": 10, "avg_ms": 5.0}])
+    conn.commit()
+    out = report.digest(conn, start - 10, start + 1810)
+    assert "RTT shift:" in out and "→ 30 ms" in out
+    assert "Paths:" in out and "route changed x1" in out
+    conn.close()
+
+
+def test_digest_bandwidth_spike_names_procs(tmp_db, ts0):
+    """X5: a bandwidth spike makes a digest line that names the busiest coincident process."""
+    conn = core.connect(str(tmp_db))
+    schema.init_node(conn)
+    start = ts0 - 16 * 60
+    # cumulative gauge: ~1 Mb/s baseline, one minute at ~100 Mb/s
+    rows, gauge = [], 0
+    for i in range(16):
+        gauge += 750_000_000 if i == 10 else 7_500_000
+        rows.append({"ts": start + i * 60, "iface": "eth0", "ibytes": gauge, "obytes": 0,
+                     "ipkts": 0, "opkts": 0})
+    schema.insert(conn, "net_samples", rows)
+    schema.insert(conn, "proc_samples", [
+        {"ts": start + 10 * 60 + 15, "pid": 9, "name": "rsync", "cpu_pct": 80.0, "rss_mb": 50.0}])
+    conn.commit()
+    out = report.digest(conn, start - 10, start + 16 * 60 + 10)
+    assert "Bandwidth spikes:" in out and "down" in out
+    assert "busiest: rsync" in out
+    conn.close()
+
+
+def test_digest_tod_anomaly(tmp_db):
+    """P1: window RTT far above the same weekday+hour last week makes an 'Unusual for the
+    hour' line. Timestamps are hour-aligned so window and baseline share a tod bucket."""
+    import time as _time
+    conn = core.connect(str(tmp_db))
+    schema.init_node(conn)
+    now = _time.time()
+    mid = now - (now % 3600) - 86400 + 1800        # middle of an hour, yesterday
+    week = 7 * 86400
+    # baseline: same weekday+hour one week earlier, comfortably inside [until-7d, since]
+    hist = [_ping_row(mid - week + 600 + k * 10, "1.1.1.1", 8.0) for k in range(6)]
+    win = [_ping_row(mid + k * 10, "1.1.1.1", 30.0) for k in range(25)]
+    schema.insert(conn, "ping_runs", hist + win)
+    conn.commit()
+    out = report.digest(conn, mid - 300, mid + 300)
+    assert "Unusual for the hour:" in out and "~8 ms typical" in out
+    conn.close()
+
+
+def test_incidents_report_path_footer(tmp_db, ts0):
+    """P3: when mtr saw the route change during an incident window, the report says so."""
+    conn = core.connect(str(tmp_db))
+    _seed(conn, ts0)
+    schema.insert(conn, "mtr_hops", [
+        {"ts": ts0 + 60, "target": "1.1.1.1", "hop_no": 4, "host": "old.example",
+         "loss_pct": 2.0, "sent": 10, "avg_ms": 12.0},
+        {"ts": ts0 + 240, "target": "1.1.1.1", "hop_no": 4, "host": "new.example",
+         "loss_pct": 2.0, "sent": 10, "avg_ms": 12.0}])
+    conn.commit()
+    out = report.incidents_report(conn, ts0 - 10, ts0 + 310)
+    assert "path: 1.1.1.1 route changed x1" in out
+    conn.close()

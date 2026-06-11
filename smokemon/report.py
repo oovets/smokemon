@@ -292,6 +292,16 @@ def incidents_report(conn, since, until, node=None, *, color: bool = False) -> s
             causes = [*causes, *[f"{e['source']} {e['event']}" for e in ext]]
         if causes:
             lines.append("   └ correlates with: " + " · ".join(causes))
+    # P3: when mtr saw the route itself change during the window, say so - a route flap
+    # is a frequent root cause the per-incident blame (host signals) cannot name.
+    churned = [(t, p) for t, p in sorted(analyze.path_analysis(conn, since, until, node).items())
+               if p["route_changes"]]
+    for target, p in churned[:3]:
+        w = p["worst_hop"]
+        worst = (f", worst hop {w['hop_no']} ({w['host'] or '?'}) {w['loss']:.0f}% loss"
+                 if w and w["loss"] >= 1.0 else "")
+        lines.append(f"path: {target} route changed x{len(p['route_changes'])} "
+                     f"(stability {p['stability'] * 100:.0f}%){worst}")
     return "\n".join(lines)
 
 
@@ -349,6 +359,16 @@ def digest(conn, since, until, node=None) -> str:
         lines.append(f"Anomaly: {len(top['signals'])} signals co-deviated at "
                      f"{_hhmm(top['ts'])} ({sigs}).")
 
+    # P2: sustained RTT level shifts (regime changes) that spikes and thresholds both
+    # miss - an ISP speed-tier drop, a route change that holds. Coarse buckets so a
+    # shift means minutes, not one bad sample; newest two only.
+    if tgt:
+        grid, rs = analyze.resample(ping[tgt]["t"], ping[tgt]["med"], since, until,
+                                    max(60.0, (until - since) / 240))
+        for cp in analyze.change_points(grid, rs)[-2:]:
+            lines.append(f"RTT shift: ~{cp['before']:.0f} → {cp['after']:.0f} ms at "
+                         f"{_hhmm(cp['ts'])} (sustained).")
+
     # Peak latency + coincidence.
     if tgt:
         meds = analyze._finite(ping[tgt]["med"])
@@ -361,14 +381,54 @@ def digest(conn, since, until, node=None) -> str:
             coin = f" (coincided with {causes[0]})" if causes else ""
             lines.append(f"Peak latency: {peak:.0f} ms at {_hhmm(pts)}{coin}.")
 
+    # P1: time-of-day anomaly - the window's RTT judged against the same weekday+hour
+    # over the preceding week, so "slow for a Tuesday 14:00" needs no threshold. Only
+    # for short windows (a long window IS its own baseline); one extra history load,
+    # rollup-backed on the hub, on-demand only.
+    if tgt and (until - since) <= 2 * 86400:
+        hist_since = until - 7 * 86400
+        hist = query.load_ping_agg(conn, hist_since, since, None, node,
+                                   res=query._resolution(hist_since, since)).get(tgt)
+        if hist and hist.get("t"):
+            base = analyze.tod_baseline(hist["t"], hist["med"])
+            todas = analyze.tod_anomalies(ping[tgt]["t"], ping[tgt]["med"], baseline=base)
+            if todas:
+                worst = max(todas, key=lambda a: a["z"])
+                lines.append(f"Unusual for the hour: {worst['value']:.0f} ms at "
+                             f"{_hhmm(worst['ts'])} vs ~{worst['expected']:.0f} ms typical "
+                             f"for that weekday+hour ({min(worst['z'], 50):.0f}sigma).")
+
     bb = query.bufferbloat(iperf, ping)
     if bb:
         lines.append(f"Bufferbloat: grade {bb[0]} (+{bb[1]:.0f} ms under load).")
+
+    # X5: bandwidth spikes + the processes busiest while they happened (heuristic
+    # coincidence ranking, never a measured per-process byte count).
+    spikes = analyze.bandwidth_attribution(conn, since, until, node)
+    if spikes:
+        top = spikes[0]
+        procs = f" — busiest: {', '.join(top['procs'])}" if top["procs"] else ""
+        lines.append(f"Bandwidth spikes: {len(spikes)} (top {top['mbps']:.0f} Mb/s "
+                     f"{top['direction']} at {_hhmm(top['ts'])}{procs}).")
 
     if wifi and wifi.get("bssids_seen", 0) > 1:
         rssi_med = analyze._median(wifi.get("rssi", []))
         rssi_s = f", RSSI median {rssi_med:.0f} dBm" if rssi_med is not None else ""
         lines.append(f"WiFi: {wifi.get('roams', 0)} roam(s) across {wifi['bssids_seen']} APs{rssi_s}.")
+
+    # P3: mtr path intelligence - route churn and the hop that hurts, per target.
+    # Only targets with something to say (a route change or a lossy worst hop) make a line.
+    path_bits = []
+    for target, p in sorted(analyze.path_analysis(conn, since, until, node).items()):
+        w = p["worst_hop"]
+        if p["route_changes"]:
+            path_bits.append(f"{target} route changed x{len(p['route_changes'])} "
+                             f"(stability {p['stability'] * 100:.0f}%)")
+        elif w and w["loss"] >= 1.0:
+            path_bits.append(f"{target} worst hop {w['hop_no']} ({w['host'] or '?'}) "
+                             f"{w['loss']:.0f}% loss +{w['added_ms']:.0f}ms")
+    if path_bits:
+        lines.append("Paths: " + "; ".join(path_bits[:3]) + ".")
 
     if host:
         temp = analyze._finite(host.get("temp", []))
