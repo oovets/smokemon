@@ -269,7 +269,10 @@ def init_hub(conn: sqlite3.Connection) -> None:
     conn.executescript(
         "CREATE TABLE IF NOT EXISTS alert_state ("
         "key TEXT PRIMARY KEY, node TEXT, kind TEXT, label TEXT, severity INTEGER, "
-        "detail TEXT, first_ts REAL, notified_ts REAL);")
+        "detail TEXT, first_ts REAL, notified_ts REAL, cleared_ts REAL);")
+    # cleared_ts added later for resolve-linger flap suppression; migrate pre-existing tables.
+    if "cleared_ts" not in {r[1] for r in conn.execute("PRAGMA table_info(alert_state)")}:
+        conn.execute("ALTER TABLE alert_state ADD COLUMN cleared_ts REAL")
     conn.commit()
     ensure_body_columns(conn)
     ensure_rollup_tables(conn)

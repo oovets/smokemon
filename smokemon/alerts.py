@@ -65,10 +65,12 @@ def to_page(alerts: list[dict]) -> list[dict]:
 
 
 def load_state(conn) -> dict[str, dict]:
-    """key -> tracked state for alerts currently recorded as firing."""
-    return {r[0]: {"severity": r[1], "detail": r[2], "first_ts": r[3], "notified_ts": r[4]}
+    """key -> tracked state for alerts currently recorded as firing (or lingering after they
+    stopped being detected, until the resolve-linger window elapses)."""
+    return {r[0]: {"severity": r[1], "detail": r[2], "first_ts": r[3], "notified_ts": r[4],
+                   "cleared_ts": r[5]}
             for r in conn.execute(
-                "SELECT key, severity, detail, first_ts, notified_ts FROM alert_state")}
+                "SELECT key, severity, detail, first_ts, notified_ts, cleared_ts FROM alert_state")}
 
 
 def plan(current: dict[str, dict], state: dict[str, dict],
@@ -76,14 +78,25 @@ def plan(current: dict[str, dict], state: dict[str, dict],
     """Pure decision step. Returns (firing_to_page, resolved):
       firing_to_page - brand-new alerts, or still-firing ones past the re-notify cooldown
                        (notified_ts None means an earlier send failed -> retry now)
-      resolved       - tracked keys no longer present in `current`."""
+      resolved       - tracked keys no longer detected, AND absent long enough to clear the
+                       resolve-linger window (flap suppression): a key that reappears before
+                       ALERT_RESOLVE_AFTER_S elapses never resolves, so flapping conditions stay
+                       one open alert instead of churning firing/resolved every pass."""
     firing = []
     for k, a in current.items():
         prev = state.get(k)
         if (prev is None or prev["notified_ts"] is None
                 or now - prev["notified_ts"] >= config.ALERT_RENOTIFY_S):
             firing.append(a)
-    resolved = [{"key": k, **state[k]} for k in state if k not in current]
+    grace = config.ALERT_RESOLVE_AFTER_S
+    resolved = []
+    for k in state:
+        if k in current:
+            continue
+        cleared = state[k].get("cleared_ts")
+        # absent now: resolve only once it's been continuously absent for the grace window.
+        if grace <= 0 or (cleared is not None and now - cleared >= grace):
+            resolved.append({"key": k, **state[k]})
     return firing, resolved
 
 
@@ -139,12 +152,18 @@ def persist(conn, current: dict[str, dict], resolved: list[dict],
         if row is None:
             conn.execute(
                 "INSERT INTO alert_state "
-                "(key, node, kind, label, severity, detail, first_ts, notified_ts) "
-                "VALUES (?,?,?,?,?,?,?,?)",
+                "(key, node, kind, label, severity, detail, first_ts, notified_ts, cleared_ts) "
+                "VALUES (?,?,?,?,?,?,?,?,NULL)",
                 (k, a["node"], a["kind"], a.get("label", ""), a["severity"], a["detail"], now, notified))
         else:
-            conn.execute("UPDATE alert_state SET severity=?, detail=?, notified_ts=? WHERE key=?",
-                         (a["severity"], a["detail"], notified, k))
+            # present again -> clear any pending linger so it stays a single open alert
+            conn.execute("UPDATE alert_state SET severity=?, detail=?, notified_ts=?, cleared_ts=NULL "
+                         "WHERE key=?", (a["severity"], a["detail"], notified, k))
     for a in resolved:
         conn.execute("DELETE FROM alert_state WHERE key=?", (a["key"],))
+    # keys tracked but no longer detected and not yet resolved: start (or keep) the linger clock.
+    resolved_keys = {a["key"] for a in resolved}
+    tracked = {r[0] for r in conn.execute("SELECT key FROM alert_state")}
+    for k in tracked - set(current) - resolved_keys:
+        conn.execute("UPDATE alert_state SET cleared_ts=? WHERE key=? AND cleared_ts IS NULL", (now, k))
     conn.commit()

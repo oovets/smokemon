@@ -206,6 +206,11 @@ NOTIFY_TOKEN = os.environ.get("SMOKEMON_NOTIFY_TOKEN", "")
 ALERT_EVAL_INTERVAL = _f("SMOKEMON_ALERT_EVAL_INTERVAL", "60")  # seconds between passes
 ALERT_WINDOW_HOURS = _f("SMOKEMON_ALERT_WINDOW_HOURS", "1")     # lookback defining "currently firing"
 ALERT_RENOTIFY_S = _f("SMOKEMON_ALERT_RENOTIFY_S", "1800")      # re-page a still-firing alert after this
+# Flap suppression: once an alert stops being detected, hold it (don't send "resolved") for this
+# long. If it reappears within the window it never resolved - so a flapping condition (a
+# restart-looping container, an intermittently-reachable node) stays ONE open alert instead of
+# churning firing/resolved every pass. "Fast to fire, slow to clear." 0 disables (resolve at once).
+ALERT_RESOLVE_AFTER_S = _f("SMOKEMON_ALERT_RESOLVE_AFTER_S", "300")
 ALERT_NOTIFY_RESOLVED = os.environ.get("SMOKEMON_ALERT_NOTIFY_RESOLVED", "1") != "0"
 # opt-out: semicolon list of fnmatch globs matched against the alert key "node/kind/label", e.g.
 # 'pi04/*;*/docker/watchtower;*/*/scratch-*'. A matched alert is never paged (it still shows in

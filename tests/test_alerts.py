@@ -175,11 +175,49 @@ def test_plan_new_then_dedup_then_renotify(monkeypatch):
     assert [a["key"] for a in firing] == ["pi01/proc/gst"]
 
 
-def test_plan_resolved():
+def test_plan_resolved(monkeypatch):
+    monkeypatch.setattr(config, "ALERT_RESOLVE_AFTER_S", 300)
+    # absent but not yet marked cleared -> lingers, NOT resolved (flap suppression)
     state = {"pi01/proc/gst": {"severity": 3, "detail": "process missing",
-                               "first_ts": 1.0, "notified_ts": 1.0}}
+                               "first_ts": 1.0, "notified_ts": 1.0, "cleared_ts": None}}
     firing, resolved = alerts.plan({}, state, 2.0)
-    assert firing == [] and [a["key"] for a in resolved] == ["pi01/proc/gst"]
+    assert firing == [] and resolved == []
+    # marked cleared, still inside the grace window -> still lingering
+    state["pi01/proc/gst"]["cleared_ts"] = 100.0
+    assert alerts.plan({}, state, 100.0 + 299)[1] == []
+    # absent past the grace window -> now resolves
+    resolved = alerts.plan({}, state, 100.0 + 301)[1]
+    assert [a["key"] for a in resolved] == ["pi01/proc/gst"]
+    # grace disabled -> resolves immediately on absence
+    monkeypatch.setattr(config, "ALERT_RESOLVE_AFTER_S", 0)
+    state["pi01/proc/gst"]["cleared_ts"] = None
+    assert [a["key"] for a in alerts.plan({}, state, 2.0)[1]] == ["pi01/proc/gst"]
+
+
+def test_flap_suppression_roundtrip(hub_conn, monkeypatch):
+    """A condition that disappears then reappears within the grace window never resolves -
+    it stays one open alert (no firing/resolved churn)."""
+    monkeypatch.setattr(config, "ALERT_RESOLVE_AFTER_S", 300)
+    cur = {"pi01/docker/app": {"key": "pi01/docker/app", "node": "pi01", "kind": "docker",
+                               "label": "app", "severity": 3, "detail": "restart loop"}}
+    # fires + paged
+    alerts.persist(hub_conn, cur, [], {"pi01/docker/app"}, 1000.0)
+    # disappears at t=1060: plan sees no resolve (not yet cleared), persist starts the linger clock
+    firing, resolved = alerts.plan({}, alerts.load_state(hub_conn), 1060.0)
+    assert resolved == []
+    alerts.persist(hub_conn, {}, resolved, set(), 1060.0)
+    assert alerts.load_state(hub_conn)["pi01/docker/app"]["cleared_ts"] == 1060.0
+    # reappears at t=1120 (within grace): linger cleared, still one open alert, not re-paged
+    firing, resolved = alerts.plan(cur, alerts.load_state(hub_conn), 1120.0)
+    assert firing == [] and resolved == []
+    alerts.persist(hub_conn, cur, resolved, set(), 1120.0)
+    assert alerts.load_state(hub_conn)["pi01/docker/app"]["cleared_ts"] is None
+    # disappears for good: past grace -> resolves and is dropped
+    alerts.persist(hub_conn, {}, [], set(), 1200.0)            # start linger
+    resolved = alerts.plan({}, alerts.load_state(hub_conn), 1200.0 + 301)[1]
+    assert [a["key"] for a in resolved] == ["pi01/docker/app"]
+    alerts.persist(hub_conn, {}, resolved, set(), 1200.0 + 301)
+    assert alerts.load_state(hub_conn) == {}
 
 
 def test_render_empty():
