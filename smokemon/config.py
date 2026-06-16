@@ -129,6 +129,15 @@ SYNTHETIC_CAPTIVE_URL = os.environ.get("SMOKEMON_CAPTIVE_URL",
 EXT_HTTP = _semi_list("SMOKEMON_EXT_HTTP", "")
 EXT_INTERVAL = _f("SMOKEMON_EXT_INTERVAL", "300")
 EXT_TIMEOUT = _f("SMOKEMON_EXT_TIMEOUT", "2")
+# Active TCP liveness checks: semicolon list of name=host:port (optionally :minbytes). The node
+# connects then reads >= TCP_CHECK_MIN_BYTES within TCP_CHECK_TIMEOUT, so a feed that holds the
+# socket open but stops sending data (a stalled video stream) trips it - not just a refused
+# connection. The hub pages a down check as a sev3 'tcpcheck' alert. e.g.
+# SMOKEMON_TCP_CHECK='videofeed=127.0.0.1:5000'
+TCP_CHECK = _semi_list("SMOKEMON_TCP_CHECK", "")
+TCP_CHECK_INTERVAL = _f("SMOKEMON_TCP_CHECK_INTERVAL", "30")
+TCP_CHECK_TIMEOUT = _f("SMOKEMON_TCP_CHECK_TIMEOUT", "3")
+TCP_CHECK_MIN_BYTES = _i("SMOKEMON_TCP_CHECK_MIN_BYTES", "1")
 EXT_MAX_BYTES = _i("SMOKEMON_EXT_MAX_BYTES", str(256 * 1024))
 EXT_MAX_METRICS = _i("SMOKEMON_EXT_MAX_METRICS", "20")
 

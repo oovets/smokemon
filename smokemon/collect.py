@@ -20,6 +20,7 @@ from .probes import (
     ports,
     redisq,
     synthetic,
+    tcpcheck,
     wifi,
 )
 
@@ -36,6 +37,8 @@ def _probes(group: str) -> list[tuple[float, str, object]]:
         slow.append((config.PROBE_INTERVAL, "synthetic", synthetic.collect))
     if config.EXT_HTTP:
         slow.append((config.EXT_INTERVAL, "ext", ext.collect))
+    if config.TCP_CHECK:  # active TCP liveness (connect + read bytes), e.g. a video feed
+        slow.append((config.TCP_CHECK_INTERVAL, "tcpcheck", tcpcheck.collect))
     # Auto by default: each of these is registered unless explicitly disabled (=0), and
     # self-detects its dependency at collect time (docker socket / reachable redis / running
     # gst+rtsp), staying a cheap no-op on nodes that don't run the corresponding service.

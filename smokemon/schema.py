@@ -56,6 +56,8 @@ _BODY = {
     "proc_watch": "ts REAL NOT NULL, label TEXT NOT NULL, count INTEGER, cpu_pct REAL, rss_mb REAL, "
                   "uptime_s REAL, restarts INTEGER",
     "stream_probes": "ts REAL NOT NULL, url TEXT NOT NULL, ok INTEGER, latency_ms REAL, status TEXT",
+    "tcp_checks": "ts REAL NOT NULL, name TEXT NOT NULL, host TEXT, port INTEGER, ok INTEGER, "
+                  "latency_ms REAL, bytes INTEGER, detail TEXT",
     "port_samples": "ts REAL NOT NULL, proto TEXT NOT NULL, dir TEXT NOT NULL, port INTEGER NOT NULL, "
                     "conns INTEGER, peers INTEGER, listening INTEGER, bytes_sent INTEGER, bytes_recv INTEGER",
     # device/environment inventory (delta-coded: a row is written only when a fact's value
@@ -72,7 +74,7 @@ _IX = {"ping_runs": "target", "net_samples": "iface", "http_samples": "url", "mt
        "thermal_zones": "zone", "power_samples": "rail", "disk_health": "device",
        "synthetic_samples": "probe", "ext_metrics": "source", "ext_events": "source",
        "redis_samples": "instance", "gpu_samples": "gpu", "docker_samples": "name",
-       "proc_watch": "label", "stream_probes": "url", "port_samples": "port",
+       "proc_watch": "label", "stream_probes": "url", "tcp_checks": "name", "port_samples": "port",
        "device_facts": "key", "log_excerpts": "source"}
 
 STD_TABLES = tuple(_BODY)  # generic append-only tables (id + body + node [+ src_id])

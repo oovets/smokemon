@@ -133,6 +133,10 @@ alerting: set SMOKEMON_NOTIFY_URL (ntfy/slack/discord/webhook) + `smoke digest -
           '*/heartbeat/*;*/net/*;*/proc/*;*/redis/*;*/docker/*' - non-matching alerts still show on
           the dashboard but never page. SMOKEMON_ALERT_MUTE is the inverse (deny globs). synthetic: SMOKEMON_SYNTHETIC=1.
           external checks: SMOKEMON_EXT_HTTP='app=http://127.0.0.1:8080/health'.
+          tcp liveness (connect + read bytes, catches a feed that holds the socket open but stops
+          sending - e.g. a stalled video feed): SMOKEMON_TCP_CHECK='videofeed=127.0.0.1:5000'
+          (optional :minbytes); a down check pages as a sev3 'tcpcheck' alert (add */tcpcheck/* to
+          SMOKEMON_NOTIFY_ALLOW).
           redis/docker/pipeline: auto-detected (default on, silent no-op when absent);
           name redis streams with SMOKEMON_REDIS_STREAMS=a,b,c; SMOKEMON_{REDIS,DOCKER,
           PIPELINE}=0 disables, =1 forces a down-row even when the service is unreachable.

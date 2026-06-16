@@ -590,6 +590,13 @@ def _service_alerts(conn, hours: float, now: float) -> list[dict]:
                 f"probe failing (status {s.get('status')})", "probe failing",
                 _kv(("url", s.get("url")), ("status", s.get("status")),
                     ("latency", _num(s.get("latency_ms"), "ms")), ("age", _dur(s.get("age_s")))))
+    for t in svc.get("tcpchecks", []):
+        if not t.get("ok"):
+            tgt = f"{t.get('host')}:{t.get('port')}"
+            add(t["node"], "tcpcheck", 3, t["name"],
+                f"{t['name']} ({tgt}) not responding: {t.get('detail')}", "not responding",
+                _kv(("target", tgt), ("detail", t.get("detail")),
+                    ("latency", _num(t.get("latency_ms"), "ms")), ("age", _dur(t.get("age_s")))))
     # host-level gauges: latest row per node (MAX(ts) bare-column trick, like services())
     for (node, oom, swap, psi_mem, thr_bits, thr_cnt, mem_pct, mem_total, cache, psi_io,
          temp, freq, cpu, load1, _ts) in _rows(
@@ -1029,8 +1036,18 @@ def services(conn, hours: float = 168.0, now: float | None = None) -> dict:
                         "status": status, "age_s": age(ts)})
     streams.sort(key=lambda r: (bool(r["ok"]), r["node"], r["url"]))
 
+    tcpchecks = []
+    for node, name, host, port, ok, latency, detail, ts in _rows(
+            conn, "SELECT node, name, host, port, ok, latency_ms, detail, MAX(ts) FROM tcp_checks "
+            "WHERE ts >= ? GROUP BY node, name", (since,)):
+        if node is None:
+            continue
+        tcpchecks.append({"node": node, "name": name, "host": host, "port": port, "ok": ok,
+                          "latency_ms": latency, "detail": detail, "age_s": age(ts)})
+    tcpchecks.sort(key=lambda r: (bool(r["ok"]), r["node"], r["name"]))
+
     return {"now": now, "docker": docker, "docker_down": sorted(set(docker_down)),
-            "redis": redis, "procs": procs, "streams": streams}
+            "redis": redis, "procs": procs, "streams": streams, "tcpchecks": tcpchecks}
 
 
 def services_rollup(svc: dict) -> dict[str, dict]:

@@ -51,6 +51,22 @@ def test_alert_enrichment_proc_gone(hub_conn, ts0):
     assert dict(a["extra"])["rss"] == "124MB"
 
 
+def test_alert_tcpcheck_down_pages_sev3(hub_conn, ts0):
+    # a down TCP liveness check (e.g. a video feed) surfaces as a sev3 'tcpcheck' alert
+    schema.insert(hub_conn, "tcp_checks", [{"ts": ts0, "name": "videofeed", "host": "127.0.0.1",
+                  "port": 5000, "ok": 0, "latency_ms": None, "bytes": 0,
+                  "detail": "read timeout (socket open, no data)"}], node="pi01")
+    hub_conn.commit()
+    a = next(x for x in hubapi._service_alerts(hub_conn, 24, ts0 + 10) if x["kind"] == "tcpcheck")
+    assert a["severity"] == 3 and a["label"] == "videofeed" and a["summary"] == "not responding"
+    assert "127.0.0.1:5000" in a["detail"]
+    # a healthy check produces no alert
+    schema.insert(hub_conn, "tcp_checks", [{"ts": ts0 + 60, "name": "videofeed", "host": "127.0.0.1",
+                  "port": 5000, "ok": 1, "latency_ms": 4.2, "bytes": 4096, "detail": "ok"}], node="pi01")
+    hub_conn.commit()
+    assert not [x for x in hubapi._service_alerts(hub_conn, 24, ts0 + 70) if x["kind"] == "tcpcheck"]
+
+
 def test_alert_enrichment_oom_has_context_and_logs_hint(hub_conn, ts0):
     schema.insert(hub_conn, "host_samples", [{"ts": ts0, "oom_kill_count": 3, "mem_used_pct": 91.0,
                   "mem_total_mb": 4096.0, "cache_mb": 600.0, "swap_used_pct": 12.0,
