@@ -2,8 +2,12 @@
 Description=smokemon shipper every 15s
 
 [Timer]
+# Wall-clock schedule (every 15s) rather than OnUnitActiveSec: a relative timer re-arms only
+# off the previous run's clean active->inactive transition, so a run killed mid-flight (e.g. OOM)
+# breaks the chain and the timer never reschedules - the node then ships nothing until a manual
+# kick. OnCalendar fires on the clock regardless of the last run's fate, so it self-heals.
 OnBootSec=15
-OnUnitActiveSec=15
+OnCalendar=*:*:0/15
 Persistent=true
 
 [Install]
