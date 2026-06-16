@@ -572,9 +572,22 @@ def _alert_loop() -> None:
             firing, resolved = alerts.plan(current, state, now)
             page_firing = alerts.to_page(firing)
             page_resolved = alerts.to_page(resolved)
-            title, body = alerts.render(page_firing, page_resolved)
-            sent = notify.send(title, body) if title else False
-            notified = {a["key"] for a in page_firing} if sent else set()
+            if notify.is_per_alert():
+                # incident.io: one event per alert, keyed by deduplication_key, so each fires,
+                # dedups and auto-resolves independently (no batched digest). A firing key counts
+                # as notified only when its POST succeeds, so a transient failure is retried next
+                # pass (plan() treats notified_ts=None as "send again").
+                notified = set()
+                for a in page_firing:
+                    if notify.send_event(**alerts.event_for(a, "firing")):
+                        notified.add(a["key"])
+                if config.ALERT_NOTIFY_RESOLVED:
+                    for a in page_resolved:
+                        notify.send_event(**alerts.event_for(a, "resolved"))
+            else:
+                title, body = alerts.render(page_firing, page_resolved)
+                sent = notify.send(title, body) if title else False
+                notified = {a["key"] for a in page_firing} if sent else set()
             with _lock:  # persist ALL current (tracks firing-since) + drop ALL resolved
                 alerts.persist(_conn, current, resolved, notified, now)
         except Exception as e:  # noqa: BLE001

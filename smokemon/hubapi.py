@@ -258,6 +258,9 @@ _WARN_RTT_MS = 250.0          # reachable but high internet RTT -> warn
 _WARN_LOSS_PCT = 1.0          # sustained loss at/above this -> warn
 FLEET_STALE_AFTER_S = 300.0   # no fresh sample within this -> stale/offline
 _STATE_ORDER = {"down": 0, "stale": 1, "warn": 2, "healthy": 3}
+# A detected network incident is "still firing" (vs historical) when its last flagged bucket is
+# within this of now; the hub alert loop pages only active ones so they auto-resolve when cleared.
+_INCIDENT_ACTIVE_GRACE_S = 180.0
 
 
 def _wan_target(targets: dict) -> str | None:
@@ -621,7 +624,54 @@ def _service_alerts(conn, hours: float, now: float) -> list[dict]:
                 f"{used}/{mx} ({frac * 100:.0f}%)", f"conntrack {frac * 100:.0f}%",
                 _kv(("used", f"{used}/{mx}"), ("retrans", retrans), ("resets", rsts),
                     ("estab resets", estab)))
+    # heartbeat: a host that has stopped shipping cannot raise its own alert, so the hub must.
+    # fleet_status' 'stale' state (no fresh sample within FLEET_STALE_AFTER_S - host down / agent
+    # dead / partitioned) is the netdata 'host unreachable' equivalent, and the one signal nothing
+    # else covers. Reachable-but-100%-WAN-loss ('down') is deliberately NOT paged here: that is a
+    # connectivity incident, owned by _incident_alerts (richer classification + blame), so paging
+    # it from both would double the alert. Sev-3, keyed off an empty label ('node/heartbeat/'), so
+    # the alert clears the moment the node ships again.
+    for n in fleet_status(conn, now=now)["nodes"]:
+        if n["state"] == "stale":
+            add(n["node"], "heartbeat", 3, "", f"node silent for {_dur(n['age_s'])} (no data shipped)",
+                "silent", _kv(("last seen", _dur(n["age_s"]))))
     out.sort(key=lambda a: (-a["severity"], a["kind"], a["node"]))
+    return out
+
+
+def _incident_alerts(conn, hours: float, now: float) -> list[dict]:
+    """Currently-active network incidents (isp-outage / upstream-loss / link-down / packet-loss /
+    latency-spike / dns-slow) per node, mapped to the same alert shape _service_alerts emits, so
+    they flow through the hub's dedup / flap / mute / re-notify delivery. A node whose link is down
+    can't run its own `smoke incidents` and page out, so the hub re-detects from the shipped
+    ping/http aggregates. Only incidents still ongoing (last flagged bucket within
+    _INCIDENT_ACTIVE_GRACE_S of now) fire, so the alert auto-resolves once the condition clears.
+
+    Kept off the dashboard's service-alerts tier on purpose - the Risk tab already lists these in
+    its own 'incidents' tier (see risks()), so folding them into _service_alerts would double them.
+    F1 blame is attached only when something is active, so the steady state (no incident) runs zero
+    extra frame loads; the heavier build_frame is computed at most once per affected node."""
+    since = now - hours * 3600
+    res = query._resolution(since, now)
+    out: list[dict] = []
+    for node in nodes(conn):
+        ping = query.load_ping_agg(conn, since, now, None, node, res=res)
+        http = query.load_http(conn, since, now, node)
+        active = [i for i in analyze.detect_incidents(ping, http)
+                  if i["end"] >= now - _INCIDENT_ACTIVE_GRACE_S]
+        if not active:
+            continue
+        frame = None
+        for i in active:
+            extra = _kv(("scope", i["scope"]), ("duration", _dur(i["duration_s"])))
+            if frame is None:  # one frame per affected node, reused across its active incidents
+                frame = analyze.build_frame(conn, since, now, node, res=res)
+            causes = analyze.explain_incident(frame, i["start"], i["end"], conn, node)
+            if causes:
+                extra.append(["likely cause", "; ".join(causes[:3])])
+            out.append({"node": node, "kind": "net", "severity": i["severity"],
+                        "label": f"{i['klass']}:{i['scope']}", "detail": i["detail"],
+                        "summary": i["klass"], "extra": extra})
     return out
 
 

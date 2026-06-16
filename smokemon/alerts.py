@@ -28,13 +28,17 @@ def _muted(key: str) -> bool:
 
 
 def evaluate(conn, now: float | None = None) -> dict[str, dict]:
-    """key -> alert for the currently-firing service alerts, severity-gated (NOTIFY_MIN_SEVERITY).
-    Reuses hubapi._service_alerts, so the nodes do zero extra work. NB: mute is *not* applied here
+    """key -> alert for the currently-firing alerts, severity-gated (NOTIFY_MIN_SEVERITY): the
+    service/host degradations from hubapi._service_alerts (incl. node-down heartbeat) plus the
+    active network incidents from hubapi._incident_alerts, so the nodes do zero extra work. NB:
+    mute is *not* applied here
     - muting suppresses paging only (see to_page), while every alert is still tracked so the Risk
     tab can show its firing-since even when nothing is sent."""
     now = time.time() if now is None else now
     out: dict[str, dict] = {}
-    for a in hubapi._service_alerts(conn, config.ALERT_WINDOW_HOURS, now):
+    detected = (hubapi._service_alerts(conn, config.ALERT_WINDOW_HOURS, now)
+                + hubapi._incident_alerts(conn, config.ALERT_WINDOW_HOURS, now))
+    for a in detected:
         if a["severity"] < config.NOTIFY_MIN_SEVERITY:
             continue
         k = _key(a)
@@ -92,6 +96,28 @@ def render(firing: list[dict], resolved: list[dict]) -> tuple[str | None, str | 
     else:
         title = f"smokemon: {len(resolved)} alert(s) resolved"
     return title, "\n".join(lines)
+
+
+def event_for(a: dict, status: str) -> dict:
+    """Map one alert to incident.io event fields (deduplication_key / status / title / description /
+    metadata). Pure and side-effect-free so it is unit-testable. Works for both a firing alert dict
+    (carries node/kind/label/severity/detail/extra) and a resolved-state row (only the key survives
+    a resolve, so node/kind/label are recovered by splitting it). The deduplication_key is _key(a),
+    so a firing and its later resolve share one key and incident.io closes the alert."""
+    if "node" in a:
+        node, kind, label = a["node"], a["kind"], a.get("label", "")
+    else:
+        node, kind, label = (a["key"].split("/", 2) + ["", ""])[:3]
+    title = f"smokemon: {node} {kind}/{label}".rstrip("/")
+    meta: dict = {"node": node, "kind": kind}
+    if label:
+        meta["label"] = label
+    if a.get("severity") is not None:
+        meta["severity"] = a["severity"]
+    for k, v in a.get("extra") or []:
+        meta[str(k)] = v
+    return {"dedup_key": a["key"], "status": status, "title": title,
+            "description": a.get("detail", ""), "metadata": meta}
 
 
 def persist(conn, current: dict[str, dict], resolved: list[dict],

@@ -10,7 +10,40 @@ def test_detect_kind():
     assert notify.detect_kind("https://ntfy.sh/mytopic") == "ntfy"
     assert notify.detect_kind("https://hooks.slack.com/services/T/B/X") == "slack"
     assert notify.detect_kind("https://discord.com/api/webhooks/1/abc") == "discord"
+    assert notify.detect_kind("https://api.incident.io/v2/alert_events/http/01ABC") == "incident_io"
     assert notify.detect_kind("https://example.com/hook") == "generic"
+
+
+def test_is_per_alert(monkeypatch):
+    # only incident.io wants per-alert events; everything else takes the batched digest
+    assert notify.is_per_alert("https://api.incident.io/v2/alert_events/http/x") is True
+    assert notify.is_per_alert("https://ntfy.sh/t") is False
+    # an explicit kind pin wins over the URL host
+    assert notify.is_per_alert("https://example.com/hook", kind="incident_io") is True
+    # falls back to the configured URL when none is passed
+    monkeypatch.setattr("smokemon.config.NOTIFY_URL", "https://api.incident.io/v2/alert_events/http/x")
+    monkeypatch.setattr("smokemon.config.NOTIFY_KIND", "")
+    assert notify.is_per_alert() is True
+
+
+def test_build_event_request():
+    r = notify.build_event_request(
+        "https://api.incident.io/v2/alert_events/http/x", "pi01/proc/gst", "firing",
+        "smokemon: pi01 proc/gst", "process missing", {"node": "pi01", "severity": 3}, token="tok")
+    body = json.loads(r.data)
+    assert body["deduplication_key"] == "pi01/proc/gst"
+    assert body["status"] == "firing"
+    assert body["title"] == "smokemon: pi01 proc/gst"
+    assert body["description"] == "process missing"
+    assert body["metadata"] == {"node": "pi01", "severity": 3}
+    assert r.headers["Authorization"] == "Bearer tok"
+    assert r.get_method() == "POST"
+    # resolved event with the same dedup_key, empty description falls back to the title
+    r2 = notify.build_event_request("https://api.incident.io/x", "pi01/proc/gst", "resolved",
+                                    "smokemon: pi01 proc/gst", "", token="")
+    body2 = json.loads(r2.data)
+    assert body2["status"] == "resolved" and body2["description"] == "smokemon: pi01 proc/gst"
+    assert "Authorization" not in r2.headers   # no token -> no auth header
 
 
 def test_build_request_per_kind():

@@ -16,7 +16,7 @@ from . import analyze, config, core, query
 
 
 def detect_kind(url: str) -> str:
-    """'ntfy' | 'slack' | 'discord' | 'generic' from the URL host/path."""
+    """'ntfy' | 'slack' | 'discord' | 'incident_io' | 'generic' from the URL host/path."""
     h = url.lower()
     if "ntfy" in h:
         return "ntfy"
@@ -24,7 +24,19 @@ def detect_kind(url: str) -> str:
         return "slack"
     if "discord" in h:
         return "discord"
+    if "incident.io" in h:
+        return "incident_io"
     return "generic"
+
+
+def is_per_alert(url: str | None = None, kind: str | None = None) -> bool:
+    """True when the destination wants one event per alert - keyed by a deduplication_key and
+    carrying a firing/resolved status so each alert dedups and auto-resolves independently
+    (incident.io) - rather than one batched digest message (ntfy/Slack/Discord/generic). The hub
+    alert loop branches on this to pick the per-alert path vs the digest path."""
+    url = config.NOTIFY_URL if url is None else url
+    kind = kind or config.NOTIFY_KIND or (detect_kind(url) if url else "")
+    return kind == "incident_io"
 
 
 def build_request(url: str, title: str, body: str, kind: str | None = None) -> urllib.request.Request:
@@ -55,6 +67,44 @@ def send(title: str, body: str, url: str | None = None, kind: str | None = None,
         return False
     try:
         with urllib.request.urlopen(build_request(url, title, body, kind), timeout=timeout) as r:
+            return 200 <= r.status < 300
+    except (urllib.error.URLError, OSError) as e:
+        core.log(f"notify failed: {e!r}")
+        return False
+
+
+def build_event_request(url: str, dedup_key: str, status: str, title: str, description: str,
+                        metadata: dict | None = None, token: str | None = None
+                        ) -> urllib.request.Request:
+    """incident.io HTTP alert-source event: a per-alert POST keyed by deduplication_key with a
+    'firing'|'resolved' status, so re-firing the same key dedups and a 'resolved' event closes it.
+    Bearer-authenticated via SMOKEMON_NOTIFY_TOKEN (incident.io rejects events without it)."""
+    body: dict = {
+        "title": title,
+        "description": description or title,
+        "deduplication_key": dedup_key,
+        "status": status,
+    }
+    if metadata:
+        body["metadata"] = metadata
+    headers = {"Content-Type": "application/json"}
+    token = config.NOTIFY_TOKEN if token is None else token
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return urllib.request.Request(url, data=json.dumps(body).encode(), method="POST", headers=headers)
+
+
+def send_event(dedup_key: str, status: str, title: str, description: str = "",
+               metadata: dict | None = None, url: str | None = None, token: str | None = None,
+               timeout: float = 15) -> bool:
+    """POST one incident.io alert event. Returns True on a 2xx. No-op (False) when no URL is set."""
+    url = url or config.NOTIFY_URL
+    if not url:
+        core.log("notify: SMOKEMON_NOTIFY_URL not set, skipping")
+        return False
+    try:
+        req = build_event_request(url, dedup_key, status, title, description, metadata, token)
+        with urllib.request.urlopen(req, timeout=timeout) as r:
             return 200 <= r.status < 300
     except (urllib.error.URLError, OSError) as e:
         core.log(f"notify failed: {e!r}")

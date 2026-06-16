@@ -122,7 +122,12 @@ analysis: smokemon/analyze.py (incident detection + multi-signal blame + anomaly
           ingest-rate, spark; plot/png render a node's panels). see INSTALL.md for the list.
 
 alerting: set SMOKEMON_NOTIFY_URL (ntfy/slack/discord/webhook) + `smoke digest --notify`
-          or the smokemon-notify timer. synthetic checks: SMOKEMON_SYNTHETIC=1.
+          or the smokemon-notify timer. incident.io: point SMOKEMON_NOTIFY_URL at an HTTP
+          alert source (https://api.incident.io/v2/alert_events/http/<id>) + set
+          SMOKEMON_NOTIFY_TOKEN; the hub then sends one event per alert (deduplication_key +
+          firing/resolved status, so each alert dedups and auto-resolves) instead of a digest.
+          the hub's alert pass also pages node-down (a silent host the node itself can't report)
+          and active network incidents (isp-outage/loss/latency/dns). synthetic: SMOKEMON_SYNTHETIC=1.
           external checks: SMOKEMON_EXT_HTTP='app=http://127.0.0.1:8080/health'.
           redis/docker/pipeline: auto-detected (default on, silent no-op when absent);
           name redis streams with SMOKEMON_REDIS_STREAMS=a,b,c; SMOKEMON_{REDIS,DOCKER,

@@ -205,6 +205,82 @@ def test_risks_annotates_alerts(hub_conn, ts0, monkeypatch):
     assert stream["muted"] is True and stream["since_s"] == 0 and stream["notified"] is False
 
 
+# ---- incident.io per-alert events (event_for mapping) ------------------------------------
+
+def test_event_for_firing_carries_dedup_status_and_metadata():
+    a = {"key": "pi01/docker/api", "node": "pi01", "kind": "docker", "label": "api",
+         "severity": 3, "detail": "restart loop (5x)", "summary": "restart loop x5",
+         "extra": [["image", "api:latest"], ["restarts", 5]]}
+    ev = alerts.event_for(a, "firing")
+    assert ev["dedup_key"] == "pi01/docker/api" and ev["status"] == "firing"
+    assert ev["title"] == "smokemon: pi01 docker/api"
+    assert ev["description"] == "restart loop (5x)"
+    assert ev["metadata"]["node"] == "pi01" and ev["metadata"]["severity"] == 3
+    assert ev["metadata"]["image"] == "api:latest" and ev["metadata"]["restarts"] == 5
+
+
+def test_event_for_resolved_recovers_fields_from_key():
+    """A resolved-state row only carries the key; node/kind/label are recovered by splitting it
+    so the resolve event reuses the same deduplication_key and incident.io closes the alert."""
+    row = {"key": "pi02/heartbeat/", "severity": 3, "detail": "node silent",
+           "first_ts": 1.0, "notified_ts": 1.0}
+    ev = alerts.event_for(row, "resolved")
+    assert ev["dedup_key"] == "pi02/heartbeat/" and ev["status"] == "resolved"
+    assert ev["title"] == "smokemon: pi02 heartbeat"   # trailing empty label trimmed
+    assert ev["metadata"] == {"node": "pi02", "kind": "heartbeat", "severity": 3}
+
+
+# ---- gap 2: node-down heartbeat ----------------------------------------------------------
+
+def test_heartbeat_alert_when_node_silent(hub_conn, ts0):
+    """A node whose last sample is older than FLEET_STALE_AFTER_S pages a sev-3 heartbeat alert,
+    keyed on an empty label so it clears when the node ships again."""
+    schema.insert(hub_conn, "ping_runs", [{"ts": ts0, "target": "1.1.1.1", "sent": 20, "recv": 20,
+                  "loss_pct": 0.0, "rtt_min": 8.0, "rtt_p25": 8.0, "rtt_median": 8.0,
+                  "rtt_p75": 8.0, "rtt_avg": 8.0, "rtt_max": 9.0, "rtt_stddev": 0.2}], node="pi09")
+    hub_conn.commit()
+    now = ts0 + 600  # 10 min later -> age 600s > 300s stale threshold
+    a = next(x for x in hubapi._service_alerts(hub_conn, 24, now) if x["kind"] == "heartbeat")
+    assert a["node"] == "pi09" and a["severity"] == 3 and a["label"] == ""
+    assert "silent" in a["summary"]
+
+
+# ---- gap 3: active network incidents as hub alerts ---------------------------------------
+
+def test_incident_alerts_pages_active_isp_outage(hub_conn, ts0):
+    """Internet 100% loss with a clean gateway -> an active 'net' isp-outage alert, mapped to the
+    standard alert shape so it flows through the same dedup/delivery as service alerts."""
+    rows = []
+    for i in range(4):
+        rows.append({"ts": ts0 + i * 10, "target": "1.1.1.1", "sent": 20, "recv": 0,
+                     "loss_pct": 100.0, "rtt_min": None, "rtt_p25": None, "rtt_median": None,
+                     "rtt_p75": None, "rtt_avg": None, "rtt_max": None, "rtt_stddev": None})
+        rows.append({"ts": ts0 + i * 10, "target": "192.168.0.1", "sent": 20, "recv": 20,
+                     "loss_pct": 0.0, "rtt_min": 1.0, "rtt_p25": 1.0, "rtt_median": 1.0,
+                     "rtt_p75": 1.0, "rtt_avg": 1.0, "rtt_max": 2.0, "rtt_stddev": 0.1})
+    schema.insert(hub_conn, "ping_runs", rows, node="pi01")
+    hub_conn.commit()
+    now = ts0 + 60  # incident end (ts0+30) within the active grace of now
+    nets = [a for a in hubapi._incident_alerts(hub_conn, 1, now) if a["kind"] == "net"]
+    assert nets and nets[0]["node"] == "pi01" and nets[0]["severity"] == 3
+    assert nets[0]["label"].startswith("isp-outage")
+
+
+def test_incident_alerts_ignores_stale_window(hub_conn, ts0):
+    """An incident whose last flagged bucket is far in the past is historical, not firing -> no
+    alert, so the hub never pages on something already resolved."""
+    rows = [{"ts": ts0 + i * 10, "target": "1.1.1.1", "sent": 20, "recv": 0, "loss_pct": 100.0,
+             "rtt_min": None, "rtt_p25": None, "rtt_median": None, "rtt_p75": None,
+             "rtt_avg": None, "rtt_max": None, "rtt_stddev": None} for i in range(4)]
+    rows += [{"ts": ts0 + i * 10, "target": "192.168.0.1", "sent": 20, "recv": 20, "loss_pct": 0.0,
+              "rtt_min": 1.0, "rtt_p25": 1.0, "rtt_median": 1.0, "rtt_p75": 1.0, "rtt_avg": 1.0,
+              "rtt_max": 2.0, "rtt_stddev": 0.1} for i in range(4)]
+    schema.insert(hub_conn, "ping_runs", rows, node="pi01")
+    hub_conn.commit()
+    now = ts0 + 3000  # incident ended ~50 min ago, well past the active grace
+    assert [a for a in hubapi._incident_alerts(hub_conn, 1, now) if a["kind"] == "net"] == []
+
+
 def test_full_pass_sends_once(hub_conn, ts0, monkeypatch):
     """evaluate -> plan -> render -> (send) -> persist, then a second pass is silent."""
     monkeypatch.setattr(config, "NOTIFY_MIN_SEVERITY", 2)

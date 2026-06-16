@@ -192,6 +192,9 @@ IPERF_DURATION = os.environ.get("SMOKEMON_IPERF_DURATION", "5")
 NOTIFY_URL = os.environ.get("SMOKEMON_NOTIFY_URL", "")
 NOTIFY_KIND = os.environ.get("SMOKEMON_NOTIFY_KIND", "")  # "" = auto-detect
 NOTIFY_MIN_SEVERITY = _i("SMOKEMON_NOTIFY_MIN_SEVERITY", "2")
+# Bearer token for token-authenticated destinations (incident.io HTTP alert sources). Sent as
+# 'Authorization: Bearer <token>'. Only the incident_io kind uses it; ntfy/Slack/Discord ignore it.
+NOTIFY_TOKEN = os.environ.get("SMOKEMON_NOTIFY_TOKEN", "")
 
 # Hub-side service-alert delivery (delivery-only). A background thread in the hub process
 # periodically re-evaluates the same fleet service/host degradations the Risk tab already shows
