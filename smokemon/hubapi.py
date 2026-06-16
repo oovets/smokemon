@@ -256,7 +256,8 @@ def heatmap(conn, metric: str = "loss", hours: float = 24.0, until: float | None
 # the deep view is `smoke incidents` / /api/fleet.
 _WARN_RTT_MS = 250.0          # reachable but high internet RTT -> warn
 _WARN_LOSS_PCT = 1.0          # sustained loss at/above this -> warn
-FLEET_STALE_AFTER_S = 300.0   # no fresh sample within this -> stale/offline
+FLEET_STALE_AFTER_S = 300.0   # no fresh sample within this -> stale/offline (dashboard)
+_ALERT_STALE_AFTER_S = 600.0  # stricter threshold before paging (avoids flap false-positives)
 _STATE_ORDER = {"down": 0, "stale": 1, "warn": 2, "healthy": 3}
 # A detected network incident is "still firing" (vs historical) when its last flagged bucket is
 # within this of now; the hub alert loop pages only active ones so they auto-resolve when cleared.
@@ -631,7 +632,7 @@ def _service_alerts(conn, hours: float, now: float) -> list[dict]:
     # connectivity incident, owned by _incident_alerts (richer classification + blame), so paging
     # it from both would double the alert. Sev-3, keyed off an empty label ('node/heartbeat/'), so
     # the alert clears the moment the node ships again.
-    for n in fleet_status(conn, now=now)["nodes"]:
+    for n in fleet_status(conn, stale_after_s=_ALERT_STALE_AFTER_S, now=now)["nodes"]:
         if n["state"] == "stale":
             add(n["node"], "heartbeat", 3, "", f"node silent for {_dur(n['age_s'])} (no data shipped)",
                 "silent", _kv(("last seen", _dur(n["age_s"]))))
@@ -658,7 +659,9 @@ def _incident_alerts(conn, hours: float, now: float) -> list[dict]:
         ping = query.load_ping_agg(conn, since, now, None, node, res=res)
         http = query.load_http(conn, since, now, node)
         active = [i for i in analyze.detect_incidents(ping, http)
-                  if i["end"] >= now - _INCIDENT_ACTIVE_GRACE_S]
+                  if i["end"] >= now - _INCIDENT_ACTIVE_GRACE_S
+                  and i.get("scope") == "internet"   # skip local-gateway / private-IP incidents
+                  and i.get("duration_s", 0) >= 300]  # must persist >=5 min before paging
         if not active:
             continue
         frame = None

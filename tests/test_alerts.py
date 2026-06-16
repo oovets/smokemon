@@ -239,7 +239,7 @@ def test_heartbeat_alert_when_node_silent(hub_conn, ts0):
                   "loss_pct": 0.0, "rtt_min": 8.0, "rtt_p25": 8.0, "rtt_median": 8.0,
                   "rtt_p75": 8.0, "rtt_avg": 8.0, "rtt_max": 9.0, "rtt_stddev": 0.2}], node="pi09")
     hub_conn.commit()
-    now = ts0 + 600  # 10 min later -> age 600s > 300s stale threshold
+    now = ts0 + 700  # 11m40s later -> age 700s > _ALERT_STALE_AFTER_S (600s)
     a = next(x for x in hubapi._service_alerts(hub_conn, 24, now) if x["kind"] == "heartbeat")
     assert a["node"] == "pi09" and a["severity"] == 3 and a["label"] == ""
     assert "silent" in a["summary"]
@@ -249,9 +249,10 @@ def test_heartbeat_alert_when_node_silent(hub_conn, ts0):
 
 def test_incident_alerts_pages_active_isp_outage(hub_conn, ts0):
     """Internet 100% loss with a clean gateway -> an active 'net' isp-outage alert, mapped to the
-    standard alert shape so it flows through the same dedup/delivery as service alerts."""
+    standard alert shape so it flows through the same dedup/delivery as service alerts.
+    Incident must span >=5 min (duration filter) and scope must be 'internet'."""
     rows = []
-    for i in range(4):
+    for i in range(37):  # 37 × 10s = 370s > 300s minimum duration
         rows.append({"ts": ts0 + i * 10, "target": "1.1.1.1", "sent": 20, "recv": 0,
                      "loss_pct": 100.0, "rtt_min": None, "rtt_p25": None, "rtt_median": None,
                      "rtt_p75": None, "rtt_avg": None, "rtt_max": None, "rtt_stddev": None})
@@ -260,7 +261,7 @@ def test_incident_alerts_pages_active_isp_outage(hub_conn, ts0):
                      "rtt_p75": 1.0, "rtt_avg": 1.0, "rtt_max": 2.0, "rtt_stddev": 0.1})
     schema.insert(hub_conn, "ping_runs", rows, node="pi01")
     hub_conn.commit()
-    now = ts0 + 60  # incident end (ts0+30) within the active grace of now
+    now = ts0 + 380  # incident end (ts0+360) within active grace; duration ~360s > 300s
     nets = [a for a in hubapi._incident_alerts(hub_conn, 1, now) if a["kind"] == "net"]
     assert nets and nets[0]["node"] == "pi01" and nets[0]["severity"] == 3
     assert nets[0]["label"].startswith("isp-outage")
