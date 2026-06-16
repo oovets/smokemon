@@ -27,6 +27,14 @@ def _muted(key: str) -> bool:
     return any(fnmatch.fnmatch(key, pat) for pat in config.ALERT_MUTE)
 
 
+def _allowed(key: str) -> bool:
+    """True if `key` may page. With an empty NOTIFY_ALLOW the allowlist is off (everything passes);
+    when set it is default-deny - only keys matching a glob page, the rest are tracked but never
+    sent. Mute is applied separately and always wins."""
+    allow = config.NOTIFY_ALLOW
+    return (not allow) or any(fnmatch.fnmatch(key, pat) for pat in allow)
+
+
 def evaluate(conn, now: float | None = None) -> dict[str, dict]:
     """key -> alert for the currently-firing alerts, severity-gated (NOTIFY_MIN_SEVERITY): the
     service/host degradations from hubapi._service_alerts (incl. node-down heartbeat) plus the
@@ -47,12 +55,13 @@ def evaluate(conn, now: float | None = None) -> dict[str, dict]:
 
 
 def to_page(alerts: list[dict]) -> list[dict]:
-    """Subset of an alert list that should actually be sent to the webhook: only when a notify
-    URL is configured, and excluding muted keys. Mute and the missing-URL case suppress *paging*
-    only - tracking (alert_state, the dashboard's firing-since) still covers every alert."""
+    """Subset of an alert list that should actually be sent to the webhook: only when a notify URL
+    is configured, restricted to the NOTIFY_ALLOW allowlist (if set) and excluding muted keys.
+    Allowlist/mute/missing-URL suppress *paging* only - tracking (alert_state, the dashboard's
+    firing-since) still covers every alert."""
     if not config.NOTIFY_URL:
         return []
-    return [a for a in alerts if not _muted(a["key"])]
+    return [a for a in alerts if _allowed(a["key"]) and not _muted(a["key"])]
 
 
 def load_state(conn) -> dict[str, dict]:

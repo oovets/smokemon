@@ -114,6 +114,26 @@ def test_to_page_filters_mute_and_requires_url(monkeypatch):
     assert [a["key"] for a in alerts.to_page(firing)] == ["pi01/proc/gst"]
 
 
+def test_to_page_allowlist_is_default_deny(monkeypatch):
+    """With NOTIFY_ALLOW set, only matching keys page (everything else is tracked, not sent);
+    empty allowlist = page everything; mute still wins over an allowed key."""
+    firing = [{"key": "pi01/heartbeat/"}, {"key": "pi01/memory/oom-killer"},
+              {"key": "pi01/proc/gst"}, {"key": "pi01/net/isp-outage:internet"}]
+    monkeypatch.setattr(config, "NOTIFY_URL", "https://ntfy.sh/t")
+    monkeypatch.setattr(config, "ALERT_MUTE", [])
+    # empty allowlist -> everything passes (back-compat)
+    monkeypatch.setattr(config, "NOTIFY_ALLOW", [])
+    assert len(alerts.to_page(firing)) == 4
+    # tight allowlist: only node-down + specced-service-down kinds page, memory is dropped
+    monkeypatch.setattr(config, "NOTIFY_ALLOW", ["*/heartbeat/*", "*/proc/*", "*/net/*"])
+    assert [a["key"] for a in alerts.to_page(firing)] == [
+        "pi01/heartbeat/", "pi01/proc/gst", "pi01/net/isp-outage:internet"]
+    # mute wins even for an allowed key
+    monkeypatch.setattr(config, "ALERT_MUTE", ["pi01/proc/*"])
+    assert [a["key"] for a in alerts.to_page(firing)] == [
+        "pi01/heartbeat/", "pi01/net/isp-outage:internet"]
+
+
 def test_muted_alert_tracked_but_not_paged(hub_conn, ts0, monkeypatch):
     """A muted firing alert lands in alert_state (so the dashboard shows firing-since) but the
     full pass never calls notify.send for it."""

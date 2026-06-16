@@ -127,7 +127,11 @@ alerting: set SMOKEMON_NOTIFY_URL (ntfy/slack/discord/webhook) + `smoke digest -
           SMOKEMON_NOTIFY_TOKEN; the hub then sends one event per alert (deduplication_key +
           firing/resolved status, so each alert dedups and auto-resolves) instead of a digest.
           the hub's alert pass also pages node-down (a silent host the node itself can't report)
-          and active network incidents (isp-outage/loss/latency/dns). synthetic: SMOKEMON_SYNTHETIC=1.
+          and active network incidents (isp-outage/loss/latency/dns). to page only "really down"
+          + specced-service-down and keep utilization/warnings off the pager, set an allowlist
+          SMOKEMON_NOTIFY_ALLOW (semicolon globs on node/kind/label, default-deny when set), e.g.
+          '*/heartbeat/*;*/net/*;*/proc/*;*/redis/*;*/docker/*' - non-matching alerts still show on
+          the dashboard but never page. SMOKEMON_ALERT_MUTE is the inverse (deny globs). synthetic: SMOKEMON_SYNTHETIC=1.
           external checks: SMOKEMON_EXT_HTTP='app=http://127.0.0.1:8080/health'.
           redis/docker/pipeline: auto-detected (default on, silent no-op when absent);
           name redis streams with SMOKEMON_REDIS_STREAMS=a,b,c; SMOKEMON_{REDIS,DOCKER,

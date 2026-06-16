@@ -211,6 +211,13 @@ ALERT_NOTIFY_RESOLVED = os.environ.get("SMOKEMON_ALERT_NOTIFY_RESOLVED", "1") !=
 # 'pi04/*;*/docker/watchtower;*/*/scratch-*'. A matched alert is never paged (it still shows in
 # the dashboard). kinds: docker / redis / stream / proc / memory / throttle / tcp.
 ALERT_MUTE = _semi_list("SMOKEMON_ALERT_MUTE", "")
+# opt-in allowlist (default-deny when set): semicolon list of fnmatch globs on the same
+# "node/kind/label" key. When non-empty, an alert pages ONLY if it matches one of these (and is
+# not muted) - everything else is tracked/shown but never sent. Empty = page everything that
+# passes severity+mute (back-compat). Use this to page only "really down" + specced-service-down
+# and keep utilization/warning kinds (memory/throttle/tcp/...) off the pager. Applied to paging
+# only; alert_state and the dashboard still track every alert.
+NOTIFY_ALLOW = _semi_list("SMOKEMON_NOTIFY_ALLOW", "")
 # Run the hub's alert pass even with no webhook configured: it then only *tracks* firing alerts
 # in alert_state (so the Risk tab shows "firing <duration>" and which would-be-paged), and sends
 # nothing. Set =0 to disable the background pass entirely. Sending still requires NOTIFY_URL.
