@@ -1,0 +1,725 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="full-stack network + host monitoring for the edge — every signal on one timeline, in stdlib python and ~30 mb of ram. no cloud, no dependencies, nothing to install but python.">
+      
+      
+      
+        <link rel="canonical" href="https://oovets.github.io/smokemon/PLAN/">
+      
+      
+        <link rel="prev" href="../probes/">
+      
+      
+        <link rel="next" href="../CHANGELOG/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>roadmap - smokemon</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=JetBrains+Mono:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"JetBrains Mono";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../extra.css">
+    
+      <link rel="stylesheet" href="https://stevoo.net/theme.css">
+    
+      <link rel="stylesheet" href="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="green">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#smokemon-ideas-roadmap" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="/" title="smokemon" class="md-header__button md-logo" aria-label="smokemon" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            smokemon
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              roadmap
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="/" title="smokemon" class="md-nav__button md-logo" aria-label="smokemon" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    smokemon
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    readme
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../QUICKSTART/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../INSTALL/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    install
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../package/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    package
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../probes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    probes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CHANGELOG/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CONTRIBUTING/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../SECURITY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="smokemon-ideas-roadmap">smokemon - ideas roadmap<a class="headerlink" href="#smokemon-ideas-roadmap" title="Permanent link">&para;</a></h1>
+<p>an idea catalog, not a commitment. creative directions worth building, ordered by leverage.
+entries become real work only when promoted into the changelog and code.</p>
+<p>status: each entry below is tagged [done] / [deferred]. [done] shipped in 0.12.0 (see
+CHANGELOG) - the analysis engine (<code>smokemon/analyze.py</code>), text surfaces (<code>smokemon/report.py</code>:
+<code>smoke status|incidents|digest</code>, <code>smoke replay</code>), alerting (<code>smokemon/notify.py</code>), the hub
+<code>/metrics</code> + <code>/api/*</code> + live dashboard (<code>GET /</code>) and terminal <code>smoke fleet</code>
+(<code>smokemon/hubapi.py</code>), the <code>self</code> panel and the opt-in <code>smokemon/probes/synthetic.py</code>.
+tier 6 (edge hardening, ADR-0001) shipped in 0.14.0: retention/governor/transport/inventory/
+log-excerpts/jitter/hub-read-split. [deferred] needs hardware / a gpu / a multi-day redesign
+that can't be built + verified blind: X1 (gpio/led), X3 (jetson on-device ml), X4 (hubless
+mesh gossip).</p>
+<p>the thread running through all of it: smokemon's untapped edge is synchronized
+multi-signal data on one timeline per node. smokeping sees only the network, netdata only the
+host, wifi tools only the radio - smokemon already stores ping loss/rtt-spread, bandwidth,
+http layer breakdown, per-hop mtr, wifi rssi/roams, iperf throughput, cpu/mem/temp/psi/freq,
+per-zone thermals, per-rail power, tcp/conntrack counters, disk/sd-wear and top processes all
+under the same <code>ts</code> and <code>node</code>. so it can answer what no single-domain tool can: what else was
+happening at the exact moment things went bad. almost every idea below exploits data already
+collected in new combinations, not new collection.</p>
+<p>full version history -&gt; <a href="../CHANGELOG/">CHANGELOG.md</a>
+project conventions -&gt; <a href="../CONTRIBUTING/">CONTRIBUTING.md</a></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>each entry -&gt; what · data (existing tables/fields) · code (where it lives) · surface
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>              (tui/png/cli/hub/file) · effort S(hours)/M(day-two)/L(multi-day) · fit
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>              (stdlib-only on node? rss impact? additive schema? opt-in deps?)
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>== tier 1 - quick wins (data already exists, low effort) ==
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>QW1 [done] bufferbloat grade (A-F). iperf3 -J already returns streams[].rtt_min/mean/max which
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    probes/iperf.py does not parse yet. combine idle ping vs ping-under-load -&gt; dslreports-
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>    style grade. surface: iperf panel annotation + digest. effort S. additive column
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>    rtt_under_load_ms on iperf_samples; iperf is already the 15-min tier so no loop cost.
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>QW2 [done] http layer-blame. http_samples already splits dns/connect/tls/ttfb. name the dominant
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>    contributor (&quot;slow = dns resolver, not your link&quot;). code: loader in query.py, render in
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>    render/png.py + render/tui.py. surface: stacked http panel + culprit label. effort S.
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>    no schema change.
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>QW3 [done] sparkline status line. one glanceable row, unicode sparklines:
+<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>    internet _.-^-. 4ms · wifi ^^- -52dBm · cpu .._ 45C · healthy. new `smoke status`
+<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>    subcommand in cli.py, reuses existing loaders. drops into a cursor statusline / tmux /
+<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>    macos menubar. effort S. pure stdlib.
+<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a>
+<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a>QW4 [done] death clocks. linear-extrapolate disk_samples.used_pct growth, disk_health.wear_pct
+<a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a>    trend, temp-to-throttle headroom -&gt; countdowns (&quot;disk full ~14d&quot;, &quot;sd ~3y left&quot;, &quot;temp
+<a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a>    ~6C from throttle&quot;). code: query.py + a status/digest line. effort S-M. no schema change.
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>== tier 2 - flagship (unique to the synchronized data) ==
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>F1  [done] blame engine (multi-signal incident correlation). on a latency/loss spike, correlate
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>    against cpu, temp, wifi rssi, bssid roam, bandwidth, bufferbloat and newly-appeared
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>    procs -&gt; human-readable cause list (&quot;14:32-14:35 latency +400% - correlates with cpu
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>    98% + new process backup + temp 71C&quot;). method: pearson/spearman + lag alignment, pure
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>    stdlib, hub-side at render/report time. code: new read-only smokemon/analyze.py +
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>    `smoke incidents`. effort M. zero node impact.
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>F2  [done] event/incident detection. rules over the multi-signal data: link down (loss=100% N
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>    cycles), isp outage (gw ok + internet loss) vs upstream, dns-slow-but-tcp-fast,
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>    roam-correlated throughput dip. output: incidents table with start/end/duration/class.
+<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>    code: smokemon/analyze.py. surface: tui table + digest. effort M.
+<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>
+<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a>F3  [done] plain-english daily digest. narrative built on F1/F2: uptime %, blips + total duration,
+<a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a>    peak latency and what it coincided with, bufferbloat grade, roam count, thermals. code:
+<a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a>    `smoke digest`. surface: text file / stdout / optional push (S4). effort M.
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>== tier 3 - predictive / statistical (stdlib only) ==
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>P1  [done] time-of-day anomaly baseline. &quot;abnormal for a tuesday 14:00&quot; with no thresholds, no ml.
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>    baseline per hour-of-day/day-of-week from retained raw ping_rtts; flag via rolling
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>    median + MAD z-score. code: analyze.py. surface: `smoke digest` (&quot;Unusual for the hour&quot;,
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>    judged against the preceding week). effort M. hub-side.
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>P2  [done] change-point / regime-shift detection. catch silent changes - isp dropped your speed
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>    tier, a new device saturates wifi, a route changed permanently (&quot;bandwidth regime shift
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>    03:00 - median 940-&gt;230 Mbps&quot;). cusum or rolling mean-shift. code: analyze.py. surface:
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>    `smoke digest` (&quot;RTT shift&quot;) + the risks tab/API &quot;regime shifts&quot; section. effort M.
+<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a>
+<a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a>P3  [done] path intelligence from mtr. detect route changes over time, attribute the bad hop (which
+<a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a>    hop adds loss/latency), compute a path-stability score from mtr_hops. surface:
+<a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a>    `smoke digest` (&quot;Paths:&quot;) + `smoke incidents` route-change footer. effort M.
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>== tier 4 - surfaces and interop ==
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>S1  [done] dvr scrubber. raw data is kept forever -&gt; replay any historical window like a tape deck:
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>    `smoke replay 2026-05-20`, arrow keys to scrub. code: cli.py + render/tui.py. effort M.
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>S2  [done] prometheus / openmetrics endpoint. a /metrics route on the existing hub server (hub.py
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>    already runs http.server) exposing latest values -&gt; plugs into grafana/alertmanager.
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>    effort S-M. stdlib, hub-side.
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>
+<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>S3  [done] read-only json api + fleet view. /api for latest/aggregated data; fleet ranking and a
+<a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a>    node x hour heatmap when multiple nodes report. code: hub.py + query.py. effort M.
+<a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a>
+<a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a>S4  [done] push / webhook alerting. fire ntfy/slack/webhook/email from F2 incidents. hub-side
+<a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a>    notifier using urllib. effort S-M. stdlib.
+<a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a>
+<a id="__codelineno-4-16" name="__codelineno-4-16" href="#__codelineno-4-16"></a>S5  [done] self-instrumentation panel. smokemon already shows up in proc_samples (it reads its own
+<a id="__codelineno-4-17" name="__codelineno-4-17" href="#__codelineno-4-17"></a>    rss) -&gt; graph its own footprint/cpu over time to prove the low-rss claim. new `self`
+<a id="__codelineno-4-18" name="__codelineno-4-18" href="#__codelineno-4-18"></a>    panel. effort S.
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>== tier 5 - frontier / experimental (opt-in; may need extras or hardware) ==
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>X1  [deferred] gpio/led ambient health. a physical led on a pi that goes red on loss/incident. node-
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>    side, gated behind an opt-in extra (gpiozero/RPi.GPIO) so the stdlib-only core is
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>    untouched. effort S-M.
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>X2  [done] sonification / audible alerts. terminal-bell patterns or a tone whose pitch tracks
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>    health, for kiosk mode. code: render/tui.py / cli. effort S. stdlib.
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>
+<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a>X3  [deferred] on-device ml on jetson. a tiny anomaly autoencoder running only where there&#39;s a gpu.
+<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a>    jetson-only, strictly opt-in deps; hub and pi stay stdlib. effort L.
+<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a>
+<a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a>X4  [deferred] hubless mesh gossip. nodes exchange row deltas peer-to-peer so a fleet works with no
+<a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a>    central hub; UNIQUE(node,src_id) + INSERT OR IGNORE already make merges idempotent.
+<a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a>    code: gossip variant of ship.py/hub.py. effort L. stdlib, big design.
+<a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a>
+<a id="__codelineno-5-17" name="__codelineno-5-17" href="#__codelineno-5-17"></a>X5  [done] bandwidth attribution. &quot;what&#39;s hammering my network&quot; - correlate net_samples spikes with
+<a id="__codelineno-5-18" name="__codelineno-5-18" href="#__codelineno-5-18"></a>    proc_samples (optionally per-process net counters) to name the culprit process. code:
+<a id="__codelineno-5-19" name="__codelineno-5-19" href="#__codelineno-5-19"></a>    analyze.py + optional probe. surface: `smoke digest` (&quot;Bandwidth spikes&quot;). effort M.
+<a id="__codelineno-5-20" name="__codelineno-5-20" href="#__codelineno-5-20"></a>
+<a id="__codelineno-5-21" name="__codelineno-5-21" href="#__codelineno-5-21"></a>X6  [done] synthetic transactions. scripted multi-step checks beyond single-shot probes - login
+<a id="__codelineno-5-22" name="__codelineno-5-22" href="#__codelineno-5-22"></a>    flow, dns-over-https, captive-portal detection. new module under probes/. effort M.
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>== tier 6 - edge hardening (ADR-0001, shipped 0.14.0) ==
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>E1  [done] node-db retention/prune. without it the append-only tables grew forever and wore out
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>    the sd card. deletes rows older than RETENTION_DAYS but only once shipped (id &lt;= ship_state
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>    cursor) when a hub is set, so a hub outage backs up on disk instead of losing data; WAL
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>    truncate + optional VACUUM reclaim space. code: smokemon/prune.py (`python -m smokemon.prune`,
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>    daily timer/plist). surface: cli/timer. effort M. stdlib, node-side, no schema change.
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a>E2  [done] transport hardening. ship refuses to send when HUB_URL is plaintext http:// to a
+<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a>    non-loopback host (the shared X-Smokemon-Key would cross the wire in clear); allow https,
+<a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a>    loopback, or SMOKEMON_HUB_INSECURE=1 for a trusted LAN. code: ship.hub_url_ok. effort S.
+<a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a>    (deferred follow-up: per-node token / HMAC instead of one shared secret.)
+<a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a>
+<a id="__codelineno-6-14" name="__codelineno-6-14" href="#__codelineno-6-14"></a>E3  [done] footprint governor (opt-in). when the collector exceeds SMOKEMON_MAX_RSS_MB /
+<a id="__codelineno-6-15" name="__codelineno-6-15" href="#__codelineno-6-15"></a>    SMOKEMON_MAX_DB_MB it sheds its costliest probes (ext/synthetic/mtr) for that cycle and writes
+<a id="__codelineno-6-16" name="__codelineno-6-16" href="#__codelineno-6-16"></a>    a throttled ext_events row - detail degrades gracefully instead of the footprint overrunning
+<a id="__codelineno-6-17" name="__codelineno-6-17" href="#__codelineno-6-17"></a>    target. code: smokemon/governor.py + collect._guarded. effort M. node-side, off by default.
+<a id="__codelineno-6-18" name="__codelineno-6-18" href="#__codelineno-6-18"></a>
+<a id="__codelineno-6-19" name="__codelineno-6-19" href="#__codelineno-6-19"></a>E4  [done] device/environment inventory. delta-coded device_facts (model, kernel, os/jetpack,
+<a id="__codelineno-6-20" name="__codelineno-6-20" href="#__codelineno-6-20"></a>    cpu/mem, interfaces, gateway, boot id): a row written only when a fact changes, ~zero
+<a id="__codelineno-6-21" name="__codelineno-6-21" href="#__codelineno-6-21"></a>    steady-state cost. answers &quot;what exactly is this box&quot; with no log streaming. code:
+<a id="__codelineno-6-22" name="__codelineno-6-22" href="#__codelineno-6-22"></a>    probes/inventory.py; hub GET /api/inventory. effort M. additive table, vslow tier.
+<a id="__codelineno-6-23" name="__codelineno-6-23" href="#__codelineno-6-23"></a>
+<a id="__codelineno-6-24" name="__codelineno-6-24" href="#__codelineno-6-24"></a>E5  [done] event-driven log excerpts (opt-in). a capped, redacted last-N-KB tail of configured
+<a id="__codelineno-6-25" name="__codelineno-6-25" href="#__codelineno-6-25"></a>    log files, shipped only when a warn/error+ ext_events row just appeared - NOT a stream.
+<a id="__codelineno-6-26" name="__codelineno-6-26" href="#__codelineno-6-26"></a>    byte-offset cursor (never resends), drop-oldest cap, secret redaction; shipper gzips the wire.
+<a id="__codelineno-6-27" name="__codelineno-6-27" href="#__codelineno-6-27"></a>    code: probes/logexcerpt.py, new log_excerpts table. effort M. off by default.
+<a id="__codelineno-6-28" name="__codelineno-6-28" href="#__codelineno-6-28"></a>
+<a id="__codelineno-6-29" name="__codelineno-6-29" href="#__codelineno-6-29"></a>E6  [done] honest self footprint + de-synced cadence. self panel rss summed over ALL smokemon
+<a id="__codelineno-6-30" name="__codelineno-6-30" href="#__codelineno-6-30"></a>    pids (not one process) + write_mb_day projecting the SD-write rate, so wear is as visible as
+<a id="__codelineno-6-31" name="__codelineno-6-31" href="#__codelineno-6-31"></a>    rss; cadence carries a stable per-node jitter (hash -&gt; 0..interval/4) so the fleet no longer
+<a id="__codelineno-6-32" name="__codelineno-6-32" href="#__codelineno-6-32"></a>    pings/ships in lockstep. code: host._fleet_footprint_linux, core._jitter. effort S-M.
+<a id="__codelineno-6-33" name="__codelineno-6-33" href="#__codelineno-6-33"></a>
+<a id="__codelineno-6-34" name="__codelineno-6-34" href="#__codelineno-6-34"></a>E7  [done] hub read/write split. dashboard/API GETs read through a dedicated read-only connection
+<a id="__codelineno-6-35" name="__codelineno-6-35" href="#__codelineno-6-35"></a>    (own lock, WAL) so they run concurrently with ingest instead of queuing behind the writer&#39;s
+<a id="__codelineno-6-36" name="__codelineno-6-36" href="#__codelineno-6-36"></a>    lock. code: core.connect_ro + hub._ro_conn. effort S. hub-side.
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>== guardrails (must hold for any of the above) ==
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>- node-side code stays stdlib-only. analysis/ml/exporters live on the hub or behind opt-in
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>  extras, never imported by collectors/ship/probes/adapters.
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>- no rss regressions on the node. the project deliberately reverted the SQLite cache/mmap
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>  PRAGMAs for this reason; see the docstring in smokemon/core.py.
+<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>
+<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a>- schema changes are additive only, via ensure_body_columns in smokemon/schema.py (ALTER
+<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a>  ADD, never DROP/RENAME). wire-format changes stay backward compatible.
+<a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a>
+<a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a>- no fabricated data - everything derives from real collected metrics, never seed/mock/
+<a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a>  guessed values.
+<a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a>
+<a id="__codelineno-7-15" name="__codelineno-7-15" href="#__codelineno-7-15"></a>- new heavy work goes to the slow/vslow tiers or hub-side render time, never the 10s fast
+<a id="__codelineno-7-16" name="__codelineno-7-16" href="#__codelineno-7-16"></a>  loop.
+</code></pre></div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.top", "navigation.sections", "content.code.copy", "toc.integrate"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.js"></script>
+      
+        <script src="https://stevoo.net/map.js"></script>
+      
+    
+  </body>
+</html>

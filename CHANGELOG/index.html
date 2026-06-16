@@ -1,0 +1,1224 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="full-stack network + host monitoring for the edge — every signal on one timeline, in stdlib python and ~30 mb of ram. no cloud, no dependencies, nothing to install but python.">
+      
+      
+      
+        <link rel="canonical" href="https://oovets.github.io/smokemon/CHANGELOG/">
+      
+      
+        <link rel="prev" href="../PLAN/">
+      
+      
+        <link rel="next" href="../CONTRIBUTING/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>changelog - smokemon</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=JetBrains+Mono:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"JetBrains Mono";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../extra.css">
+    
+      <link rel="stylesheet" href="https://stevoo.net/theme.css">
+    
+      <link rel="stylesheet" href="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="green">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#smokemon-changelog" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="/" title="smokemon" class="md-header__button md-logo" aria-label="smokemon" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            smokemon
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              changelog
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="/" title="smokemon" class="md-nav__button md-logo" aria-label="smokemon" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    smokemon
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    readme
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../QUICKSTART/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../INSTALL/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    install
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../package/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    package
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../probes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    probes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../PLAN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CONTRIBUTING/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../SECURITY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="smokemon-changelog">smokemon - changelog<a class="headerlink" href="#smokemon-changelog" title="Permanent link">&para;</a></h1>
+<p>all notable changes to smokemon. the format roughly follows <a href="https://keepachangelog.com/en/1.1.0/">keep a changelog</a> and the project uses <a href="https://semver.org/spec/v2.0.0.html">semantic versioning</a>.</p>
+<p>roadmap / ideas -&gt; <a href="../PLAN/">PLAN.md</a></p>
+<p>(0.1.0 through 0.10.0 landed together during the initial build-out and were not separately
+tagged; dated entries begin at the first release, 0.11.0.)</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>== unreleased ==
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>added:
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>- hub dashboard: the node detail modal gets a live, animated &quot;live&quot; mode (now the default) that
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>  replaces the matplotlib-PNG subprocess as the first thing you see. It draws a node&#39;s key signals
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>  (rtt/loss/cpu/mem/temp) on an HTML canvas from a new lightweight GET /api/series endpoint (JSON
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>  built from the existing analysis frame + incident detector in one read - no subprocess, no
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>  matplotlib), so opening a node is instant. The chart reveals left-to-right with a playhead,
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>  fades in incident callouts as the sweep passes them, rests with a soft highlight on the worst
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>  moment, appends new data without flicker, and shows an in-canvas hover readout. Pure inline
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>  vanilla JS + requestAnimationFrame - no build step, no external dependencies, works offline. The
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>  png/plot deep multi-panel modes and risks/ports remain available via the mode buttons.
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>- hub dashboard: the network tab is now the home for both throughput and the heatmap (the separate
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>  heatmap tab is gone). The throughput graphs lead the tab as large cards, two per row (responsive
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>  to one on narrow screens), with the heatmap in a collapsible section below (collapsed by default,
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>  so the tab skips the heatmap fetch until expanded). The heatmap gains a third metric, bandwidth
+<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>  (node x hour bytes/s from net_samples, computed as the hourly delta of the cumulative byte gauge
+<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>  with virtual interfaces filtered out), alongside loss % and rtt, and is rendered transposed and
+<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>  full-width: nodes are columns with diagonal labels, hours run down the y-axis, and cells flex to
+<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>  fill the screen. The per-application graphs gain a fleet vs per-node toggle: /api/network?by_node=1
+<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>  breaks each app&#39;s bytes/s down per contributing node. The per-node view is a 100%-stacked SHARE
+<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>  chart (each node a band = its percentage of the app&#39;s total per bucket), so a tiny node reads as
+<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>  clearly as one 500x bigger - absolute overlaid lines buried everything behind a single dominant
+<a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>  node. Node identity shows on hover; only the top-3 contributors get a compact share-% hint
+<a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a>  instead of a giant permanent legend. Custom service ports are labelled: 8554/554 rtsp, 5000
+<a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a>  raw-video, 19999 netdata, 1935 rtmp (plus the existing well-known set).
+<a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a>
+<a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a>- hub dashboard: merged the overlapping table / ranking / services tabs into one &quot;nodes&quot; tab
+<a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a>  backed by a single cached composite endpoint GET /api/nodes-detail. Each row carries live
+<a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a>  metrics (state/rtt/loss/cpu/mem/temp/age), 24h aggregates (uptime/rtt/outage), ship cost
+<a id="__codelineno-0-33" name="__codelineno-0-33" href="#__codelineno-0-33"></a>  (rows-per-day/ship-per-day/smoke footprint) and a per-node service rollup (docker/redis/proc/
+<a id="__codelineno-0-34" name="__codelineno-0-34" href="#__codelineno-0-34"></a>  stream counts) - previously three separate fetches with two different rtt semantics. Per-entity
+<a id="__codelineno-0-35" name="__codelineno-0-35" href="#__codelineno-0-35"></a>  service detail (container/redis/proc/stream rows) moved into the node detail modal, so nothing
+<a id="__codelineno-0-36" name="__codelineno-0-36" href="#__codelineno-0-36"></a>  is lost. New hubapi.nodes_detail()/fleet_stats_fast()/services_rollup() assemble it from one
+<a id="__codelineno-0-37" name="__codelineno-0-37" href="#__codelineno-0-37"></a>  pass of each cheap building block instead of the old per-node detect_incidents N+1.
+<a id="__codelineno-0-38" name="__codelineno-0-38" href="#__codelineno-0-38"></a>
+<a id="__codelineno-0-39" name="__codelineno-0-39" href="#__codelineno-0-39"></a>changed:
+<a id="__codelineno-0-40" name="__codelineno-0-40" href="#__codelineno-0-40"></a>
+<a id="__codelineno-0-41" name="__codelineno-0-41" href="#__codelineno-0-41"></a>- hub dashboard efficiency: /api/fleet-status and /api/spark are now served through the response
+<a id="__codelineno-0-42" name="__codelineno-0-42" href="#__codelineno-0-42"></a>  cache (short TTL) so the 5s/30s global polls from concurrent viewers/tabs share one pass
+<a id="__codelineno-0-43" name="__codelineno-0-43" href="#__codelineno-0-43"></a>  instead of each recomputing. fleet_stats_fast() computes 24h uptime/rtt/outage in one
+<a id="__codelineno-0-44" name="__codelineno-0-44" href="#__codelineno-0-44"></a>  rollup-aware GROUP BY (no per-node time-series load or detect_incidents), removing the main
+<a id="__codelineno-0-45" name="__codelineno-0-45" href="#__codelineno-0-45"></a>  &quot;first open lags&quot; cost on the per-node view. true incident detail stays on the risk tab; the
+<a id="__codelineno-0-46" name="__codelineno-0-46" href="#__codelineno-0-46"></a>  nodes table shows outage% as the cheap health proxy.
+<a id="__codelineno-0-47" name="__codelineno-0-47" href="#__codelineno-0-47"></a>
+<a id="__codelineno-0-48" name="__codelineno-0-48" href="#__codelineno-0-48"></a>- ship: stop shipping tables the hub does not consume, while still collecting and keeping them
+<a id="__codelineno-0-49" name="__codelineno-0-49" href="#__codelineno-0-49"></a>  node-local. synthetic_samples (DoH/captive-portal checks) has no hub-side reader, so it is now
+<a id="__codelineno-0-50" name="__codelineno-0-50" href="#__codelineno-0-50"></a>  excluded from the push BY DEFAULT - shipping and storing it hub-side was dead weight. backward
+<a id="__codelineno-0-51" name="__codelineno-0-51" href="#__codelineno-0-51"></a>  compatible: the hub just receives fewer table keys (the ingest contract never required any
+<a id="__codelineno-0-52" name="__codelineno-0-52" href="#__codelineno-0-52"></a>  specific table). SMOKEMON_SHIP_EXCLUDE (comma-separated) ADDS more tables to the default
+<a id="__codelineno-0-53" name="__codelineno-0-53" href="#__codelineno-0-53"></a>  exclusion; SMOKEMON_SHIP_INCLUDE force-ships a defaulted-out table (e.g. to re-enable
+<a id="__codelineno-0-54" name="__codelineno-0-54" href="#__codelineno-0-54"></a>  synthetic_samples once a hub-side consumer for it exists).
+<a id="__codelineno-0-55" name="__codelineno-0-55" href="#__codelineno-0-55"></a>
+<a id="__codelineno-0-56" name="__codelineno-0-56" href="#__codelineno-0-56"></a>- ship: proc_samples row trimming via SMOKEMON_SHIP_PROC (active | all | self, default active).
+<a id="__codelineno-0-57" name="__codelineno-0-57" href="#__codelineno-0-57"></a>  the node records top-N processes by cpu + its own &#39;smokemon&#39; row every host cycle, but the hub
+<a id="__codelineno-0-58" name="__codelineno-0-58" href="#__codelineno-0-58"></a>  only reads the &#39;smokemon&#39; row (footprint panel + ship cost) and the busy processes at incident
+<a id="__codelineno-0-59" name="__codelineno-0-59" href="#__codelineno-0-59"></a>  time. active (new default) ships the &#39;smokemon&#39; row + procs whose cpu_pct &gt;=
+<a id="__codelineno-0-60" name="__codelineno-0-60" href="#__codelineno-0-60"></a>  SMOKEMON_SHIP_PROC_MIN_CPU (default 5.0) and drops idle top-N rows from the push (kept
+<a id="__codelineno-0-61" name="__codelineno-0-61" href="#__codelineno-0-61"></a>  node-local for `smoke incidents`); all keeps the prior full-history behaviour; self ships only
+<a id="__codelineno-0-62" name="__codelineno-0-62" href="#__codelineno-0-62"></a>  the &#39;smokemon&#39; row. dropped rows still advance the ship cursor, so they are never re-examined,
+<a id="__codelineno-0-63" name="__codelineno-0-63" href="#__codelineno-0-63"></a>  and an all-dropped batch advances the cursor without a POST. backward compatible (same table
+<a id="__codelineno-0-64" name="__codelineno-0-64" href="#__codelineno-0-64"></a>  key, fewer rows).
+<a id="__codelineno-0-65" name="__codelineno-0-65" href="#__codelineno-0-65"></a>
+<a id="__codelineno-0-66" name="__codelineno-0-66" href="#__codelineno-0-66"></a>- hub storage: downsampling/rollups (smokemon/rollup.py, hub-side, pure stdlib) wired into the
+<a id="__codelineno-0-67" name="__codelineno-0-67" href="#__codelineno-0-67"></a>  heavy read paths. the hub aggregates the bulky time-series tables (ping_runs/host_samples/
+<a id="__codelineno-0-68" name="__codelineno-0-68" href="#__codelineno-0-68"></a>  net_samples/tcp_samples/wifi_samples) into additive &lt;table&gt;_1m and &lt;table&gt;_1h tables, driven by
+<a id="__codelineno-0-69" name="__codelineno-0-69" href="#__codelineno-0-69"></a>  a rollup_state cursor and run incrementally from the hub&#39;s hourly housekeeping pass (only
+<a id="__codelineno-0-70" name="__codelineno-0-70" href="#__codelineno-0-70"></a>  fully-closed buckets; the open bucket is left until it closes; idempotent via
+<a id="__codelineno-0-71" name="__codelineno-0-71" href="#__codelineno-0-71"></a>  UNIQUE(node,entity,bucket_ts)). query._resolution() picks raw/1m/1h by window span; fleet(),
+<a id="__codelineno-0-72" name="__codelineno-0-72" href="#__codelineno-0-72"></a>  risks() and heatmap() read rollups for long windows (&gt;6h) and raw for short ones, falling back
+<a id="__codelineno-0-73" name="__codelineno-0-73" href="#__codelineno-0-73"></a>  to raw when a rollup has no rows in range. measured on a 30-day / 15-node synthetic hub over a
+<a id="__codelineno-0-74" name="__codelineno-0-74" href="#__codelineno-0-74"></a>  7-day window: risks() 3.6s -&gt; 0.67s, fleet() 1.27s -&gt; 0.28s, heatmap() 0.47s -&gt; 0.07s. the node
+<a id="__codelineno-0-75" name="__codelineno-0-75" href="#__codelineno-0-75"></a>  is untouched (still ships raw 10s data); short-window views and node-local use keep full
+<a id="__codelineno-0-76" name="__codelineno-0-76" href="#__codelineno-0-76"></a>  fidelity. a scripts/bench_hub_reads.py harness reproduces the numbers (and runs against a real
+<a id="__codelineno-0-77" name="__codelineno-0-77" href="#__codelineno-0-77"></a>  hub DB via --db). scores
+<a id="__codelineno-0-78" name="__codelineno-0-78" href="#__codelineno-0-78"></a>  each time bucket on how jointly anomalous its signals are, so a cluster of mild co-deviations
+<a id="__codelineno-0-79" name="__codelineno-0-79" href="#__codelineno-0-79"></a>  (moderate cpu + temp + a little rtt drift = an emerging thermal issue) surfaces even when no
+<a id="__codelineno-0-80" name="__codelineno-0-80" href="#__codelineno-0-80"></a>  single signal trips an incident - the payoff of the synchronized timeline. uses a numpy
+<a id="__codelineno-0-81" name="__codelineno-0-81" href="#__codelineno-0-81"></a>  mahalanobis distance when numpy is present (already the png extra) and a pure-stdlib root-sum-
+<a id="__codelineno-0-82" name="__codelineno-0-82" href="#__codelineno-0-82"></a>  square of co-deviating robust-z values otherwise, so it stays importable on a bare node. every
+<a id="__codelineno-0-83" name="__codelineno-0-83" href="#__codelineno-0-83"></a>  result names its contributing signals (never an opaque score). surfaced as a new &quot;anomalies&quot;
+<a id="__codelineno-0-84" name="__codelineno-0-84" href="#__codelineno-0-84"></a>  tier in the risk tab + per-node risk modal and a line in `smoke digest`.
+<a id="__codelineno-0-85" name="__codelineno-0-85" href="#__codelineno-0-85"></a>
+<a id="__codelineno-0-86" name="__codelineno-0-86" href="#__codelineno-0-86"></a>- analysis: incident correlation / storm dedup (analyze.correlate_incidents). co-firing incidents
+<a id="__codelineno-0-87" name="__codelineno-0-87" href="#__codelineno-0-87"></a>  on a node (one root cause tripping loss + latency + a restart at once) fold into a single group
+<a id="__codelineno-0-88" name="__codelineno-0-88" href="#__codelineno-0-88"></a>  with a likely root, exposed as incident_groups on /api/risks; raw members ride along so a genuine
+<a id="__codelineno-0-89" name="__codelineno-0-89" href="#__codelineno-0-89"></a>  second fault is never hidden.
+<a id="__codelineno-0-90" name="__codelineno-0-90" href="#__codelineno-0-90"></a>
+<a id="__codelineno-0-91" name="__codelineno-0-91" href="#__codelineno-0-91"></a>changed:
+<a id="__codelineno-0-92" name="__codelineno-0-92" href="#__codelineno-0-92"></a>
+<a id="__codelineno-0-93" name="__codelineno-0-93" href="#__codelineno-0-93"></a>- death clocks: disk-full and SD-wear ETAs now project with the robust theil-sen slope (median of
+<a id="__codelineno-0-94" name="__codelineno-0-94" href="#__codelineno-0-94"></a>  pairwise slopes, query.theil_sen_eta_seconds) instead of least squares, so a single cache flush
+<a id="__codelineno-0-95" name="__codelineno-0-95" href="#__codelineno-0-95"></a>  or log rotation no longer skews the ETA and the clocks stop flapping. pure stdlib; linear_eta_
+<a id="__codelineno-0-96" name="__codelineno-0-96" href="#__codelineno-0-96"></a>  seconds is kept for back-compat.
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>== 0.16.0 - 2026-05-31  log/error visibility + per-application network view ==
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>added:
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>- hub: a &quot;logs&quot; dashboard tab + /api/logs - a fleet-wide, newest-first stream of ext_events
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>  (warn/error/crit) and log_excerpts, filterable by node (the filter box) and severity
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>  (all/elevated/error), with tail-truncated excerpts. Surfaces data that already ships; no new
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>  per-device capture.
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>- events: edge/delta-triggered ext_events producers riding on data the probes already collect
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>  (no new I/O / footprint), so the logs tab gets real warn/error/crit signal: collector
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>  probe-crash (error, then a quiet recover), host OOM-kill (crit), CPU thermal-throttle (warn),
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>  over-temp (crit), swap &gt;90% (warn), Pi under-voltage (crit) / throttled (warn), and a per-URL
+<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>  HTTP 5xx/no-response (warn) for the built-in checks. Each fires once on transition (a stuck
+<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>  condition never re-floods the table or the wire) and clears quietly when it recovers.
+<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>
+<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a>- ship: expedite-on-error. When an elevated ext_events row lands, the collector kicks an
+<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a>  out-of-band ship on a daemon thread (~10s detection on the fast loop, rate-limited + coalesced)
+<a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a>  so errors reach the hub in seconds, decoupled from the bulk ship cadence. Toggle via
+<a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a>  SMOKEMON_SHIP_EXPEDITE / SMOKEMON_SHIP_EXPEDITE_INTERVAL. ext_events/log_excerpts are also
+<a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a>  gathered before the bulk metric tables so they lead any backlog batch.
+<a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a>
+<a id="__codelineno-1-23" name="__codelineno-1-23" href="#__codelineno-1-23"></a>- hub: a &quot;network&quot; dashboard tab + /api/network - per-application throughput (bytes/s) over time
+<a id="__codelineno-1-24" name="__codelineno-1-24" href="#__codelineno-1-24"></a>  from port_samples, as positive deltas of the bucketed cumulative byte gauge. Fleet-wide by
+<a id="__codelineno-1-25" name="__codelineno-1-25" href="#__codelineno-1-25"></a>  default (each app summed across nodes); drill into one node via the filter box. Well-known ports
+<a id="__codelineno-1-26" name="__codelineno-1-26" href="#__codelineno-1-26"></a>  map to service names (https/redis/ssh/postgres/…) for labels.
+<a id="__codelineno-1-27" name="__codelineno-1-27" href="#__codelineno-1-27"></a>
+<a id="__codelineno-1-28" name="__codelineno-1-28" href="#__codelineno-1-28"></a>fixed:
+<a id="__codelineno-1-29" name="__codelineno-1-29" href="#__codelineno-1-29"></a>
+<a id="__codelineno-1-30" name="__codelineno-1-30" href="#__codelineno-1-30"></a>- collector: a transient SQLite &quot;database is locked&quot; (WAL writer contention on a busy node, not a
+<a id="__codelineno-1-31" name="__codelineno-1-31" href="#__codelineno-1-31"></a>  probe bug) is now surfaced once as an edge-triggered warn (db-contention) instead of a per-cycle
+<a id="__codelineno-1-32" name="__codelineno-1-32" href="#__codelineno-1-32"></a>  error, and expedite ignores collector-sourced events - closing a crash -&gt; expedite-ship -&gt;
+<a id="__codelineno-1-33" name="__codelineno-1-33" href="#__codelineno-1-33"></a>  more-contention -&gt; crash feedback loop that flapped ping on multi-writer nodes. Event recording
+<a id="__codelineno-1-34" name="__codelineno-1-34" href="#__codelineno-1-34"></a>  is itself best-effort (a locked DB while logging the event no longer cascades).
+<a id="__codelineno-1-35" name="__codelineno-1-35" href="#__codelineno-1-35"></a>
+<a id="__codelineno-1-36" name="__codelineno-1-36" href="#__codelineno-1-36"></a>changed:
+<a id="__codelineno-1-37" name="__codelineno-1-37" href="#__codelineno-1-37"></a>
+<a id="__codelineno-1-38" name="__codelineno-1-38" href="#__codelineno-1-38"></a>- hub: /api/ports is now cached (was an uncached MAX(ts) scan + full fetch on every modal open),
+<a id="__codelineno-1-39" name="__codelineno-1-39" href="#__codelineno-1-39"></a>  so the per-node ports tab no longer lags when opened.
+<a id="__codelineno-1-40" name="__codelineno-1-40" href="#__codelineno-1-40"></a>
+<a id="__codelineno-1-41" name="__codelineno-1-41" href="#__codelineno-1-41"></a>== 0.15.0 - 2026-05-31  multi-hub fan-out shipping ==
+<a id="__codelineno-1-42" name="__codelineno-1-42" href="#__codelineno-1-42"></a>
+<a id="__codelineno-1-43" name="__codelineno-1-43" href="#__codelineno-1-43"></a>added:
+<a id="__codelineno-1-44" name="__codelineno-1-44" href="#__codelineno-1-44"></a>
+<a id="__codelineno-1-45" name="__codelineno-1-45" href="#__codelineno-1-45"></a>- ship: fan-out to multiple hubs. Set SMOKEMON_HUB_URLS to a semicolon-separated list of /ingest
+<a id="__codelineno-1-46" name="__codelineno-1-46" href="#__codelineno-1-46"></a>  URLs (or `smoke hub HUB-A HUB-B`) and every hub receives a complete copy - no single point of
+<a id="__codelineno-1-47" name="__codelineno-1-47" href="#__codelineno-1-47"></a>  failure on the receiving side. A single SMOKEMON_HUB_URL behaves exactly as before. Per-hub
+<a id="__codelineno-1-48" name="__codelineno-1-48" href="#__codelineno-1-48"></a>  secrets are optional and positional via SMOKEMON_HUB_SECRETS (empty slot = shared HUB_SECRET).
+<a id="__codelineno-1-49" name="__codelineno-1-49" href="#__codelineno-1-49"></a>
+<a id="__codelineno-1-50" name="__codelineno-1-50" href="#__codelineno-1-50"></a>- ship: each batch is gathered and gzipped ONCE per shared cursor frontier and the same body is
+<a id="__codelineno-1-51" name="__codelineno-1-51" href="#__codelineno-1-51"></a>  POSTed to every hub at that frontier, so node CPU stays ~1x regardless of hub count; only egress
+<a id="__codelineno-1-52" name="__codelineno-1-52" href="#__codelineno-1-52"></a>  scales. A hub that lagged behind (was unreachable) gets its own catch-up gather.
+<a id="__codelineno-1-53" name="__codelineno-1-53" href="#__codelineno-1-53"></a>
+<a id="__codelineno-1-54" name="__codelineno-1-54" href="#__codelineno-1-54"></a>- ship: per-destination delivery is isolated - a hub that is down keeps its own cursor untouched
+<a id="__codelineno-1-55" name="__codelineno-1-55" href="#__codelineno-1-55"></a>  and never blocks or rolls back shipping to the others; it catches up on its backlog when it
+<a id="__codelineno-1-56" name="__codelineno-1-56" href="#__codelineno-1-56"></a>  returns (the hub stays idempotent on UNIQUE(node, src_id), so replays are dropped).
+<a id="__codelineno-1-57" name="__codelineno-1-57" href="#__codelineno-1-57"></a>
+<a id="__codelineno-1-58" name="__codelineno-1-58" href="#__codelineno-1-58"></a>- prune: with multiple hubs, a local row is deletable once AT LEAST ONE configured hub has
+<a id="__codelineno-1-59" name="__codelineno-1-59" href="#__codelineno-1-59"></a>  confirmed it (MAX cursor across destinations). A configured-but-unreachable hub (cursor 0)
+<a id="__codelineno-1-60" name="__codelineno-1-60" href="#__codelineno-1-60"></a>  never blocks pruning of data another hub already took.
+<a id="__codelineno-1-61" name="__codelineno-1-61" href="#__codelineno-1-61"></a>
+<a id="__codelineno-1-62" name="__codelineno-1-62" href="#__codelineno-1-62"></a>- cli: `smoke hub` lists all configured targets with per-hub reachability; `smoke hub HOST...`
+<a id="__codelineno-1-63" name="__codelineno-1-63" href="#__codelineno-1-63"></a>  takes several hosts to set up fan-out (writes SMOKEMON_HUB_URLS) and clears the single-var form
+<a id="__codelineno-1-64" name="__codelineno-1-64" href="#__codelineno-1-64"></a>  so the two can&#39;t shadow each other.
+<a id="__codelineno-1-65" name="__codelineno-1-65" href="#__codelineno-1-65"></a>
+<a id="__codelineno-1-66" name="__codelineno-1-66" href="#__codelineno-1-66"></a>- hub: serve a favicon (the header sparkline, brand-blue on the dashboard&#39;s dark tile) at
+<a id="__codelineno-1-67" name="__codelineno-1-67" href="#__codelineno-1-67"></a>  /favicon.svg, linked from the dashboard &lt;head&gt;, with /favicon.ico aliased to it - no more 404
+<a id="__codelineno-1-68" name="__codelineno-1-68" href="#__codelineno-1-68"></a>  for the tab icon.
+<a id="__codelineno-1-69" name="__codelineno-1-69" href="#__codelineno-1-69"></a>
+<a id="__codelineno-1-70" name="__codelineno-1-70" href="#__codelineno-1-70"></a>- dashboard: first-open warm-up screen on every tab. The cache-backed tabs (ranking / heatmap /
+<a id="__codelineno-1-71" name="__codelineno-1-71" href="#__codelineno-1-71"></a>  risks / cost / services) show it while the hub builds their cache; grid / table show it until
+<a id="__codelineno-1-72" name="__codelineno-1-72" href="#__codelineno-1-72"></a>  the first /api/fleet-status poll lands. Instead of a grey blank the view shows a spinner and
+<a id="__codelineno-1-73" name="__codelineno-1-73" href="#__codelineno-1-73"></a>  explains that the first open reads history / warms the cache, then stays instant. Shown only
+<a id="__codelineno-1-74" name="__codelineno-1-74" href="#__codelineno-1-74"></a>  on the initial empty view - returning to a tab refreshes in place with no flash.
+<a id="__codelineno-1-75" name="__codelineno-1-75" href="#__codelineno-1-75"></a>
+<a id="__codelineno-1-76" name="__codelineno-1-76" href="#__codelineno-1-76"></a>changed:
+<a id="__codelineno-1-77" name="__codelineno-1-77" href="#__codelineno-1-77"></a>
+<a id="__codelineno-1-78" name="__codelineno-1-78" href="#__codelineno-1-78"></a>- ship_state migrates in place from a single per-table cursor (table_name PK) to a per-destination
+<a id="__codelineno-1-79" name="__codelineno-1-79" href="#__codelineno-1-79"></a>  composite key (dest, table_name); old cursors are remapped to the primary hub. Migration is
+<a id="__codelineno-1-80" name="__codelineno-1-80" href="#__codelineno-1-80"></a>  atomic and idempotent. Note: downgrading to pre-0.15 code on a migrated DB requires dropping
+<a id="__codelineno-1-81" name="__codelineno-1-81" href="#__codelineno-1-81"></a>  ship_state (cursors reset; re-ship is harmless thanks to hub idempotency).
+<a id="__codelineno-1-82" name="__codelineno-1-82" href="#__codelineno-1-82"></a>
+<a id="__codelineno-1-83" name="__codelineno-1-83" href="#__codelineno-1-83"></a>== 0.14.1 - 2026-05-31  post-deploy hotfixes ==
+<a id="__codelineno-1-84" name="__codelineno-1-84" href="#__codelineno-1-84"></a>
+<a id="__codelineno-1-85" name="__codelineno-1-85" href="#__codelineno-1-85"></a>fixed:
+<a id="__codelineno-1-86" name="__codelineno-1-86" href="#__codelineno-1-86"></a>
+<a id="__codelineno-1-87" name="__codelineno-1-87" href="#__codelineno-1-87"></a>- ship: allow http over Tailscale addresses (100.64.0.0/10 + IPv6 ULA fd7a:115c:a1e0::/48).
+<a id="__codelineno-1-88" name="__codelineno-1-88" href="#__codelineno-1-88"></a>  The 0.14.0 transport guard refused them and broke the existing tailnet fleet; the tailnet is
+<a id="__codelineno-1-89" name="__codelineno-1-89" href="#__codelineno-1-89"></a>  WireGuard-encrypted, so the shared secret is not exposed. No SMOKEMON_HUB_INSECURE needed.
+<a id="__codelineno-1-90" name="__codelineno-1-90" href="#__codelineno-1-90"></a>
+<a id="__codelineno-1-91" name="__codelineno-1-91" href="#__codelineno-1-91"></a>- hub: tolerate a client that hangs up mid-response. A dashboard reload / fetch abort closes the
+<a id="__codelineno-1-92" name="__codelineno-1-92" href="#__codelineno-1-92"></a>  socket; the writer then raised BrokenPipe/ConnectionReset, and the generic 500 handler tried to
+<a id="__codelineno-1-93" name="__codelineno-1-93" href="#__codelineno-1-93"></a>  write to the dead socket too -&gt; an unhandled traceback per cancelled request in the hub log.
+<a id="__codelineno-1-94" name="__codelineno-1-94" href="#__codelineno-1-94"></a>  Response writes now swallow client-disconnect errors (GET and POST), so these are silent.
+<a id="__codelineno-1-95" name="__codelineno-1-95" href="#__codelineno-1-95"></a>
+<a id="__codelineno-1-96" name="__codelineno-1-96" href="#__codelineno-1-96"></a>== 0.14.0 - 2026-05-31  edge hardening: retention, governor, transport, inventory ==
+<a id="__codelineno-1-97" name="__codelineno-1-97" href="#__codelineno-1-97"></a>
+<a id="__codelineno-1-98" name="__codelineno-1-98" href="#__codelineno-1-98"></a>added:
+<a id="__codelineno-1-99" name="__codelineno-1-99" href="#__codelineno-1-99"></a>
+<a id="__codelineno-1-100" name="__codelineno-1-100" href="#__codelineno-1-100"></a>- prune (smokemon/prune.py; `python -m smokemon.prune`, daily timer/plist): node-DB
+<a id="__codelineno-1-101" name="__codelineno-1-101" href="#__codelineno-1-101"></a>  retention. deletes rows older than SMOKEMON_RETENTION_DAYS (default 14) but only once
+<a id="__codelineno-1-102" name="__codelineno-1-102" href="#__codelineno-1-102"></a>  they are shipped (id &lt;= the ship_state cursor) when a hub is set, so a hub outage backs
+<a id="__codelineno-1-103" name="__codelineno-1-103" href="#__codelineno-1-103"></a>  up on disk instead of losing data; age-only when no hub. orphaned ping_rtts are dropped
+<a id="__codelineno-1-104" name="__codelineno-1-104" href="#__codelineno-1-104"></a>  with their parent runs. truncates the WAL afterward (SMOKEMON_PRUNE_VACUUM=1 adds a full
+<a id="__codelineno-1-105" name="__codelineno-1-105" href="#__codelineno-1-105"></a>  VACUUM). without this the append-only tables grew forever and wore out SD cards.
+<a id="__codelineno-1-106" name="__codelineno-1-106" href="#__codelineno-1-106"></a>
+<a id="__codelineno-1-107" name="__codelineno-1-107" href="#__codelineno-1-107"></a>- governor (smokemon/governor.py; opt-in, off by default): when the collector exceeds
+<a id="__codelineno-1-108" name="__codelineno-1-108" href="#__codelineno-1-108"></a>  SMOKEMON_MAX_RSS_MB or SMOKEMON_MAX_DB_MB it sheds its costliest probes (ext/synthetic/
+<a id="__codelineno-1-109" name="__codelineno-1-109" href="#__codelineno-1-109"></a>  mtr) for that cycle and writes a throttled ext_events row, so detail degrades gracefully
+<a id="__codelineno-1-110" name="__codelineno-1-110" href="#__codelineno-1-110"></a>  under pressure instead of the footprint overrunning target. ping/net/host always run.
+<a id="__codelineno-1-111" name="__codelineno-1-111" href="#__codelineno-1-111"></a>
+<a id="__codelineno-1-112" name="__codelineno-1-112" href="#__codelineno-1-112"></a>- probes.inventory (auto-on, vslow, delta-coded): device/environment facts (model, kernel,
+<a id="__codelineno-1-113" name="__codelineno-1-113" href="#__codelineno-1-113"></a>  os release, jetpack/l4t, cpu/mem, interfaces, gateway, boot id) into a new additive
+<a id="__codelineno-1-114" name="__codelineno-1-114" href="#__codelineno-1-114"></a>  device_facts table. a row is written only when a fact changes, so steady-state cost is one
+<a id="__codelineno-1-115" name="__codelineno-1-115" href="#__codelineno-1-115"></a>  /proc+/sys scan per hour that usually emits nothing. SMOKEMON_INVENTORY=0 disables.
+<a id="__codelineno-1-116" name="__codelineno-1-116" href="#__codelineno-1-116"></a>
+<a id="__codelineno-1-117" name="__codelineno-1-117" href="#__codelineno-1-117"></a>- probes.logexcerpt (opt-in, off by default): event-driven capped log tails into a new
+<a id="__codelineno-1-118" name="__codelineno-1-118" href="#__codelineno-1-118"></a>  log_excerpts table - NOT log streaming. ships a redacted last-N-KB excerpt of the files in
+<a id="__codelineno-1-119" name="__codelineno-1-119" href="#__codelineno-1-119"></a>  SMOKEMON_LOGEXCERPT_PATHS only when a warn/error+ ext_events row just appeared (governor
+<a id="__codelineno-1-120" name="__codelineno-1-120" href="#__codelineno-1-120"></a>  sheds, probe anomalies). per-file byte-offset cursor (never resends), drop-oldest byte cap
+<a id="__codelineno-1-121" name="__codelineno-1-121" href="#__codelineno-1-121"></a>  (SMOKEMON_LOGEXCERPT_MAX_BYTES), secret redaction; the shipper gzips the wire. seeded at
+<a id="__codelineno-1-122" name="__codelineno-1-122" href="#__codelineno-1-122"></a>  probe start so enabling never dumps history. SMOKEMON_LOGEXCERPT_ALWAYS=1 captures always.
+<a id="__codelineno-1-123" name="__codelineno-1-123" href="#__codelineno-1-123"></a>
+<a id="__codelineno-1-124" name="__codelineno-1-124" href="#__codelineno-1-124"></a>- hub GET /api/inventory: per-node device_facts (latest value per key, grouped by hw/os/net/
+<a id="__codelineno-1-125" name="__codelineno-1-125" href="#__codelineno-1-125"></a>  runtime) so the inventory the nodes collect is surfaced fleet-wide.
+<a id="__codelineno-1-126" name="__codelineno-1-126" href="#__codelineno-1-126"></a>
+<a id="__codelineno-1-127" name="__codelineno-1-127" href="#__codelineno-1-127"></a>changed:
+<a id="__codelineno-1-128" name="__codelineno-1-128" href="#__codelineno-1-128"></a>
+<a id="__codelineno-1-129" name="__codelineno-1-129" href="#__codelineno-1-129"></a>- self panel now reports the honest multi-daemon footprint: rss_mb on the name=&#39;smokemon&#39;
+<a id="__codelineno-1-130" name="__codelineno-1-130" href="#__codelineno-1-130"></a>  proc_samples row is summed across ALL smokemon pids (fast + slow + transient shipper), not
+<a id="__codelineno-1-131" name="__codelineno-1-131" href="#__codelineno-1-131"></a>  just one process, and a new write_mb_day column projects the fleet&#39;s SD-write rate so card
+<a id="__codelineno-1-132" name="__codelineno-1-132" href="#__codelineno-1-132"></a>  wear is as visible as RSS (TUI/PNG titles show &quot;NN MB/day SD&quot;). linux /proc only.
+<a id="__codelineno-1-133" name="__codelineno-1-133" href="#__codelineno-1-133"></a>
+<a id="__codelineno-1-134" name="__codelineno-1-134" href="#__codelineno-1-134"></a>- cadence now carries a stable per-node jitter (hash of node name -&gt; 0..interval/4 offset) so
+<a id="__codelineno-1-135" name="__codelineno-1-135" href="#__codelineno-1-135"></a>  the fleet no longer pings/ships in wall-clock lockstep - spreads simultaneous POSTs and net
+<a id="__codelineno-1-136" name="__codelineno-1-136" href="#__codelineno-1-136"></a>  probes across the window.
+<a id="__codelineno-1-137" name="__codelineno-1-137" href="#__codelineno-1-137"></a>
+<a id="__codelineno-1-138" name="__codelineno-1-138" href="#__codelineno-1-138"></a>- hub serves dashboard/API GETs through a dedicated read-only connection (own lock, WAL) so
+<a id="__codelineno-1-139" name="__codelineno-1-139" href="#__codelineno-1-139"></a>  reads run concurrently with ingest instead of queuing behind the writer&#39;s lock.
+<a id="__codelineno-1-140" name="__codelineno-1-140" href="#__codelineno-1-140"></a>
+<a id="__codelineno-1-141" name="__codelineno-1-141" href="#__codelineno-1-141"></a>performance (fixes intermittent dashboard &quot;fetch error / NetworkError&quot; on a large hub DB):
+<a id="__codelineno-1-142" name="__codelineno-1-142" href="#__codelineno-1-142"></a>
+<a id="__codelineno-1-143" name="__codelineno-1-143" href="#__codelineno-1-143"></a>- hub sample tables now also get a plain (ts) index and a per-entity (node, &lt;entity&gt;, ts) index,
+<a id="__codelineno-1-144" name="__codelineno-1-144" href="#__codelineno-1-144"></a>  not just (node, ts). cross-node `WHERE ts &gt;= ?` windows (heatmap/spark/cost/services) seek the
+<a id="__codelineno-1-145" name="__codelineno-1-145" href="#__codelineno-1-145"></a>  (ts) index instead of full-scanning, and the latest-value queries (latest_metrics, /metrics,
+<a id="__codelineno-1-146" name="__codelineno-1-146" href="#__codelineno-1-146"></a>  services) become a loose index scan that jumps to each group&#39;s newest row instead of scanning
+<a id="__codelineno-1-147" name="__codelineno-1-147" href="#__codelineno-1-147"></a>  all history + a temp b-tree. created on next hub start (one-time index build on existing DBs).
+<a id="__codelineno-1-148" name="__codelineno-1-148" href="#__codelineno-1-148"></a>
+<a id="__codelineno-1-149" name="__codelineno-1-149" href="#__codelineno-1-149"></a>- latest_metrics is bounded to SMOKEMON_HUB_LATEST_WINDOW_S (default 30d; 0 = unbounded) so the
+<a id="__codelineno-1-150" name="__codelineno-1-150" href="#__codelineno-1-150"></a>  live/latest surfaces only consider recent rows; a node silent longer drops out of &quot;latest&quot;.
+<a id="__codelineno-1-151" name="__codelineno-1-151" href="#__codelineno-1-151"></a>
+<a id="__codelineno-1-152" name="__codelineno-1-152" href="#__codelineno-1-152"></a>- init_hub runs a bounded PRAGMA optimize (analysis_limit=400) so the planner has the stats to
+<a id="__codelineno-1-153" name="__codelineno-1-153" href="#__codelineno-1-153"></a>  pick the new loose-index scans.
+<a id="__codelineno-1-154" name="__codelineno-1-154" href="#__codelineno-1-154"></a>
+<a id="__codelineno-1-155" name="__codelineno-1-155" href="#__codelineno-1-155"></a>note: these are read-path/index changes only - no sample data is deleted. the hub DB itself is
+<a id="__codelineno-1-156" name="__codelineno-1-156" href="#__codelineno-1-156"></a>still not pruned (it keeps full history for replay/baselines); bound its growth with a hub-side
+<a id="__codelineno-1-157" name="__codelineno-1-157" href="#__codelineno-1-157"></a>retention pass if/when needed.
+<a id="__codelineno-1-158" name="__codelineno-1-158" href="#__codelineno-1-158"></a>
+<a id="__codelineno-1-159" name="__codelineno-1-159" href="#__codelineno-1-159"></a>security:
+<a id="__codelineno-1-160" name="__codelineno-1-160" href="#__codelineno-1-160"></a>
+<a id="__codelineno-1-161" name="__codelineno-1-161" href="#__codelineno-1-161"></a>- ship now refuses to send when SMOKEMON_HUB_URL is plaintext http:// to a non-loopback
+<a id="__codelineno-1-162" name="__codelineno-1-162" href="#__codelineno-1-162"></a>  host (the shared X-Smokemon-Key would cross the wire in clear). allow https, loopback, a
+<a id="__codelineno-1-163" name="__codelineno-1-163" href="#__codelineno-1-163"></a>  Tailscale address (100.64.0.0/10 or the IPv6 ULA fd7a:115c:a1e0::/48 - the tailnet is
+<a id="__codelineno-1-164" name="__codelineno-1-164" href="#__codelineno-1-164"></a>  WireGuard-encrypted, and is the project&#39;s actual fleet path), or SMOKEMON_HUB_INSECURE=1
+<a id="__codelineno-1-165" name="__codelineno-1-165" href="#__codelineno-1-165"></a>  for another trusted LAN.
+<a id="__codelineno-1-166" name="__codelineno-1-166" href="#__codelineno-1-166"></a>
+<a id="__codelineno-1-167" name="__codelineno-1-167" href="#__codelineno-1-167"></a>- log excerpts are secret-redacted (Bearer/Basic creds, key=value pairs, the hub secret
+<a id="__codelineno-1-168" name="__codelineno-1-168" href="#__codelineno-1-168"></a>  verbatim) before they are ever written to the DB.
+<a id="__codelineno-1-169" name="__codelineno-1-169" href="#__codelineno-1-169"></a>
+<a id="__codelineno-1-170" name="__codelineno-1-170" href="#__codelineno-1-170"></a>== 0.13.0 - 2026-05-31  docker + pipeline collectors, redis enrichment ==
+<a id="__codelineno-1-171" name="__codelineno-1-171" href="#__codelineno-1-171"></a>
+<a id="__codelineno-1-172" name="__codelineno-1-172" href="#__codelineno-1-172"></a>added (all three run by default and self-detect their dependency, staying a cheap no-op on
+<a id="__codelineno-1-173" name="__codelineno-1-173" href="#__codelineno-1-173"></a>nodes that don&#39;t run the corresponding service; each can be disabled with SMOKEMON_*=0):
+<a id="__codelineno-1-174" name="__codelineno-1-174" href="#__codelineno-1-174"></a>
+<a id="__codelineno-1-175" name="__codelineno-1-175" href="#__codelineno-1-175"></a>- probes.dockerps: container health via one bounded HTTP GET over the docker unix socket
+<a id="__codelineno-1-176" name="__codelineno-1-176" href="#__codelineno-1-176"></a>  per slow cycle (stdlib socket + manual HTTP/1.0, no docker CLI, no `docker logs`, no
+<a id="__codelineno-1-177" name="__codelineno-1-177" href="#__codelineno-1-177"></a>  log/journal tails). auto-samples only when the socket exists. records state/running,
+<a id="__codelineno-1-178" name="__codelineno-1-178" href="#__codelineno-1-178"></a>  health, exit_code, restart_count, oom_killed; optional per-container cpu/mem/pids from
+<a id="__codelineno-1-179" name="__codelineno-1-179" href="#__codelineno-1-179"></a>  cgroup-v2 sysfs and an optional small per-container inspect. new docker_samples table;
+<a id="__codelineno-1-180" name="__codelineno-1-180" href="#__codelineno-1-180"></a>  status/digest surface unhealthy / non-zero-exit / restarting containers, or a
+<a id="__codelineno-1-181" name="__codelineno-1-181" href="#__codelineno-1-181"></a>  daemon-down row (SMOKEMON_DOCKER=1 forces this even with the socket absent).
+<a id="__codelineno-1-182" name="__codelineno-1-182" href="#__codelineno-1-182"></a>
+<a id="__codelineno-1-183" name="__codelineno-1-183" href="#__codelineno-1-183"></a>- probes.pipeline: process + stream liveness. with zero config it auto-watches any running
+<a id="__codelineno-1-184" name="__codelineno-1-184" href="#__codelineno-1-184"></a>  gst-launch process and probes every rtsp:// URL found inside those cmdlines (e.g.
+<a id="__codelineno-1-185" name="__codelineno-1-185" href="#__codelineno-1-185"></a>  rtspclientsink location=...). one /proc scan reports count, summed cpu/rss, youngest
+<a id="__codelineno-1-186" name="__codelineno-1-186" href="#__codelineno-1-186"></a>  process uptime and a cumulative restart count (flips when the youngest starttime
+<a id="__codelineno-1-187" name="__codelineno-1-187" href="#__codelineno-1-187"></a>  changes); a bounded RTSP OPTIONS confirms a stream is actually being served. explicit
+<a id="__codelineno-1-188" name="__codelineno-1-188" href="#__codelineno-1-188"></a>  SMOKEMON_PROC_WATCH / SMOKEMON_RTSP_URLS add to this; SMOKEMON_PIPELINE_AUTO=0 disables
+<a id="__codelineno-1-189" name="__codelineno-1-189" href="#__codelineno-1-189"></a>  detection. new proc_watch + stream_probes tables. pure stdlib, no ps/ffprobe, no tails.
+<a id="__codelineno-1-190" name="__codelineno-1-190" href="#__codelineno-1-190"></a>
+<a id="__codelineno-1-191" name="__codelineno-1-191" href="#__codelineno-1-191"></a>- probes.redisq: auto-samples only when a Redis is reachable (silent no-op otherwise;
+<a id="__codelineno-1-192" name="__codelineno-1-192" href="#__codelineno-1-192"></a>  SMOKEMON_REDIS=1 forces a down row when unreachable). the server row now also records
+<a id="__codelineno-1-193" name="__codelineno-1-193" href="#__codelineno-1-193"></a>  connected_clients, blocked_clients, instantaneous ops/sec, evicted_keys and
+<a id="__codelineno-1-194" name="__codelineno-1-194" href="#__codelineno-1-194"></a>  rejected_connections, parsed from INFO clients/stats on the existing connection.
+<a id="__codelineno-1-195" name="__codelineno-1-195" href="#__codelineno-1-195"></a>
+<a id="__codelineno-1-196" name="__codelineno-1-196" href="#__codelineno-1-196"></a>- dashboard + renderers: two new time-series panels (docker = per-container cpu/mem, or a
+<a id="__codelineno-1-197" name="__codelineno-1-197" href="#__codelineno-1-197"></a>  running-count fallback when cgroup stats are off; pipeline = watched-process cpu + RTSP
+<a id="__codelineno-1-198" name="__codelineno-1-198" href="#__codelineno-1-198"></a>  latency) render in both the PNG and TUI paths and surface automatically in the hub&#39;s
+<a id="__codelineno-1-199" name="__codelineno-1-199" href="#__codelineno-1-199"></a>  per-node modal. the redis panel now overlays ops/sec. new hub /api/services endpoint +
+<a id="__codelineno-1-200" name="__codelineno-1-200" href="#__codelineno-1-200"></a>  a &quot;services&quot; dashboard tab: a fleet-wide table of docker containers (bad/daemon-down
+<a id="__codelineno-1-201" name="__codelineno-1-201" href="#__codelineno-1-201"></a>  flagged), redis instances (mem/clients/ops + hottest streams), watched processes and
+<a id="__codelineno-1-202" name="__codelineno-1-202" href="#__codelineno-1-202"></a>  stream probes, each row click-through to the node graphs. query.load_docker/load_pipeline
+<a id="__codelineno-1-203" name="__codelineno-1-203" href="#__codelineno-1-203"></a>  feed the panels; load_redis carries the enriched server series. all read-only, stdlib +
+<a id="__codelineno-1-204" name="__codelineno-1-204" href="#__codelineno-1-204"></a>  the existing optional matplotlib/plotext render deps.
+<a id="__codelineno-1-205" name="__codelineno-1-205" href="#__codelineno-1-205"></a>
+<a id="__codelineno-1-206" name="__codelineno-1-206" href="#__codelineno-1-206"></a>== 0.12.0 - 2026-05-30  analysis engine + text surfaces + alerting + hub api ==
+<a id="__codelineno-1-207" name="__codelineno-1-207" href="#__codelineno-1-207"></a>
+<a id="__codelineno-1-208" name="__codelineno-1-208" href="#__codelineno-1-208"></a>added:
+<a id="__codelineno-1-209" name="__codelineno-1-209" href="#__codelineno-1-209"></a>
+<a id="__codelineno-1-210" name="__codelineno-1-210" href="#__codelineno-1-210"></a>- analysis engine smokemon/analyze.py (roadmap F1/F2/P1/P2/P3/X5): hub-side,
+<a id="__codelineno-1-211" name="__codelineno-1-211" href="#__codelineno-1-211"></a>  read-only, pure-stdlib. derives everything from already-collected metrics; never
+<a id="__codelineno-1-212" name="__codelineno-1-212" href="#__codelineno-1-212"></a>  imported by collectors/ship/probes.
+<a id="__codelineno-1-213" name="__codelineno-1-213" href="#__codelineno-1-213"></a>
+<a id="__codelineno-1-214" name="__codelineno-1-214" href="#__codelineno-1-214"></a>  - F2 incident detection: contiguous loss/latency runs over the ping series classified
+<a id="__codelineno-1-215" name="__codelineno-1-215" href="#__codelineno-1-215"></a>    as isp-outage / upstream-loss / link-down (internet-down vs gateway-clean
+<a id="__codelineno-1-216" name="__codelineno-1-216" href="#__codelineno-1-216"></a>    disambiguation), packet-loss, latency-spike, dns-slow (dns phase dominant while tcp
+<a id="__codelineno-1-217" name="__codelineno-1-217" href="#__codelineno-1-217"></a>    connect stays fast). minor transient loss is filtered (a non-total run must peak &gt;=10%).
+<a id="__codelineno-1-218" name="__codelineno-1-218" href="#__codelineno-1-218"></a>
+<a id="__codelineno-1-219" name="__codelineno-1-219" href="#__codelineno-1-219"></a>  - F1 multi-signal blame: for each incident window, every signal (cpu, mem, swap, temp,
+<a id="__codelineno-1-220" name="__codelineno-1-220" href="#__codelineno-1-220"></a>    psi, wifi rssi/retry, tcp retrans, bandwidth, cpu clock) that deviates from its
+<a id="__codelineno-1-221" name="__codelineno-1-221" href="#__codelineno-1-221"></a>    out-of-window baseline by &gt;=3 robust-sigma (MAD), plus processes that appeared during
+<a id="__codelineno-1-222" name="__codelineno-1-222" href="#__codelineno-1-222"></a>    the window, ranked by deviation.
+<a id="__codelineno-1-223" name="__codelineno-1-223" href="#__codelineno-1-223"></a>
+<a id="__codelineno-1-224" name="__codelineno-1-224" href="#__codelineno-1-224"></a>  - P1 time-of-day baseline: per-(weekday, hour) median+MAD baseline + robust-z anomaly
+<a id="__codelineno-1-225" name="__codelineno-1-225" href="#__codelineno-1-225"></a>    flag - &quot;abnormal for a tuesday 14:00&quot; with no thresholds, no ml.
+<a id="__codelineno-1-226" name="__codelineno-1-226" href="#__codelineno-1-226"></a>
+<a id="__codelineno-1-227" name="__codelineno-1-227" href="#__codelineno-1-227"></a>  - P2 change-point detection: variance-weighted recursive mean-shift split, catches silent
+<a id="__codelineno-1-228" name="__codelineno-1-228" href="#__codelineno-1-228"></a>    regime changes (an isp speed-tier drop, a permanent route change).
+<a id="__codelineno-1-229" name="__codelineno-1-229" href="#__codelineno-1-229"></a>
+<a id="__codelineno-1-230" name="__codelineno-1-230" href="#__codelineno-1-230"></a>  - P3 mtr path intelligence: route-change detection (a hop whose resolved host changed),
+<a id="__codelineno-1-231" name="__codelineno-1-231" href="#__codelineno-1-231"></a>    worst-hop attribution, path-stability score, read per-sample from mtr_hops.
+<a id="__codelineno-1-232" name="__codelineno-1-232" href="#__codelineno-1-232"></a>
+<a id="__codelineno-1-233" name="__codelineno-1-233" href="#__codelineno-1-233"></a>  - X5 bandwidth attribution: bandwidth spikes (robust-z) cross-referenced with the top-cpu
+<a id="__codelineno-1-234" name="__codelineno-1-234" href="#__codelineno-1-234"></a>    processes during each spike - explicitly heuristic (proc_samples has no per-process byte
+<a id="__codelineno-1-235" name="__codelineno-1-235" href="#__codelineno-1-235"></a>    counters).
+<a id="__codelineno-1-236" name="__codelineno-1-236" href="#__codelineno-1-236"></a>
+<a id="__codelineno-1-237" name="__codelineno-1-237" href="#__codelineno-1-237"></a>- text surfaces smokemon/report.py, renderer-free (stdlib, run on a node too):
+<a id="__codelineno-1-238" name="__codelineno-1-238" href="#__codelineno-1-238"></a>
+<a id="__codelineno-1-239" name="__codelineno-1-239" href="#__codelineno-1-239"></a>  - smoke status (QW3): one-line unicode-sparkline health summary - internet rtt/loss, wifi
+<a id="__codelineno-1-240" name="__codelineno-1-240" href="#__codelineno-1-240"></a>    rssi, cpu temp, and a verdict word.
+<a id="__codelineno-1-241" name="__codelineno-1-241" href="#__codelineno-1-241"></a>
+<a id="__codelineno-1-242" name="__codelineno-1-242" href="#__codelineno-1-242"></a>  - smoke incidents (F1/F2): incident table with per-incident multi-signal blame.
+<a id="__codelineno-1-243" name="__codelineno-1-243" href="#__codelineno-1-243"></a>
+<a id="__codelineno-1-244" name="__codelineno-1-244" href="#__codelineno-1-244"></a>  - smoke digest (F3): plain-english window summary - uptime %, incident class breakdown,
+<a id="__codelineno-1-245" name="__codelineno-1-245" href="#__codelineno-1-245"></a>    honest hard-downtime (outage spans unioned, never summed), peak latency + what it
+<a id="__codelineno-1-246" name="__codelineno-1-246" href="#__codelineno-1-246"></a>    coincided with, bufferbloat grade, wifi roams, thermals.
+<a id="__codelineno-1-247" name="__codelineno-1-247" href="#__codelineno-1-247"></a>
+<a id="__codelineno-1-248" name="__codelineno-1-248" href="#__codelineno-1-248"></a>- smoke replay (S1): dvr-style scrubber over any historical window - a sliding playhead
+<a id="__codelineno-1-249" name="__codelineno-1-249" href="#__codelineno-1-249"></a>  frame moved with left/right (vim h/l), step size on up/down, q to quit. raw data is kept
+<a id="__codelineno-1-250" name="__codelineno-1-250" href="#__codelineno-1-250"></a>  forever, so any past window is reachable.
+<a id="__codelineno-1-251" name="__codelineno-1-251" href="#__codelineno-1-251"></a>
+<a id="__codelineno-1-252" name="__codelineno-1-252" href="#__codelineno-1-252"></a>- push/webhook alerting smokemon/notify.py (S4): fire incident alerts to ntfy, a slack or
+<a id="__codelineno-1-253" name="__codelineno-1-253" href="#__codelineno-1-253"></a>  discord incoming webhook, or a generic json endpoint (kind auto-detected from the url).
+<a id="__codelineno-1-254" name="__codelineno-1-254" href="#__codelineno-1-254"></a>  severity-gated via SMOKEMON_NOTIFY_MIN_SEVERITY; --notify on smoke incidents/digest, plus
+<a id="__codelineno-1-255" name="__codelineno-1-255" href="#__codelineno-1-255"></a>  a smokemon-notify timer entry point. pure urllib.
+<a id="__codelineno-1-256" name="__codelineno-1-256" href="#__codelineno-1-256"></a>
+<a id="__codelineno-1-257" name="__codelineno-1-257" href="#__codelineno-1-257"></a>- hub http surfaces smokemon/hubapi.py on the existing hub server:
+<a id="__codelineno-1-258" name="__codelineno-1-258" href="#__codelineno-1-258"></a>
+<a id="__codelineno-1-259" name="__codelineno-1-259" href="#__codelineno-1-259"></a>  - GET / : live fleet dashboard (self-contained html, no external assets) - polls
+<a id="__codelineno-1-260" name="__codelineno-1-260" href="#__codelineno-1-260"></a>    /api/fleet-status and renders a dense, worst-first, colour-coded one-line-per-node grid.
+<a id="__codelineno-1-261" name="__codelineno-1-261" href="#__codelineno-1-261"></a>
+<a id="__codelineno-1-262" name="__codelineno-1-262" href="#__codelineno-1-262"></a>  - GET /metrics (S2): prometheus/openmetrics exposition of the latest per-node gauges
+<a id="__codelineno-1-263" name="__codelineno-1-263" href="#__codelineno-1-263"></a>    (ping rtt/loss, cpu, mem, temp).
+<a id="__codelineno-1-264" name="__codelineno-1-264" href="#__codelineno-1-264"></a>
+<a id="__codelineno-1-265" name="__codelineno-1-265" href="#__codelineno-1-265"></a>  - GET /api/{nodes,latest,fleet,heatmap,fleet-status} (S3): read-only json - fleet ranking
+<a id="__codelineno-1-266" name="__codelineno-1-266" href="#__codelineno-1-266"></a>    (uptime %, median rtt, incident count, downtime), a node x hour loss/rtt heatmap, and a
+<a id="__codelineno-1-267" name="__codelineno-1-267" href="#__codelineno-1-267"></a>    fast latest-sample fleet-status (healthy/warn/down/stale) for the dashboard.
+<a id="__codelineno-1-268" name="__codelineno-1-268" href="#__codelineno-1-268"></a>
+<a id="__codelineno-1-269" name="__codelineno-1-269" href="#__codelineno-1-269"></a>- smoke fleet: terminal twin of the GET / dashboard - an aggregated, worst-first view of
+<a id="__codelineno-1-270" name="__codelineno-1-270" href="#__codelineno-1-270"></a>  every node reporting to the hub, pure-stdlib (no plotext/matplotlib) like the other text
+<a id="__codelineno-1-271" name="__codelineno-1-271" href="#__codelineno-1-271"></a>  surfaces. three modes share one renderer in report.py: default latest-sample status
+<a id="__codelineno-1-272" name="__codelineno-1-272" href="#__codelineno-1-272"></a>  table (state/rtt/loss/cpu/temp), --ranked incident ranking, and --heatmap (node x hour
+<a id="__codelineno-1-273" name="__codelineno-1-273" href="#__codelineno-1-273"></a>  loss/rtt sparkline grid). reads the hub DB by default or the hub&#39;s read-only /api over
+<a id="__codelineno-1-274" name="__codelineno-1-274" href="#__codelineno-1-274"></a>  http (--hub-url) so it works from any terminal; live repaint reuses the smoke live loop
+<a id="__codelineno-1-275" name="__codelineno-1-275" href="#__codelineno-1-275"></a>  (--refresh, --bell on any down/stale). no --node needed - it shows the whole fleet.
+<a id="__codelineno-1-276" name="__codelineno-1-276" href="#__codelineno-1-276"></a>
+<a id="__codelineno-1-277" name="__codelineno-1-277" href="#__codelineno-1-277"></a>- smoke footprint: read-only, pure-stdlib collector footprint report for node DBs (or
+<a id="__codelineno-1-278" name="__codelineno-1-278" href="#__codelineno-1-278"></a>  --node on a hub DB). shows rows in the selected window, rows/day, SQLite bytes/day,
+<a id="__codelineno-1-279" name="__codelineno-1-279" href="#__codelineno-1-279"></a>  and a shipper wire estimate using the same compact JSON+gzip shape as POST /ingest;
+<a id="__codelineno-1-280" name="__codelineno-1-280" href="#__codelineno-1-280"></a>  --ship-rtts includes raw ping_rtts in the estimate.
+<a id="__codelineno-1-281" name="__codelineno-1-281" href="#__codelineno-1-281"></a>
+<a id="__codelineno-1-282" name="__codelineno-1-282" href="#__codelineno-1-282"></a>- self panel (S5): the host collector records its own rss/cpu each cycle (proc_samples row
+<a id="__codelineno-1-283" name="__codelineno-1-283" href="#__codelineno-1-283"></a>  named smokemon, via resource + /proc/self/statm); a new self panel graphs smokemon&#39;s own
+<a id="__codelineno-1-284" name="__codelineno-1-284" href="#__codelineno-1-284"></a>  footprint over time to back the low-rss claim.
+<a id="__codelineno-1-285" name="__codelineno-1-285" href="#__codelineno-1-285"></a>
+<a id="__codelineno-1-286" name="__codelineno-1-286" href="#__codelineno-1-286"></a>- synthetic transactions smokemon/probes/synthetic.py (X6): opt-in (SMOKEMON_SYNTHETIC=1)
+<a id="__codelineno-1-287" name="__codelineno-1-287" href="#__codelineno-1-287"></a>  scripted checks beyond single-shot probes - captive-portal / interception detection
+<a id="__codelineno-1-288" name="__codelineno-1-288" href="#__codelineno-1-288"></a>  (expects a 204 no-content) and a dns-over-https resolution check. new additive
+<a id="__codelineno-1-289" name="__codelineno-1-289" href="#__codelineno-1-289"></a>  synthetic_samples table; runs on the slow tier; smokemon-synthetic entry point. pure urllib.
+<a id="__codelineno-1-290" name="__codelineno-1-290" href="#__codelineno-1-290"></a>
+<a id="__codelineno-1-291" name="__codelineno-1-291" href="#__codelineno-1-291"></a>- lightweight external scrapes smokemon/probes/ext.py: opt-in SMOKEMON_EXT_HTTP endpoints
+<a id="__codelineno-1-292" name="__codelineno-1-292" href="#__codelineno-1-292"></a>  for local app health/json/openmetrics signals. bounded by interval, timeout, response
+<a id="__codelineno-1-293" name="__codelineno-1-293" href="#__codelineno-1-293"></a>  bytes, and metric caps; always stores up + latency_ms and only parses small JSON numeric
+<a id="__codelineno-1-294" name="__codelineno-1-294" href="#__codelineno-1-294"></a>  fields or explicit OpenMetrics allowlists. no Docker logs, journal tails, or continuous
+<a id="__codelineno-1-295" name="__codelineno-1-295" href="#__codelineno-1-295"></a>  log scanning on edge. new additive ext_metrics/ext_events tables; status/digest/incidents
+<a id="__codelineno-1-296" name="__codelineno-1-296" href="#__codelineno-1-296"></a>  can surface external check state and scrape-failure events.
+<a id="__codelineno-1-297" name="__codelineno-1-297" href="#__codelineno-1-297"></a>
+<a id="__codelineno-1-298" name="__codelineno-1-298" href="#__codelineno-1-298"></a>- native edge replacements for heavier Jetson monitors: host.py now reads Jetson GPU
+<a id="__codelineno-1-299" name="__codelineno-1-299" href="#__codelineno-1-299"></a>  util/frequency from sysfs/devfreq (no tegrastats/nvidia-smi), and probes/redisq.py adds
+<a id="__codelineno-1-300" name="__codelineno-1-300" href="#__codelineno-1-300"></a>  opt-in Redis stream health via tiny stdlib RESP socket reads (PING, INFO memory, XLEN,
+<a id="__codelineno-1-301" name="__codelineno-1-301" href="#__codelineno-1-301"></a>  optional XPENDING). new additive gpu_samples/redis_samples tables; status/digest can
+<a id="__codelineno-1-302" name="__codelineno-1-302" href="#__codelineno-1-302"></a>  surface GPU and Redis queue state.
+<a id="__codelineno-1-303" name="__codelineno-1-303" href="#__codelineno-1-303"></a>
+<a id="__codelineno-1-304" name="__codelineno-1-304" href="#__codelineno-1-304"></a>- sonification (X2): --bell on smoke live/kiosk rings the terminal bell once on each
+<a id="__codelineno-1-305" name="__codelineno-1-305" href="#__codelineno-1-305"></a>  transition into an unhealthy state (kiosk audible alerting).
+<a id="__codelineno-1-306" name="__codelineno-1-306" href="#__codelineno-1-306"></a>
+<a id="__codelineno-1-307" name="__codelineno-1-307" href="#__codelineno-1-307"></a>- kiosk titles: kiosk keeps a minimal panel title (the label, with the live-stats suffix
+<a id="__codelineno-1-308" name="__codelineno-1-308" href="#__codelineno-1-308"></a>  stripped) so each graph stays identifiable on a wall display; previously kiosk dropped
+<a id="__codelineno-1-309" name="__codelineno-1-309" href="#__codelineno-1-309"></a>  panel titles entirely.
+<a id="__codelineno-1-310" name="__codelineno-1-310" href="#__codelineno-1-310"></a>
+<a id="__codelineno-1-311" name="__codelineno-1-311" href="#__codelineno-1-311"></a>- bufferbloat grade (QW1): probes/iperf.py now parses the per-stream tcp rtt iperf3 reports
+<a id="__codelineno-1-312" name="__codelineno-1-312" href="#__codelineno-1-312"></a>  (end.streams[].sender.mean_rtt) and stores it in the new additive
+<a id="__codelineno-1-313" name="__codelineno-1-313" href="#__codelineno-1-313"></a>  iperf_samples.rtt_under_load_ms column. the renderers compare it against the idle ping
+<a id="__codelineno-1-314" name="__codelineno-1-314" href="#__codelineno-1-314"></a>  baseline (largest per-target median) and annotate the iperf panel with a dslreports-style
+<a id="__codelineno-1-315" name="__codelineno-1-315" href="#__codelineno-1-315"></a>  A+..F grade and the added latency under load.
+<a id="__codelineno-1-316" name="__codelineno-1-316" href="#__codelineno-1-316"></a>
+<a id="__codelineno-1-317" name="__codelineno-1-317" href="#__codelineno-1-317"></a>- http layer-blame (QW2): the http panel names the dominant latency layer (dns / tcp connect
+<a id="__codelineno-1-318" name="__codelineno-1-318" href="#__codelineno-1-318"></a>  / tls / server wait) by decomposing curl&#39;s cumulative phase timestamps already stored in
+<a id="__codelineno-1-319" name="__codelineno-1-319" href="#__codelineno-1-319"></a>  http_samples. no schema change.
+<a id="__codelineno-1-320" name="__codelineno-1-320" href="#__codelineno-1-320"></a>
+<a id="__codelineno-1-321" name="__codelineno-1-321" href="#__codelineno-1-321"></a>- death clocks (QW4): render-side linear extrapolation of disk_samples.used_pct (disk-full
+<a id="__codelineno-1-322" name="__codelineno-1-322" href="#__codelineno-1-322"></a>  countdown), disk_health.wear_pct (sd/emmc wear countdown), and cpu-temp headroom to the
+<a id="__codelineno-1-323" name="__codelineno-1-323" href="#__codelineno-1-323"></a>  throttle threshold (SMOKEMON_THROTTLE_TEMP, default 80C). surfaced as compact ~14d / ~3y /
+<a id="__codelineno-1-324" name="__codelineno-1-324" href="#__codelineno-1-324"></a>  25C to throttle annotations on the disk and host panel titles.
+<a id="__codelineno-1-325" name="__codelineno-1-325" href="#__codelineno-1-325"></a>
+<a id="__codelineno-1-326" name="__codelineno-1-326" href="#__codelineno-1-326"></a>- macos implementations for thermal / power / tcp panels (previously linux-only):
+<a id="__codelineno-1-327" name="__codelineno-1-327" href="#__codelineno-1-327"></a>
+<a id="__codelineno-1-328" name="__codelineno-1-328" href="#__codelineno-1-328"></a>  - thermal: pmset -g therm -&gt; cpu_speed_limit_pct pseudo-zone (100 = no thermal throttling,
+<a id="__codelineno-1-329" name="__codelineno-1-329" href="#__codelineno-1-329"></a>    less means the kernel is capping clock speed for heat).
+<a id="__codelineno-1-330" name="__codelineno-1-330" href="#__codelineno-1-330"></a>
+<a id="__codelineno-1-331" name="__codelineno-1-331" href="#__codelineno-1-331"></a>  - power: ioreg -rc AppleSmartBattery -&gt; single battery rail with watts / volts / amps.
+<a id="__codelineno-1-332" name="__codelineno-1-332" href="#__codelineno-1-332"></a>    empty on desktops (no battery).
+<a id="__codelineno-1-333" name="__codelineno-1-333" href="#__codelineno-1-333"></a>
+<a id="__codelineno-1-334" name="__codelineno-1-334" href="#__codelineno-1-334"></a>  - tcp: netstat -s -p tcp and -p udp parsed for retransmits, rsts, rexmit drops, udp bad
+<a id="__codelineno-1-335" name="__codelineno-1-335" href="#__codelineno-1-335"></a>    checksums, udp no-socket drops. conntrack remains none (pf state count needs root).
+<a id="__codelineno-1-336" name="__codelineno-1-336" href="#__codelineno-1-336"></a>
+<a id="__codelineno-1-337" name="__codelineno-1-337" href="#__codelineno-1-337"></a>  - host panel also gets swap_used_pct (sysctl vm.swapusage) and cache_mb (vm_stat
+<a id="__codelineno-1-338" name="__codelineno-1-338" href="#__codelineno-1-338"></a>    file-backed pages) on macos.
+<a id="__codelineno-1-339" name="__codelineno-1-339" href="#__codelineno-1-339"></a>
+<a id="__codelineno-1-340" name="__codelineno-1-340" href="#__codelineno-1-340"></a>- linux-only by design: psi (no equivalent on macos without sudo powermetrics) and freq
+<a id="__codelineno-1-341" name="__codelineno-1-341" href="#__codelineno-1-341"></a>  (apple silicon does not expose per-core clock speed without sudo).
+<a id="__codelineno-1-342" name="__codelineno-1-342" href="#__codelineno-1-342"></a>
+<a id="__codelineno-1-343" name="__codelineno-1-343" href="#__codelineno-1-343"></a>changed:
+<a id="__codelineno-1-344" name="__codelineno-1-344" href="#__codelineno-1-344"></a>
+<a id="__codelineno-1-345" name="__codelineno-1-345" href="#__codelineno-1-345"></a>- ship traffic trimmed (node net-footprint): raw per-ping rtts no longer ship to the hub by
+<a id="__codelineno-1-346" name="__codelineno-1-346" href="#__codelineno-1-346"></a>  default - set SMOKEMON_SHIP_RTTS=1 to re-enable. the hub renders percentile bands from the
+<a id="__codelineno-1-347" name="__codelineno-1-347" href="#__codelineno-1-347"></a>  pre-aggregated rtt_min/p25/median/p75/max in ping_runs and never reads raw ping_rtts for
+<a id="__codelineno-1-348" name="__codelineno-1-348" href="#__codelineno-1-348"></a>  fresh rows, so this is ~85% fewer shipped rows for zero hub-side change; raw rtts stay in
+<a id="__codelineno-1-349" name="__codelineno-1-349" href="#__codelineno-1-349"></a>  the node DB at full fidelity for local views. it also removes a latent catch-up spike
+<a id="__codelineno-1-350" name="__codelineno-1-350" href="#__codelineno-1-350"></a>  (ping_rtts was exempt from the SHIP_BATCH cap, so a backlog could ship ~20x batch at once).
+<a id="__codelineno-1-351" name="__codelineno-1-351" href="#__codelineno-1-351"></a>
+<a id="__codelineno-1-352" name="__codelineno-1-352" href="#__codelineno-1-352"></a>- /ingest bodies are gzipped (Content-Encoding: gzip; ~5-10x on numeric row-json, gzip level
+<a id="__codelineno-1-353" name="__codelineno-1-353" href="#__codelineno-1-353"></a>  3 for sub-ms cpu on pi-class nodes). the hub decompresses by header and still accepts plain
+<a id="__codelineno-1-354" name="__codelineno-1-354" href="#__codelineno-1-354"></a>  bodies, so node and hub upgrade together but neither rejects an un-gzipped payload.
+<a id="__codelineno-1-355" name="__codelineno-1-355" href="#__codelineno-1-355"></a>
+<a id="__codelineno-1-356" name="__codelineno-1-356" href="#__codelineno-1-356"></a>fixed:
+<a id="__codelineno-1-357" name="__codelineno-1-357" href="#__codelineno-1-357"></a>
+<a id="__codelineno-1-358" name="__codelineno-1-358" href="#__codelineno-1-358"></a>- concurrent-upgrade crash: ensure_body_columns and ensure_node_column now guard each ALTER
+<a id="__codelineno-1-359" name="__codelineno-1-359" href="#__codelineno-1-359"></a>  TABLE ADD COLUMN against duplicate column name. on an in-place upgrade the two collector
+<a id="__codelineno-1-360" name="__codelineno-1-360" href="#__codelineno-1-360"></a>  daemons (plus iperf) race the migration; the loser would hit that error, which is
+<a id="__codelineno-1-361" name="__codelineno-1-361" href="#__codelineno-1-361"></a>  SQLITE_ERROR not SQLITE_BUSY, so busy_timeout does not retry it and the daemon would crash
+<a id="__codelineno-1-362" name="__codelineno-1-362" href="#__codelineno-1-362"></a>  before its scheduler started.
+<a id="__codelineno-1-363" name="__codelineno-1-363" href="#__codelineno-1-363"></a>
+<a id="__codelineno-1-364" name="__codelineno-1-364" href="#__codelineno-1-364"></a>- macos tcp metrics: netstat -s parsing is now plural-tolerant (data packets/bytes,
+<a id="__codelineno-1-365" name="__codelineno-1-365" href="#__codelineno-1-365"></a>  connections dropped), so retrans_segs/estab_resets populate for real counts instead of
+<a id="__codelineno-1-366" name="__codelineno-1-366" href="#__codelineno-1-366"></a>  reading null for anything above zero.
+<a id="__codelineno-1-367" name="__codelineno-1-367" href="#__codelineno-1-367"></a>
+<a id="__codelineno-1-368" name="__codelineno-1-368" href="#__codelineno-1-368"></a>- jetson power: guarded the os.listdir of the INA3221 sysfs directory so a device
+<a id="__codelineno-1-369" name="__codelineno-1-369" href="#__codelineno-1-369"></a>  unbind/suspend mid-cycle no longer raises and skips that cycle&#39;s host inserts.
+<a id="__codelineno-1-370" name="__codelineno-1-370" href="#__codelineno-1-370"></a>
+<a id="__codelineno-1-371" name="__codelineno-1-371" href="#__codelineno-1-371"></a>- smoke live/kiosk flicker: the refresh loop repaints the frame in place - absolute per-row
+<a id="__codelineno-1-372" name="__codelineno-1-372" href="#__codelineno-1-372"></a>  cursor addressing (ESC[row;1H), line-wrap disabled, and each line clipped to stay one
+<a id="__codelineno-1-373" name="__codelineno-1-373" href="#__codelineno-1-373"></a>  row/column inside the terminal - instead of clearing the screen each tick. kills both the
+<a id="__codelineno-1-374" name="__codelineno-1-374" href="#__codelineno-1-374"></a>  per-refresh blink and the ghosted/duplicated rows that showed when full-width plot lines
+<a id="__codelineno-1-375" name="__codelineno-1-375" href="#__codelineno-1-375"></a>  wrapped onto an extra row and scrolled.
+<a id="__codelineno-1-376" name="__codelineno-1-376" href="#__codelineno-1-376"></a>
+<a id="__codelineno-1-377" name="__codelineno-1-377" href="#__codelineno-1-377"></a>- hub dashboard plot view: the plotext braille markers come from a fallback font wider than
+<a id="__codelineno-1-378" name="__codelineno-1-378" href="#__codelineno-1-378"></a>  the mono cell, so every data row drifted out of line with the ascii axes and the curve
+<a id="__codelineno-1-379" name="__codelineno-1-379" href="#__codelineno-1-379"></a>  looked jagged. the dashboard now measures the braille-vs-mono cell delta at render time and
+<a id="__codelineno-1-380" name="__codelineno-1-380" href="#__codelineno-1-380"></a>  pulls each braille run back to one cell with letter-spacing, so the plot graphs line up
+<a id="__codelineno-1-381" name="__codelineno-1-381" href="#__codelineno-1-381"></a>  again. the terminal smoke tui was always correct (each line is exactly N columns) - this was
+<a id="__codelineno-1-382" name="__codelineno-1-382" href="#__codelineno-1-382"></a>  a browser-font issue only.
+<a id="__codelineno-1-383" name="__codelineno-1-383" href="#__codelineno-1-383"></a>
+<a id="__codelineno-1-384" name="__codelineno-1-384" href="#__codelineno-1-384"></a>- png dark/web theme gridlines: ax.grid(False, alpha=0.25) re-enabled the grid it meant to
+<a id="__codelineno-1-385" name="__codelineno-1-385" href="#__codelineno-1-385"></a>  drop - matplotlib treats grid(False, &lt;line-prop&gt;) as &quot;enable anyway&quot;, so the dashboard&#39;s
+<a id="__codelineno-1-386" name="__codelineno-1-386" href="#__codelineno-1-386"></a>  dark graphs carried a grid the code intended to omit. the dark/web theme now renders
+<a id="__codelineno-1-387" name="__codelineno-1-387" href="#__codelineno-1-387"></a>  gridless; the light desktop theme keeps its grid.
+<a id="__codelineno-1-388" name="__codelineno-1-388" href="#__codelineno-1-388"></a>
+<a id="__codelineno-1-389" name="__codelineno-1-389" href="#__codelineno-1-389"></a>internal:
+<a id="__codelineno-1-390" name="__codelineno-1-390" href="#__codelineno-1-390"></a>
+<a id="__codelineno-1-391" name="__codelineno-1-391" href="#__codelineno-1-391"></a>- hoisted the pi vcgencmd throttle-bit labels and decode into a single query.pi_bits_seen()
+<a id="__codelineno-1-392" name="__codelineno-1-392" href="#__codelineno-1-392"></a>  helper, shared by both renderers (the png and tui copies had drifted apart).
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>== 0.11.0 - 2026-05-28  rich host metrics + grid layout ==
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>added:
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>- psi metrics: psi_cpu, psi_mem, psi_io (10-second rolling averages from /proc/pressure/*)
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>  in host_samples. early-warning signal for latency before resources hit 100%.
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>- memory pressure: swap_used_pct, cache_mb, oom_kill_count in host_samples.
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>- cpu frequency + throttle: cpu_freq_mhz, cpu_throttle_count, pi_throttle_bits in
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>  host_samples. detects silent perf regressions (100% busy at 600 MHz looks the same as at
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>  1500 MHz). the pi bit field (vcgencmd get_throttled) is sampled on a 5-minute slow tier.
+<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>
+<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>- thermal zones table thermal_zones (ts, zone, temp_c): every zone sampled individually
+<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a>  (jetson has ~10). the legacy temp_c column in host_samples still carries the max-of-zones
+<a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a>  for back-compat.
+<a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a>
+<a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a>- power rails table power_samples (ts, rail, watts, volts, amps): jetson INA3221 i2c
+<a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a>  readings (/sys/bus/i2c/drivers/ina3221x/*).
+<a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a>
+<a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a>- tcp/udp/conntrack table tcp_samples: kernel counters from /proc/net/snmp + conntrack fill
+<a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a>  from /proc/sys/net/netfilter/nf_conntrack_*.
+<a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a>
+<a id="__codelineno-2-24" name="__codelineno-2-24" href="#__codelineno-2-24"></a>- disk health table disk_health: sd/emmc wear-level (/sys/block/mmcblk*/device/life_time) on
+<a id="__codelineno-2-25" name="__codelineno-2-25" href="#__codelineno-2-25"></a>  a 60-minute very-slow tier.
+<a id="__codelineno-2-26" name="__codelineno-2-26" href="#__codelineno-2-26"></a>
+<a id="__codelineno-2-27" name="__codelineno-2-27" href="#__codelineno-2-27"></a>- wifi extras: bssid, retry_count, discard_count, beacon_loss in wifi_samples. roams across
+<a id="__codelineno-2-28" name="__codelineno-2-28" href="#__codelineno-2-28"></a>  bssids are summarised in the render.
+<a id="__codelineno-2-29" name="__codelineno-2-29" href="#__codelineno-2-29"></a>
+<a id="__codelineno-2-30" name="__codelineno-2-30" href="#__codelineno-2-30"></a>- inode usage: inode_used_pct in disk_samples.
+<a id="__codelineno-2-31" name="__codelineno-2-31" href="#__codelineno-2-31"></a>
+<a id="__codelineno-2-32" name="__codelineno-2-32" href="#__codelineno-2-32"></a>- grid layout for plots: png and tui auto-arrange panels in a 2-column grid when there are
+<a id="__codelineno-2-33" name="__codelineno-2-33" href="#__codelineno-2-33"></a>  &gt;=3 panels and the canvas is wide enough. --cols N forces a specific count.
+<a id="__codelineno-2-34" name="__codelineno-2-34" href="#__codelineno-2-34"></a>
+<a id="__codelineno-2-35" name="__codelineno-2-35" href="#__codelineno-2-35"></a>- five new panels: thermal, power, tcp, psi, freq. all optional and selected via --panels.
+<a id="__codelineno-2-36" name="__codelineno-2-36" href="#__codelineno-2-36"></a>
+<a id="__codelineno-2-37" name="__codelineno-2-37" href="#__codelineno-2-37"></a>- migration: ensure_body_columns() ALTERs in any missing body columns on existing tables, so
+<a id="__codelineno-2-38" name="__codelineno-2-38" href="#__codelineno-2-38"></a>  upgrades from older dbs are transparent (old rows get null for new columns).
+<a id="__codelineno-2-39" name="__codelineno-2-39" href="#__codelineno-2-39"></a>
+<a id="__codelineno-2-40" name="__codelineno-2-40" href="#__codelineno-2-40"></a>changed:
+<a id="__codelineno-2-41" name="__codelineno-2-41" href="#__codelineno-2-41"></a>
+<a id="__codelineno-2-42" name="__codelineno-2-42" href="#__codelineno-2-42"></a>- ping percentiles pre-aggregated: rtt_p25 and rtt_p75 are computed at insert time.
+<a id="__codelineno-2-43" name="__codelineno-2-43" href="#__codelineno-2-43"></a>  load_ping_smoke reads them straight from ping_runs instead of scanning ping_rtts. old rows
+<a id="__codelineno-2-44" name="__codelineno-2-44" href="#__codelineno-2-44"></a>  fall back to a join-based percentile calculation against a temp-id table (no in-list
+<a id="__codelineno-2-45" name="__codelineno-2-45" href="#__codelineno-2-45"></a>  variable limit).
+<a id="__codelineno-2-46" name="__codelineno-2-46" href="#__codelineno-2-46"></a>
+<a id="__codelineno-2-47" name="__codelineno-2-47" href="#__codelineno-2-47"></a>- hub ingest uses executemany for all non-ping tables (per-row execute is kept only for
+<a id="__codelineno-2-48" name="__codelineno-2-48" href="#__codelineno-2-48"></a>  ping_runs where lastrowid is needed for the run_map). ~30-40% faster ingest on pi-class
+<a id="__codelineno-2-49" name="__codelineno-2-49" href="#__codelineno-2-49"></a>  hardware.
+<a id="__codelineno-2-50" name="__codelineno-2-50" href="#__codelineno-2-50"></a>
+<a id="__codelineno-2-51" name="__codelineno-2-51" href="#__codelineno-2-51"></a>- load_net uses sql LAG() for in-database delta computation when sqlite &gt;= 3.25; falls back
+<a id="__codelineno-2-52" name="__codelineno-2-52" href="#__codelineno-2-52"></a>  to the python loop otherwise.
+<a id="__codelineno-2-53" name="__codelineno-2-53" href="#__codelineno-2-53"></a>
+<a id="__codelineno-2-54" name="__codelineno-2-54" href="#__codelineno-2-54"></a>- host._procs_linux uses os.scandir(&quot;/proc&quot;) instead of os.listdir.
+<a id="__codelineno-2-55" name="__codelineno-2-55" href="#__codelineno-2-55"></a>
+<a id="__codelineno-2-56" name="__codelineno-2-56" href="#__codelineno-2-56"></a>- probes/http.py caches the curl path at import (was resolved on every probe).
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>== 0.10.0  package refactor ==
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>changed:
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>- package refactor: flat scripts collapsed into a smokemon/ package - config (env/node/
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>  paths), core (log/connect/signals/run_scheduler), schema (single-source ddl, generic
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>  insert), adapters/{darwin,linux}, probes/{ping,net,http,mtr,wifi,iperf,host}, collect (one
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>  daemon, group fast|slow|all), ship, hub, query (shared loaders + --node), render/{tui,png},
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>  cli (smoke subcommands).
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>- 3 collector daemons collapsed to 2 (fast=ping/net; slow=http/mtr/wifi/host). live.sh/
+<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a>  daily_graph.sh replaced by smoke live/kiosk/daily.
+<a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a>
+<a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a>- deduplication: schema, daemon loop, plot loaders, and a duplicate wifi_probe all
+<a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a>  consolidated. net caches the tailscale interface for 5 minutes. hub uses
+<a id="__codelineno-3-16" name="__codelineno-3-16" href="#__codelineno-3-16"></a>  ThreadingHTTPServer + write lock.
+<a id="__codelineno-3-17" name="__codelineno-3-17" href="#__codelineno-3-17"></a>
+<a id="__codelineno-3-18" name="__codelineno-3-18" href="#__codelineno-3-18"></a>- entry points: python -m smokemon.* (PYTHONPATH=repo, no install needed).
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>== 0.9.0  cross-platform + central aggregation ==
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>added:
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>- cross-platform adapters (platform.system() dispatch): linux paths use /proc/net/dev,
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>  tailscale0 (or 100.64.0.0/10 scan via ip), iw dev + /proc/net/wireless. macos paths
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>  unchanged. cli tool paths resolved via env -&gt; shutil.which.
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>- node dimension: every table gains a node column (defaults to hostname, override via
+<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>  SMOKEMON_NODE). additive migration (alter + backfill) so node and hub dbs share one schema
+<a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a>  -&gt; one plotter codebase.
+<a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a>
+<a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a>- host health collector @30s. linux: cpu (/proc/stat), load, mem (/proc/meminfo), temp
+<a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a>  (/sys/class/thermal, incl. jetson), disk used (statvfs) + io (/proc/diskstats), top-n procs
+<a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a>  (/proc/&lt;pid&gt;/stat). macos subset. new tables: host_samples, disk_samples, proc_samples.
+<a id="__codelineno-4-16" name="__codelineno-4-16" href="#__codelineno-4-16"></a>
+<a id="__codelineno-4-17" name="__codelineno-4-17" href="#__codelineno-4-17"></a>- central aggregation (push): shipper drains new rows per table (delta by id, cursor in
+<a id="__codelineno-4-18" name="__codelineno-4-18" href="#__codelineno-4-18"></a>  ship_state) and posts to the hub. hub writes smokemon-hub.db with node + src_id,
+<a id="__codelineno-4-19" name="__codelineno-4-19" href="#__codelineno-4-19"></a>  UNIQUE(node, src_id) + INSERT OR IGNORE in one transaction = idempotent. ping_rtts remapped
+<a id="__codelineno-4-20" name="__codelineno-4-20" href="#__codelineno-4-20"></a>  to hub run ids, inserted only for newly-inserted runs. shared-secret header X-Smokemon-Key.
+<a id="__codelineno-4-21" name="__codelineno-4-21" href="#__codelineno-4-21"></a>
+<a id="__codelineno-4-22" name="__codelineno-4-22" href="#__codelineno-4-22"></a>- plotters: --node filter (required on hub db). host + disk panels. matplotlib stays hub-only
+<a id="__codelineno-4-23" name="__codelineno-4-23" href="#__codelineno-4-23"></a>  so nodes need only python3 stdlib + plotext (tui).
+<a id="__codelineno-4-24" name="__codelineno-4-24" href="#__codelineno-4-24"></a>
+<a id="__codelineno-4-25" name="__codelineno-4-25" href="#__codelineno-4-25"></a>- linux deploy: install.sh (apt deps, setcap cap_net_raw on fping/mtr to skip sudo,
+<a id="__codelineno-4-26" name="__codelineno-4-26" href="#__codelineno-4-26"></a>  /etc/smokemon.env, systemd units). macos launchd plists.
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>== 0.8.0  span-scaled png ==
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>changed:
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>- png width scales with time span (~2 inches per hour, clamp 16-80&quot;). every 10s sample stays
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>  horizontally distinguishable. dpi lowered 130 -&gt; 96 (granularity from width, not pixel
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>  density). 24h = ~4608xN px (~1 MB). new flags: --width, --dpi.
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>== 0.7.0  readable axes ==
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>changed:
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>- x ticks formatted %H:%M (never seconds), y integer ticks. http labels strip tld
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>  (cloudflare.com -&gt; cloudflare). loss marker switched from X to braille dot. http lines use
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>  a fixed non-red palette (cyan/green/magenta) so they cannot be confused with red loss.
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>  kiosk keeps a subtle gray frame, titles off.
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>== 0.6.0  kiosk mode ==
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>added:
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>- kiosk mode (term_plot --kiosk, smokekiosk): no legend/ticks/labels/title/header.
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>== 0.5.0  active probes ==
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>added:
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>- active probes @60s: http timing via curl -sI -w (dns/connect/tls/ttfb/total), mtr --json
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>  -c10 for per-hop loss/avg/best/worst/stddev, wifi rssi/noise/tx/channel via
+<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>  system_profiler. mtr requires passwordless sudo (or setcap cap_net_raw on linux).
+<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>
+<a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>- iperf3 probe @900s: -J (up) + -R (down). consumes real bandwidth; requires iperf3 -s on
+<a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a>  the server.
+<a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a>
+<a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a>- new tables: http_samples, mtr_hops, wifi_samples, iperf_samples. 6 panel types.
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>== 0.4.0  live window units ==
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>added:
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>- live window units (Nh/Nm/bare-number minutes): smokelive 24h 30.
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>== 0.3.0  tailscale target ==
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>added:
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>- third ping target reachable over the tailscale interface. tailscale interface
+<a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a>  auto-detected as the one with an address in 100.64.0.0/10; label tailscale (survives utun
+<a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a>  renumbering across reboots).
+<a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a>
+<a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a>fixed:
+<a id="__codelineno-10-10" name="__codelineno-10-10" href="#__codelineno-10-10"></a>
+<a id="__codelineno-10-11" name="__codelineno-10-11" href="#__codelineno-10-11"></a>- netstat -ibn rows for mac-less interfaces (utun) have 10 fields, not 11. the old code
+<a id="__codelineno-10-12" name="__codelineno-10-12" href="#__codelineno-10-12"></a>  indexed columns wrong and silently skipped them; now we read the last 7 columns. utun was
+<a id="__codelineno-10-13" name="__codelineno-10-13" href="#__codelineno-10-13"></a>  never captured before this.
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>== 0.2.0  tui + scheduling ==
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>added:
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>
+<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>- tui: plotext braille plot (replaced a chafa inline-image poc).
+<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a>
+<a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a>- live + scheduled: live.sh, daily_graph.sh + launchd StartCalendarInterval at 23:55 -&gt;
+<a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a>  graphs/daily/. zsh helpers smoke/smokelive/smokepng.
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>== 0.1.0  core collector ==
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>added:
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a>
+<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a>- core collector @10s: fping -C20 -p50 (latency/loss + every individual rtt) + netstat -ibn
+<a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a>  (cumulative bytes -&gt; mbit/s via delta/dt). default targets 1.1.1.1, 192.168.0.1.
+<a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a>
+<a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a>- sqlite wal: ping_runs, ping_rtts, net_samples. no pruning (~5-6 gb/year; long-term plan is
+<a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a>  rollup/compression, never deletion of raw data).
+<a id="__codelineno-12-10" name="__codelineno-12-10" href="#__codelineno-12-10"></a>
+<a id="__codelineno-12-11" name="__codelineno-12-11" href="#__codelineno-12-11"></a>- png renderer: matplotlib smoke-style plot (fill_between p0-p100 + p25-p75 + median + loss
+<a id="__codelineno-12-12" name="__codelineno-12-12" href="#__codelineno-12-12"></a>  scatter).
+</code></pre></div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.top", "navigation.sections", "content.code.copy", "toc.integrate"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.js"></script>
+      
+        <script src="https://stevoo.net/map.js"></script>
+      
+    
+  </body>
+</html>
