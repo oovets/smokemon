@@ -102,13 +102,22 @@ def send_event(dedup_key: str, status: str, title: str, description: str = "",
     if not url:
         core.log("notify: SMOKEMON_NOTIFY_URL not set, skipping")
         return False
-    try:
-        req = build_event_request(url, dedup_key, status, title, description, metadata, token)
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            return 200 <= r.status < 300
-    except (urllib.error.URLError, OSError) as e:
-        core.log(f"notify failed: {e!r}")
-        return False
+    import time as _time
+    for attempt in range(2):
+        try:
+            req = build_event_request(url, dedup_key, status, title, description, metadata, token)
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return 200 <= r.status < 300
+        except urllib.error.HTTPError as e:
+            if e.code == 429 and attempt == 0:
+                _time.sleep(5)
+                continue
+            core.log(f"notify failed: {e!r}")
+            return False
+        except (urllib.error.URLError, OSError) as e:
+            core.log(f"notify failed: {e!r}")
+            return False
+    return False
 
 
 def summarize_incidents(incidents: list[dict], node: str | None = None,

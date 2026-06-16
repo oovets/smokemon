@@ -581,9 +581,11 @@ def _alert_loop() -> None:
                 for a in page_firing:
                     if notify.send_event(**alerts.event_for(a, "firing")):
                         notified.add(a["key"])
+                    time.sleep(0.5)  # stay under incident.io rate limit
                 if config.ALERT_NOTIFY_RESOLVED:
                     for a in page_resolved:
                         notify.send_event(**alerts.event_for(a, "resolved"))
+                        time.sleep(0.5)
             else:
                 title, body = alerts.render(page_firing, page_resolved)
                 sent = notify.send(title, body) if title else False
