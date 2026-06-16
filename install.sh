@@ -6,6 +6,8 @@
 #   one-line: curl -fsSL https://raw.githubusercontent.com/oovets/smokemon/main/install.sh \
 #               | sudo bash -s -- --node NAME [--hub-url URL --secret S]
 #   hub:     ... --hub --secret S          (--secret must match between node and hub)
+#   secret:  --secret S puts it in argv (ps-visible); for fleet installs pipe it instead:
+#            printf %s "$S" | sudo bash install.sh --node NAME --hub-url URL --secret-stdin
 #
 # When piped (no local checkout) it clones the repo to $SMOKEMON_DIR (default /opt/smokemon).
 set -euo pipefail
@@ -21,6 +23,7 @@ while [ $# -gt 0 ]; do
         --node) NODE_NAME="$2"; shift 2 ;;
         --hub-url) HUB_URL="$2"; shift 2 ;;
         --secret) SECRET="$2"; shift 2 ;;
+        --secret-stdin) SECRET="$(head -1)"; shift ;;  # read secret from stdin so it never lands in argv (ps leak)
         --targets) TARGETS="$2"; shift 2 ;;
         *) echo "unknown argument: $1" >&2; exit 1 ;;
     esac
