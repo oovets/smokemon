@@ -1388,6 +1388,13 @@ _DASHBOARD_HTML = """<!doctype html>
  .ldot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--stale)}
  .ldot[data-st=healthy]{background:var(--ok)} .ldot[data-st=warn]{background:var(--warn)} .ldot[data-st=down]{background:var(--down)}
  .lsvc span{margin-right:8px;font-size:11px} .lsvc .bad{color:var(--down)} .lsvc .warnv{color:var(--warnf)}
+ .ftbl td.lspk{width:62px} .ftbl .lspark{width:56px;height:16px;display:block}
+ .ftbl tr.grp{cursor:pointer}
+ .ftbl tr.grp td{background:var(--bg2);border-bottom:1px solid var(--line);padding:5px 10px;color:var(--fg);border-left:2px solid transparent}
+ .ftbl tr.grp:hover td{background:var(--card2)}
+ .ftbl tr.grp .gcar{display:inline-block;width:11px;color:var(--accent);font-size:10px}
+ .ftbl tr.grp .gcnt{color:var(--dim);font-weight:400;margin-left:5px}
+ .ftbl tbody.gb.col tr.lr{display:none}
  /* ---- per-node view (nodes tab) ---- */
  .nodebar{display:flex;align-items:center;gap:10px;margin-bottom:13px}
  .seg-ctl{display:flex;gap:2px;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:2px}
@@ -1779,6 +1786,8 @@ const GRID_SKELETON=`<div class="ov"><div class="ov-strip">`
  +`<div class="kpis" id="agg-tiles"></div></div>`
  +`<div class="hg-bar"><div class="seg-ctl" id="hg-dens"><button data-d="full" class="on">cards</button><button data-d="dense">dense</button><button data-d="list">list</button></div>`
  +`<div class="seg-ctl" id="hg-sort"><button data-s="state" class="on">by health</button><button data-s="node">by name</button><button data-s="cpu">by cpu</button><button data-s="rtt">by rtt</button></div>`
+ +`<div class="seg-ctl" id="hg-filt"><button data-f="all" class="on">all</button><button data-f="issues">issues</button><button data-f="down">down</button></div>`
+ +`<div class="seg-ctl" id="hg-grp"><button data-g="0" class="on">flat</button><button data-g="1">grouped</button></div>`
  +`<span class="cnt" id="hg-cnt"></span></div>`
  +`<div class="hostgrid" id="hostgrid"></div></div>`;
 const GRID_TILES=[["nodes","nodes"],["rtt","avg rtt"],["loss","avg loss"],["cpu","avg cpu"],
@@ -1788,6 +1797,14 @@ const DONUT_C=2*Math.PI*52;  // donut ring circumference (r=52)
 let gridBuilt=false,igRate,igSub,igArea,igPoly,igDot,tileVals={},meterFills={},donutSegs={},donutTotal,legendCounts={},hostgrid;
 // host-grid view options: density (full cards vs dense) + sort key. persisted in the closure.
 let hgDensity=localStorage.getItem("sm_layout")||"full",hgSort=localStorage.getItem("sm_sort")||"state";
+let hgFilter=localStorage.getItem("sm_filter")||"all";          // all | issues | down
+let hgGroup=localStorage.getItem("sm_group")==="1";             // group list rows by host class
+let hgCollapsed=new Set((localStorage.getItem("sm_collapsed")||"").split(",").filter(Boolean));
+const NOSORT=new Set(["svcs","spark"]);                          // list columns that don't sort
+function hostClass(name){const h=name.toLowerCase();
+ if(h.startsWith("aspace-prod"))return"aspace-prod";if(h.startsWith("rpi5-ts"))return"rpi5-ts";
+ if(h.startsWith("satsbt"))return"satsbt";if(h.startsWith("nbt"))return"nbt";if(h.startsWith("bjg"))return"bjg";
+ if(/^n[0-9]/.test(h))return"n*";return"other";}
 function buildGrid(){
  grid.innerHTML=GRID_SKELETON;
  igRate=document.getElementById("ig-rate");igSub=document.getElementById("ig-sub");
@@ -1811,11 +1828,21 @@ function buildGrid(){
   if(!b)return;hgDensity=b.dataset.d;localStorage.setItem("sm_layout",hgDensity);grid.querySelectorAll("#hg-dens button").forEach(x=>x.classList.toggle("on",x===b));renderHosts();});
  grid.querySelector("#hg-sort").addEventListener("click",e=>{const b=e.target.closest("[data-s]");
   if(!b)return;hgSort=b.dataset.s;localStorage.setItem("sm_sort",hgSort);syncSortBtns();renderHosts();});
- // list-view column headers sort too (incl. loss/mem/temp/seen, which have no toolbar button).
- hostgrid.addEventListener("click",e=>{const th=e.target.closest("th[data-sk]");
-  if(!th||th.dataset.sk==="svcs")return;hgSort=th.dataset.sk;localStorage.setItem("sm_sort",hgSort);syncSortBtns();renderHosts();});
+ grid.querySelector("#hg-filt").addEventListener("click",e=>{const b=e.target.closest("[data-f]");
+  if(!b)return;hgFilter=b.dataset.f;localStorage.setItem("sm_filter",hgFilter);grid.querySelectorAll("#hg-filt button").forEach(x=>x.classList.toggle("on",x===b));renderHosts();});
+ grid.querySelector("#hg-grp").addEventListener("click",e=>{const b=e.target.closest("[data-g]");
+  if(!b)return;hgGroup=b.dataset.g==="1";localStorage.setItem("sm_group",hgGroup?"1":"0");grid.querySelectorAll("#hg-grp button").forEach(x=>x.classList.toggle("on",x===b));renderHosts();});
+ // list view: column headers sort (incl. loss/mem/temp/seen); group-header rows collapse a class.
+ hostgrid.addEventListener("click",e=>{
+  const gh=e.target.closest("tr.grp");
+  if(gh){const g=gh.dataset.grp;hgCollapsed.has(g)?hgCollapsed.delete(g):hgCollapsed.add(g);
+   localStorage.setItem("sm_collapsed",[...hgCollapsed].join(","));renderHosts();return;}
+  const th=e.target.closest("th[data-sk]");
+  if(!th||NOSORT.has(th.dataset.sk))return;hgSort=th.dataset.sk;localStorage.setItem("sm_sort",hgSort);syncSortBtns();renderHosts();});
  // reflect persisted choices on the freshly-built toolbar
  grid.querySelectorAll("#hg-dens button").forEach(x=>x.classList.toggle("on",x.dataset.d===hgDensity));
+ grid.querySelectorAll("#hg-filt button").forEach(x=>x.classList.toggle("on",x.dataset.f===hgFilter));
+ grid.querySelectorAll("#hg-grp button").forEach(x=>x.classList.toggle("on",x.dataset.g===(hgGroup?"1":"0")));
  syncSortBtns();
  nodeClick(hostgrid);
  gridBuilt=true;
@@ -1920,30 +1947,44 @@ function svcInline(s){
   out.push(`<span class="${ok<tc.length?"bad":""}">tcp ${ok}/${tc.length}</span>`);}
  return out.length?out.join(" "):`<span class="dim">--</span>`;
 }
+const LIST_SC=[["state",""],["node","host"],["spark","rtt 2h"],["rtt","rtt"],["loss","loss"],
+ ["cpu","cpu"],["mem","mem"],["temp","temp"],["seen","seen"],["svcs","services"]];
+const STATE_RANK={down:0,warn:1,stale:2,healthy:3};
+function listRow(n){const s=svc[n.node]||{};
+ const rc=n.rtt_ms==null?"":n.rtt_ms>250?"bad":n.rtt_ms>120?"warnv":"";
+ const lc=n.loss_pct?"bad":"",tc=n.temp==null?"":n.temp>=80?"bad":n.temp>=70?"warnv":"";
+ return `<tr class="lr" data-st="${esc(n.state)}" data-node="${esc(n.node)}">`
+  +`<td><span class="ldot" data-st="${esc(n.state)}" title="${esc(n.state)}"></span></td>`
+  +`<td class="lname">${esc(n.node)}</td>`
+  +`<td class="lspk">${sparkArea(n.node,"lspark")||'<span class="dim">--</span>'}</td>`
+  +`<td class="num ${rc}">${fmtRtt(n.rtt_ms)}</td>`
+  +`<td class="num ${lc}">${n.loss_pct==null?'<span class="dim">--</span>':Math.round(n.loss_pct)+"%"}</td>`
+  +`<td>${n.cpu==null?'<span class="dim">--</span>':meterCell(n.cpu,70,90)}</td>`
+  +`<td>${n.mem==null?'<span class="dim">--</span>':meterCell(n.mem,75,90)}</td>`
+  +`<td class="num ${tc}">${n.temp==null?'<span class="dim">--</span>':Math.round(n.temp)+"°"}</td>`
+  +`<td class="num dim">${fmtAge(n.age_s)}</td>`
+  +`<td class="lsvc">${svcInline(s)}</td></tr>`;}
 function fleetTableHtml(ns){
- const SC=[["state",""],["node","host"],["rtt","rtt"],["loss","loss"],["cpu","cpu"],["mem","mem"],
-  ["temp","temp"],["seen","seen"],["svcs","services"]];
- const head=SC.map(([k,l])=>{const on=k===hgSort,ar=on?` <span class="sar">${LIST_DESC.has(k)?"▾":"▴"}</span>`:"";
-  return `<th data-sk="${k}" class="${on?"son":""}${k==="svcs"?" nos":""}">${l}${k==="svcs"?"":ar}</th>`;}).join("");
- const rows=ns.map(n=>{const s=svc[n.node]||{};
-  const rc=n.rtt_ms==null?"":n.rtt_ms>250?"bad":n.rtt_ms>120?"warnv":"";
-  const lc=n.loss_pct?"bad":"",tc=n.temp==null?"":n.temp>=80?"bad":n.temp>=70?"warnv":"";
-  return `<tr class="lr" data-st="${esc(n.state)}" data-node="${esc(n.node)}">`
-   +`<td><span class="ldot" data-st="${esc(n.state)}" title="${esc(n.state)}"></span></td>`
-   +`<td class="lname">${esc(n.node)}</td>`
-   +`<td class="num ${rc}">${fmtRtt(n.rtt_ms)}</td>`
-   +`<td class="num ${lc}">${n.loss_pct==null?'<span class="dim">--</span>':Math.round(n.loss_pct)+"%"}</td>`
-   +`<td>${n.cpu==null?'<span class="dim">--</span>':meterCell(n.cpu,70,90)}</td>`
-   +`<td>${n.mem==null?'<span class="dim">--</span>':meterCell(n.mem,75,90)}</td>`
-   +`<td class="num ${tc}">${n.temp==null?'<span class="dim">--</span>':Math.round(n.temp)+"°"}</td>`
-   +`<td class="num dim">${fmtAge(n.age_s)}</td>`
-   +`<td class="lsvc">${svcInline(s)}</td></tr>`;}).join("");
- return `<table class="ftbl"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table>`;
+ const head=LIST_SC.map(([k,l])=>{const on=k===hgSort,ar=on?` <span class="sar">${LIST_DESC.has(k)?"▾":"▴"}</span>`:"";
+  return `<th data-sk="${k}" class="${on?"son":""}${NOSORT.has(k)?" nos":""}">${l}${NOSORT.has(k)?"":ar}</th>`;}).join("");
+ if(!hgGroup)return `<table class="ftbl"><thead><tr>${head}</tr></thead><tbody>${ns.map(listRow).join("")}</tbody></table>`;
+ // grouped: one <tbody> per host class with a collapsible header row (worst-state dot + count).
+ const groups={};ns.forEach(n=>{(groups[hostClass(n.node)]||(groups[hostClass(n.node)]=[])).push(n);});
+ const body=Object.keys(groups).sort().map(g=>{const rows=groups[g];
+  const worst=Math.min(...rows.map(r=>STATE_RANK[r.state]??3)),wc=["down","warn","stale","healthy"][worst];
+  const col=hgCollapsed.has(g);
+  const hdr=`<tr class="grp" data-grp="${esc(g)}"><td colspan="${LIST_SC.length}">`
+   +`<span class="gcar">${col?"▸":"▾"}</span> <span class="ldot" data-st="${wc}"></span> `
+   +`<b>${esc(g)}</b> <span class="gcnt">${rows.length}</span></td></tr>`;
+  return `<tbody class="gb${col?" col":""}" data-grp="${esc(g)}">${hdr}${rows.map(listRow).join("")}</tbody>`;
+ }).join("");
+ return `<table class="ftbl"><thead><tr>${head}</tr></thead>${body}</table>`;
 }
 function renderHosts(){
  if(!gridBuilt||!hostgrid)return;
  const term=q.value.trim().toLowerCase();
- const ns=(last.nodes||[]).filter(n=>!term||n.node.toLowerCase().includes(term));
+ const fst=hgFilter==="down"?(s=>s==="down"):hgFilter==="issues"?(s=>s!=="healthy"):(()=>true);
+ const ns=(last.nodes||[]).filter(n=>(!term||n.node.toLowerCase().includes(term))&&fst(n.state));
  // state + node sort ascending (state already encodes worst-first as low values);
  // cpu + rtt sort descending (hottest / slowest first). node breaks every tie.
  const dir=LIST_DESC.has(hgSort)?-1:1;
@@ -2123,7 +2164,7 @@ document.addEventListener("keydown",e=>{
 // ---- view tabs: grid (live) · ranking · heatmap · risks. Only the active non-grid view
 // polls (slow, 15s); grid status + sparklines + header pills always refresh. -------------
 const VIEWS=[["grid","grid"],["nodes","nodes"],["net","network"],["risk","risks"],["logs","logs"],["cost","cost"]];
-let view="grid",heatMetric="loss",heatHours=24,netMode="fleet",heatOpen=false;
+let view=localStorage.getItem("sm_view")||"grid",heatMetric="loss",heatHours=24,netMode="fleet",heatOpen=false;
 let netData={hm:null,nw:null,node:""};  // last network payloads, so collapsing/expanding the
                                         // heatmap re-renders instantly without refetching.
 // measured ship-cost cache (/api/cost): actual compressed bytes each node pushed over the wire,
@@ -2149,7 +2190,7 @@ const WARMUP={grid:"the fleet overview",nodes:"the per-node detail table",
 function loadingHtml(v){return `<div class="loading"><div class="spin"></div>`
  +`<div class="lt">building ${WARMUP[v]}…</div>`
  +`<div class="lh">first open reads each node's history and warms the hub's cache — this view stays instant on every later visit.</div></div>`;}
-function setView(v){view=v;
+function setView(v){view=v;localStorage.setItem("sm_view",v);
  VIEWS.forEach(([id])=>viewEl(id).hidden=(id!==v));
  tabs.querySelectorAll(".tab").forEach(t=>t.classList.toggle("on",t.dataset.v===v));
  q.style.display=(v==="nodes"||v==="grid"||v==="logs"||v==="net"||v==="risk")?"":"none";  // node filter (net: drill-in)
@@ -2890,7 +2931,7 @@ setInterval(()=>{if(view==="grid")loadSvc().then(()=>{if(view==="grid")renderHos
 // 25s, just past the server's 20s cache TTL: at 15s nearly every poll landed on a
 // just-expired entry and paid the full recompute; now most polls are cache hits.
 setInterval(()=>{if(view!=="grid")refreshView();},25000); // active non-grid view auto-refresh
-setView("grid");
+setView(VIEWS.some(([id])=>id===view)?view:"grid");  // restore persisted tab (fall back to grid)
 </script>
 </body></html>
 """

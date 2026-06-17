@@ -596,6 +596,28 @@ def _alert_loop() -> None:
             core.log(f"alert loop error: {e!r}")
 
 
+def _warmup_caches() -> None:
+    """Pre-warm the read-heavy /api caches shortly after start so the first dashboard open of each
+    view is instant instead of paying the cold cache-miss (which scans node history). One-shot,
+    best-effort, daemon; hits the local server so it populates _resp_cache exactly as a real GET."""
+    import urllib.error
+    import urllib.request
+    time.sleep(8)  # let the server bind and a first ingest land
+    base = f"http://127.0.0.1:{config.HUB_PORT}"
+    paths = ["/api/nodes-detail?hours=24", "/api/services", "/api/risks?hours=24",
+             "/api/cost?hours=24", "/api/spark?hours=2", "/api/logs?",
+             "/api/fleet-status", "/api/ingest-rate"]
+    ok = 0
+    for p in paths:
+        try:
+            with urllib.request.urlopen(base + p, timeout=90) as r:
+                r.read()
+            ok += 1
+        except (urllib.error.URLError, OSError) as e:
+            core.log(f"warmup {p}: {e.__class__.__name__}")
+    core.log(f"warmup: pre-warmed {ok}/{len(paths)} api caches")
+
+
 def main() -> int:
     global _conn, _ro_conn
     if config.HUB_SECRET == "changeme":
@@ -621,6 +643,7 @@ def main() -> int:
         else:
             core.log(f"alert tracking on: every {config.ALERT_EVAL_INTERVAL:.0f}s "
                      "(delivery off - no SMOKEMON_NOTIFY_URL)")
+    threading.Thread(target=_warmup_caches, name="smokemon-warmup", daemon=True).start()
     srv = ThreadingHTTPServer((config.HUB_BIND, config.HUB_PORT), Handler)
     core.log(f"hub listening on {config.HUB_BIND}:{config.HUB_PORT} db={config.HUB_DB} "
              "(dashboard GET / · POST /ingest · GET /metrics /api/fleet-status "
