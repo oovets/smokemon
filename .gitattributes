@@ -1,0 +1,19 @@
+# Force LF on text files so checkouts on Windows do not introduce CRLF.
+* text=auto eol=lf
+*.py text eol=lf
+*.sh text eol=lf
+*.md text eol=lf
+*.toml text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.cfg text eol=lf
+
+# Treat shell scripts as executable in the index
+*.sh text eol=lf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.db binary

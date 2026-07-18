@@ -1,0 +1,10 @@
+[Unit]
+Description=smokemon shipper every 15s
+
+[Timer]
+OnBootSec=15
+OnUnitActiveSec=15
+Persistent=true
+
+[Install]
+WantedBy=timers.target

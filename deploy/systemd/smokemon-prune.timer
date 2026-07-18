@@ -1,0 +1,10 @@
+[Unit]
+Description=smokemon prune daily (DB retention)
+
+[Timer]
+OnBootSec=900
+OnUnitActiveSec=1d
+Persistent=true
+
+[Install]
+WantedBy=timers.target

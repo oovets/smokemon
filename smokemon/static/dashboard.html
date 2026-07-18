@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>smokemon</title>
+<link rel="icon" href="/favicon.ico" type="image/svg+xml">
+<style>
+/* Incident-first. There are no charts of normal operation on this page, because normal
+   operation is not recorded any more -- the only thing plotted is the window captured
+   around an incident. */
+:root{
+  --bg:#0b0e14; --panel:#11151f; --panel2:#161b26; --line:#232a38;
+  --fg:#c9d4e5; --dim:#7b899e; --accent:#58a6ff;
+  --ok:#3fb950; --warn:#d29922; --err:#f85149; --crit:#ff6b6b; --unknown:#8b5cf6;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);
+  font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+a{color:var(--accent);text-decoration:none}
+header{display:flex;align-items:center;gap:16px;padding:10px 16px;
+  border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:5}
+header h1{font-size:14px;margin:0;font-weight:600;letter-spacing:.5px}
+header svg{vertical-align:-6px;margin-right:6px}
+.spacer{flex:1}
+.pill{padding:2px 8px;border-radius:10px;background:var(--panel2);border:1px solid var(--line);
+  font-size:11px;color:var(--dim)}
+.pill b{color:var(--fg)}
+.pill.bad{border-color:var(--err);color:var(--err)}
+nav{display:flex;gap:4px;padding:8px 16px;border-bottom:1px solid var(--line)}
+nav button{background:none;border:1px solid transparent;color:var(--dim);padding:4px 12px;
+  border-radius:6px;cursor:pointer;font:inherit}
+nav button.on{color:var(--fg);background:var(--panel2);border-color:var(--line)}
+main{padding:16px;max-width:1400px}
+section{display:none} section.on{display:block}
+h2{font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--dim);
+  margin:0 0 8px;font-weight:600}
+
+/* fleet */
+.fleet{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px;
+  margin-bottom:24px}
+.node{background:var(--panel);border:1px solid var(--line);border-left-width:3px;
+  border-radius:6px;padding:8px 10px;cursor:pointer}
+.node:hover{background:var(--panel2)}
+.node .n{font-weight:600;display:flex;justify-content:space-between;align-items:baseline}
+.node .m{color:var(--dim);font-size:11px;margin-top:2px}
+.s-ok{border-left-color:var(--ok)} .s-degraded{border-left-color:var(--warn)}
+.s-critical{border-left-color:var(--err)} .s-stale{border-left-color:var(--dim)}
+.s-dead{border-left-color:var(--unknown)} .s-unknown{border-left-color:var(--unknown)}
+.tag{font-size:10px;padding:1px 6px;border-radius:8px;background:var(--panel2);
+  border:1px solid var(--line);color:var(--dim)}
+.tag.ok{color:var(--ok)} .tag.warn{color:var(--warn)} .tag.err{color:var(--err)}
+.tag.unknown{color:var(--unknown);border-color:var(--unknown)}
+
+/* incident feed. The wrapper scrolls rather than the page: a wide table must never make the
+   whole document scroll sideways, and the state column is the one that would get clipped. */
+#inc-wrap,#logs{overflow-x:auto}
+table{width:100%;border-collapse:collapse;min-width:640px}
+th{text-align:left;font-weight:600;color:var(--dim);font-size:11px;text-transform:uppercase;
+  letter-spacing:.5px;padding:6px 8px;border-bottom:1px solid var(--line)}
+td{padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+tr.inc{cursor:pointer} tr.inc:hover{background:var(--panel2)}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
+.sev1{background:var(--dim)} .sev2{background:var(--warn)}
+.sev3{background:var(--err)} .sev4{background:var(--crit)}
+.muted{color:var(--dim)}
+.empty{padding:40px;text-align:center;color:var(--dim);border:1px dashed var(--line);
+  border-radius:8px}
+.empty b{color:var(--ok)}
+
+/* detail */
+#detail{position:fixed;inset:0;background:rgba(4,6,10,.8);display:none;z-index:10;
+  overflow:auto;padding:40px 16px}
+#detail.on{display:block}
+.card{max-width:900px;margin:0 auto;background:var(--panel);border:1px solid var(--line);
+  border-radius:10px;padding:16px}
+.card h3{margin:0 0 4px;font-size:15px}
+.close{float:right;cursor:pointer;color:var(--dim);font-size:18px;line-height:1}
+.kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;
+  margin:12px 0;font-size:12px}
+.kv div{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:6px 8px}
+.kv span{display:block;color:var(--dim);font-size:10px;text-transform:uppercase}
+canvas{width:100%;height:180px;background:var(--panel2);border:1px solid var(--line);
+  border-radius:6px}
+.legend{display:flex;gap:14px;font-size:11px;color:var(--dim);margin:6px 2px 0}
+.legend i{display:inline-block;width:10px;height:3px;vertical-align:middle;margin-right:4px}
+pre{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:10px;
+  overflow:auto;max-height:280px;font-size:11px;white-space:pre-wrap;word-break:break-word}
+
+/* density */
+.grid{overflow-x:auto}
+.grid table{border-collapse:separate;border-spacing:1px;width:auto}
+.grid td{padding:0;border:0}
+.cell{width:11px;height:16px;border-radius:2px;background:var(--panel2)}
+.grid th{white-space:nowrap;padding:2px 8px 2px 0;border:0;text-transform:none;
+  font-size:11px;letter-spacing:0}
+</style></head>
+<body>
+
+<header>
+  <h1><svg viewBox="0 0 24 24" width="18" height="18"><path d="M2 12h3.5l2-7 4 15 3-10 1.5 3H22"
+    fill="none" stroke="#58a6ff" stroke-width="2" stroke-linecap="round"
+    stroke-linejoin="round"/></svg>smokemon</h1>
+  <span class="pill" id="sum-nodes">—</span>
+  <span class="pill" id="sum-open">—</span>
+  <span class="spacer"></span>
+  <span class="pill" id="sum-trust"></span>
+  <span class="pill" id="sum-age">—</span>
+</header>
+
+<nav>
+  <button data-v="incidents" class="on">incidents</button>
+  <button data-v="fleet">fleet</button>
+  <button data-v="density">density</button>
+  <button data-v="logs">logs</button>
+</nav>
+
+<main>
+  <section id="v-incidents" class="on">
+    <div class="fleet" id="fleet-strip"></div>
+    <h2>incidents — last <select id="hours">
+      <option value="6">6h</option><option value="24" selected>24h</option>
+      <option value="168">7d</option><option value="720">30d</option></select></h2>
+    <div id="inc-wrap"></div>
+  </section>
+
+  <section id="v-fleet"><h2>fleet</h2><div id="fleet-full"></div></section>
+
+  <section id="v-density">
+    <h2>incident density — node × hour, last 7 days</h2>
+    <div class="grid" id="density"></div>
+  </section>
+
+  <section id="v-logs"><h2>events &amp; captured evidence</h2><div id="logs"></div></section>
+</main>
+
+<div id="detail"><div class="card" id="detail-card"></div></div>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const el = (t, c, h) => { const e = document.createElement(t);
+  if (c) e.className = c; if (h !== undefined) e.innerHTML = h; return e; };
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c =>
+  ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+const dur = s => {
+  if (s == null) return "—";
+  s = Math.round(s);
+  if (s < 60) return s + "s";
+  if (s < 3600) return Math.round(s / 60) + "m";
+  if (s < 86400) return Math.floor(s / 3600) + "h" + (Math.round(s % 3600 / 60) || "") ;
+  return Math.floor(s / 86400) + "d" + (Math.round(s % 86400 / 3600) || "") + "h";
+};
+const clock = ts => ts ? new Date(ts * 1000).toLocaleString(undefined,
+  {month:"short", day:"numeric", hour:"2-digit", minute:"2-digit"}) : "—";
+const num = v => v == null ? "—" : (Math.round(v * 100) / 100);
+
+const get = async p => { const r = await fetch(p); if (!r.ok) throw new Error(r.status);
+  return r.json(); };
+
+let HOURS = 24, VIEW = "incidents";
+
+/* ---------- fleet ---------- */
+
+function nodeTile(n) {
+  const hb = n.heartbeat || {};
+  const t = el("div", "node s-" + n.state);
+  const badge = n.state === "dead" || n.state === "unknown"
+    ? `<span class="tag unknown">${esc(n.state)}</span>`
+    : n.open_incidents
+      ? `<span class="tag ${n.worst_severity >= 3 ? "err" : "warn"}">${n.open_incidents} open</span>`
+      : `<span class="tag ok">ok</span>`;
+  t.innerHTML = `<div class="n"><span>${esc(n.node)}</span>${badge}</div>
+    <div class="m">heard ${n.age_s == null ? "never" : dur(n.age_s) + " ago"}</div>
+    <div class="m">${hb.disk_used_pct != null ? "disk " + num(hb.disk_used_pct) + "%" : ""}
+      ${hb.temp_c != null ? " · " + num(hb.temp_c) + "C" : ""}
+      ${hb.db_mb != null ? " · db " + num(hb.db_mb) + "MB" : ""}</div>`;
+  t.onclick = () => { location.hash = "#node=" + encodeURIComponent(n.node); };
+  return t;
+}
+
+async function loadFleet() {
+  // The route wraps the list; tolerate a bare array too so the page does not go blank on a
+  // shape change it could just as well have handled.
+  const r = await get("/api/fleet");
+  const f = Array.isArray(r) ? r : (r.fleet || []);
+  const strip = $("#fleet-strip"), full = $("#fleet-full");
+  strip.innerHTML = ""; full.innerHTML = "";
+  const wrap = el("div", "fleet");
+  f.forEach(n => { strip.appendChild(nodeTile(n)); wrap.appendChild(nodeTile(n)); });
+  full.appendChild(wrap);
+
+  const live = f.filter(n => n.liveness === "live").length;
+  const open = f.reduce((a, n) => a + n.open_incidents, 0);
+  const silent = f.filter(n => n.liveness !== "live").length;
+  $("#sum-nodes").innerHTML = `<b>${live}</b>/${f.length} live`;
+  $("#sum-open").innerHTML = `<b>${open}</b> open`;
+  $("#sum-nodes").className = "pill" + (silent ? " bad" : "");
+  return f;
+}
+
+/* ---------- incidents ---------- */
+
+function stateTag(i) {
+  if (i.state === "closed") return `<span class="tag">resolved</span>`;
+  if (i.state === "unknown")
+    // Deliberately not "ongoing": we have an open incident and no recent word from the node,
+    // so whether it is still broken is genuinely unknown. Presenting that as ongoing would
+    // dress a guess up as a fact.
+    return `<span class="tag unknown" title="node silent — the close may have nowhere to go">
+      unknown</span>`;
+  return `<span class="tag err">ongoing</span>`;
+}
+
+async function loadIncidents() {
+  const d = await get(`/api/incidents?hours=${HOURS}`);
+  const w = $("#inc-wrap");
+  if (!d.incidents.length) {
+    w.innerHTML = `<div class="empty"><b>Nothing to explain.</b><br>
+      No incidents in this window. Normal operation is not recorded.</div>`;
+    return;
+  }
+  const t = el("table");
+  t.innerHTML = `<thead><tr><th>opened</th><th>node</th><th>signal</th>
+    <th>worst</th><th>lasted</th><th>state</th></tr></thead>`;
+  const tb = el("tbody");
+  d.incidents.forEach(i => {
+    const tr = el("tr", "inc");
+    const where = i.entity ? `${esc(i.signal)} <span class="muted">${esc(i.entity)}</span>`
+                           : esc(i.signal);
+    tr.innerHTML = `<td><span class="dot sev${i.severity_rank}"></span>${clock(i.opened_ts)}</td>
+      <td>${esc(i.node)}</td><td>${where}</td>
+      <td>${num(i.worst_value)}</td>
+      <td>${i.state === "closed" ? dur(i.duration_s) : dur((d.until - i.opened_ts))}</td>
+      <td>${stateTag(i)}</td>`;
+    tr.onclick = () => showDetail(i.uid);
+    tb.appendChild(tr);
+  });
+  t.appendChild(tb);
+  w.innerHTML = "";
+  w.appendChild(t);
+  if (d.truncated) w.appendChild(el("p", "muted", "list truncated — narrow the window"));
+}
+
+/* ---------- incident detail ---------- */
+
+function drawWindow(cv, inc) {
+  const dpr = window.devicePixelRatio || 1;
+  cv.width = cv.clientWidth * dpr; cv.height = cv.clientHeight * dpr;
+  const g = cv.getContext("2d"); g.scale(dpr, dpr);
+  const W = cv.clientWidth, H = cv.clientHeight, P = 24;
+  const pts = inc.samples.slice().sort((a, b) => a.ts - b.ts);
+  if (!pts.length) { g.fillStyle = "#7b899e"; g.font = "12px monospace";
+    g.fillText("no samples captured for this incident", P, H / 2); return; }
+
+  const xs = pts.map(p => p.ts), ys = pts.map(p => p.value);
+  const extra = [inc.threshold, inc.baseline].filter(v => v != null);
+  let lo = Math.min(...ys, ...extra), hi = Math.max(...ys, ...extra);
+  if (hi === lo) { hi += 1; lo -= 1; }
+  const pad = (hi - lo) * 0.1; lo -= pad; hi += pad;
+  const t0 = Math.min(...xs), t1 = Math.max(...xs);
+  const X = t => P + (t1 === t0 ? 0.5 : (t - t0) / (t1 - t0)) * (W - P * 2);
+  const Y = v => H - P - (v - lo) / (hi - lo) * (H - P * 2);
+
+  const line = (v, colour, dash) => {
+    if (v == null) return;
+    g.save(); g.strokeStyle = colour; g.setLineDash(dash); g.lineWidth = 1;
+    g.beginPath(); g.moveTo(P, Y(v)); g.lineTo(W - P, Y(v)); g.stroke(); g.restore();
+  };
+  line(inc.baseline, "#7b899e", [2, 3]);
+  line(inc.threshold, "#f85149", [5, 4]);
+
+  // One polyline, coloured per phase: the pre window is what normal looked like on this node
+  // minutes before, which is the whole reason it is captured.
+  const colour = {pre:"#7b899e", during:"#f85149", post:"#3fb950"};
+  g.lineWidth = 2; g.lineJoin = "round";
+  for (let i = 1; i < pts.length; i++) {
+    g.beginPath();
+    g.strokeStyle = colour[pts[i].phase] || "#c9d4e5";
+    g.moveTo(X(pts[i - 1].ts), Y(pts[i - 1].value));
+    g.lineTo(X(pts[i].ts), Y(pts[i].value));
+    g.stroke();
+  }
+  pts.forEach(p => { g.fillStyle = colour[p.phase] || "#c9d4e5";
+    g.beginPath(); g.arc(X(p.ts), Y(p.value), 2.5, 0, 7); g.fill(); });
+
+  g.fillStyle = "#7b899e"; g.font = "10px monospace";
+  g.fillText(num(hi), 2, P - 6); g.fillText(num(lo), 2, H - P + 12);
+}
+
+async function showDetail(uid) {
+  const i = await get("/api/incident?uid=" + encodeURIComponent(uid));
+  const c = $("#detail-card");
+  const where = i.entity ? `${esc(i.signal)} / ${esc(i.entity)}` : esc(i.signal);
+  c.innerHTML = `<span class="close" onclick="hideDetail()">×</span>
+    <h3>${where} <span class="muted">on ${esc(i.node)}</span></h3>
+    <div class="muted">${esc(i.transitions.map(t => t.transition).join(" → "))}</div>
+    <div class="kv">
+      <div><span>opened</span>${clock(i.opened_ts)}</div>
+      <div><span>lasted</span>${dur(i.duration_s)}</div>
+      <div><span>worst</span>${num(i.worst_value)}</div>
+      <div><span>threshold</span>${num(i.threshold)}</div>
+      <div><span>node baseline</span>${num(i.baseline)}</div>
+      <div><span>state</span>${i.state}</div>
+    </div>
+    <canvas id="win"></canvas>
+    <div class="legend">
+      <span><i style="background:#7b899e"></i>baseline before</span>
+      <span><i style="background:#f85149"></i>during</span>
+      <span><i style="background:#3fb950"></i>recovery</span>
+      <span><i style="background:#f85149;height:0;border-top:1px dashed #f85149"></i>threshold</span>
+    </div>
+    ${i.evidence.length ? "<h2 style='margin-top:16px'>captured evidence</h2>" +
+      i.evidence.map(e => `<div class="muted">${esc(e.path)} — ${esc(e.reason)}
+        ${e.dropped ? `(${e.dropped} bytes dropped by the cap)` : ""}</div>
+        <pre>${esc(e.excerpt)}</pre>`).join("")
+      : `<p class="muted">No log excerpt captured. Evidence capture is opt-in
+         (SMOKEMON_LOGEXCERPT_PATHS).</p>`}`;
+  $("#detail").classList.add("on");
+  drawWindow($("#win"), i);
+}
+function hideDetail() { $("#detail").classList.remove("on"); }
+$("#detail").onclick = e => { if (e.target.id === "detail") hideDetail(); };
+document.addEventListener("keydown", e => { if (e.key === "Escape") hideDetail(); });
+
+/* ---------- density ---------- */
+
+async function loadDensity() {
+  const d = await get("/api/density?hours=168");
+  const wrap = $("#density");
+  if (!d.nodes.length) {
+    wrap.innerHTML = `<div class="empty"><b>Empty is good.</b><br>
+      A blank cell means nothing happened that hour — not that data is missing.</div>`;
+    return;
+  }
+  const t = el("table"), tb = el("tbody");
+  d.nodes.forEach(n => {
+    const tr = el("tr");
+    tr.appendChild(el("th", "", esc(n)));
+    d.counts[n].forEach((c, i) => {
+      const w = d.worst[n][i];
+      const td = el("td");
+      const bg = !c ? "" : w >= 4 ? "#ff6b6b" : w >= 3 ? "#f85149" : "#d29922";
+      const cell = el("div", "cell");
+      if (bg) { cell.style.background = bg; cell.style.opacity = Math.min(1, .45 + c * .18); }
+      cell.title = `${n} · ${clock(d.hour0 + i * 3600)} · ${c} incident(s)`;
+      td.appendChild(cell); tr.appendChild(td);
+    });
+    tb.appendChild(tr);
+  });
+  t.appendChild(tb);
+  wrap.innerHTML = ""; wrap.appendChild(t);
+}
+
+/* ---------- logs ---------- */
+
+async function loadLogs() {
+  const d = await get(`/api/logs?hours=${HOURS}&severity=elevated`);
+  const w = $("#logs");
+  if (!d.events.length && !d.excerpts.length) {
+    w.innerHTML = `<div class="empty">No elevated events in this window.</div>`;
+    return;
+  }
+  const t = el("table");
+  t.innerHTML = `<thead><tr><th>when</th><th>node</th><th>source</th><th>event</th>
+    <th>detail</th></tr></thead>`;
+  const tb = el("tbody");
+  d.events.forEach(e => tb.appendChild(el("tr", "", `
+    <td><span class="dot sev${e.rank}"></span>${clock(e.ts)}</td>
+    <td>${esc(e.node)}</td><td>${esc(e.source)}</td><td>${esc(e.event)}</td>
+    <td class="muted">${esc(e.detail)}</td>`)));
+  t.appendChild(tb);
+  w.innerHTML = ""; w.appendChild(t);
+}
+
+/* ---------- hub trust ---------- */
+
+async function loadHealth() {
+  const h = await get("/api/hub-health");
+  const p = $("#sum-trust");
+  // Orphaned samples are normal and transient while a batch is in flight. A count that stays
+  // high means incidents are being lost between node and hub, and every view on this page is
+  // then quietly incomplete -- which is worth saying out loud rather than hiding.
+  if (h.orphan_samples > 0) {
+    p.className = "pill" + (h.oldest_orphan_s > 300 ? " bad" : "");
+    p.innerHTML = `<b>${h.orphan_samples}</b> unjoined samples`;
+    p.title = "evidence whose parent incident has not arrived yet (oldest "
+      + dur(h.oldest_orphan_s) + ")";
+  } else { p.className = "pill"; p.textContent = ""; p.title = ""; }
+}
+
+/* ---------- shell ---------- */
+
+async function refresh() {
+  $("#sum-age").textContent = new Date().toLocaleTimeString();
+  try {
+    await Promise.all([loadFleet(), loadHealth()]);
+    if (VIEW === "incidents") await loadIncidents();
+    else if (VIEW === "density") await loadDensity();
+    else if (VIEW === "logs") await loadLogs();
+  } catch (e) {
+    $("#sum-age").textContent = "hub unreachable";
+  }
+}
+
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("nav button").forEach(x => x.classList.remove("on"));
+  document.querySelectorAll("section").forEach(s => s.classList.remove("on"));
+  b.classList.add("on");
+  VIEW = b.dataset.v;
+  $("#v-" + VIEW).classList.add("on");
+  refresh();
+});
+$("#hours").onchange = e => { HOURS = +e.target.value; refresh(); };
+
+const params = new URLSearchParams(location.search);
+const every = Math.max(2, +(params.get("refresh") || 10)) * 1000;
+refresh();
+setInterval(refresh, every);
+</script>
+</body></html>

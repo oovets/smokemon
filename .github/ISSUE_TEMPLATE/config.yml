@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/oovets/smokemon/security/advisories/new
+    about: Please report security issues privately, not in public issues. See SECURITY.md.
+  - name: Question or discussion
+    url: https://github.com/oovets/smokemon/discussions
+    about: For usage questions or open-ended discussion, prefer Discussions over Issues.
