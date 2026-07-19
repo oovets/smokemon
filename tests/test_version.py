@@ -1,5 +1,9 @@
-"""The three version sources must agree so a release can't ship mismatched numbers:
-the package __version__, pyproject's [project].version, and the latest CHANGELOG entry."""
+"""The package __version__ and pyproject's [project].version must agree, so a release cannot
+ship mismatched numbers.
+
+There used to be a third source, the latest CHANGELOG entry. CHANGELOG.md has since been
+removed from the repository, so that check is gone rather than left asserting against a file
+that is deliberately absent."""
 
 import re
 from pathlib import Path
@@ -16,15 +20,5 @@ def _pyproject_version() -> str:
     return m.group(1)
 
 
-def _changelog_latest() -> str:
-    m = re.search(r'(?m)^==\s*(\d+\.\d+\.\d+)\b', (ROOT / "CHANGELOG.md").read_text())
-    assert m, "no dated version entry in CHANGELOG.md"
-    return m.group(1)
-
-
 def test_package_and_pyproject_versions_match():
     assert smokemon.__version__ == _pyproject_version()
-
-
-def test_changelog_leads_with_current_version():
-    assert _changelog_latest() == smokemon.__version__

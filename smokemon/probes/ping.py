@@ -22,15 +22,27 @@ def _run_fping() -> dict[str, list[float | None]]:
     for line in out.splitlines():
         target, sep, rest = line.partition(":")
         target = target.strip()
-        if sep and target in config.TARGETS:
-            results[target] = _parse_rtts(rest)
+        if not sep or target not in config.TARGETS:
+            continue
+        got = _parse_rtts(rest)
+        # Only a parsed result line counts. fping emits other lines under the same
+        # "<target> : ..." prefix -- most commonly
+        #     1.1.1.1 : duplicate for [0], 64 bytes, 12.1 ms
+        # when a duplicate ICMP reply arrives. Assigning the empty parse from one of those
+        # would discard the real result that already came in, and since a run with no samples
+        # is reported as total loss, a healthy link would read as a complete outage. Two such
+        # cycles are enough to open a crit incident for an outage that never happened.
+        if got:
+            results[target] = got
     return results
 
 
 def _parse_rtts(rest: str) -> list[float | None]:
-    """Tokens of an fping -C result line. Non-numeric tokens are dropped rather than raised:
-    fping also writes diagnostics to stderr ("<host>: Name or service not known"), and one
-    unresolvable target must not kill the probe for every other target."""
+    """Tokens of an fping -C result line, or [] if this is not one.
+
+    A result line is entirely "-" and numbers. Anything else is a diagnostic ("Name or service
+    not known", "duplicate for [0], 64 bytes, 12.1 ms") and is rejected whole rather than
+    raising: one unresolvable or chatty target must not kill the probe for every other."""
     out: list[float | None] = []
     for tok in rest.split():
         if tok == "-":
@@ -39,7 +51,7 @@ def _parse_rtts(rest: str) -> list[float | None]:
         try:
             out.append(float(tok))
         except ValueError:
-            return []  # not a result line at all
+            return []
     return out
 
 

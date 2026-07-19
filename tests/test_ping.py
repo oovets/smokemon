@@ -72,3 +72,50 @@ def test_parse_rtts_rejects_diagnostic_line():
     target, not just the broken one."""
     assert ping._parse_rtts("Name or service not known") == []
     assert ping._parse_rtts("10.0 bogus 12.0") == []
+
+
+def _parse_run(lines, target="1.1.1.1"):
+    """Drive _run_fping's line loop over canned fping output."""
+    from smokemon import config
+    results = {}
+    for line in lines.splitlines():
+        t, sep, rest = line.partition(":")
+        t = t.strip()
+        if not sep or t not in config.TARGETS:
+            continue
+        got = ping._parse_rtts(rest)
+        if got:
+            results[t] = got
+    return results.get(target, [])
+
+
+def test_duplicate_line_does_not_erase_a_good_result(monkeypatch):
+    """fping prints `<target> : duplicate for [0], 64 bytes, 12.1 ms` when a duplicate ICMP
+    reply arrives. It shares the result-line prefix, so an unguarded parse used to overwrite
+    the real samples with nothing -- and a run with no samples is reported as total loss, so a
+    healthy link read as a complete outage. Two cycles of that opens a crit incident."""
+    from smokemon import config
+    monkeypatch.setattr(config, "TARGETS", ["1.1.1.1"])
+    samples = _parse_run("1.1.1.1 : 12.3 11.9 12.1 12.0\n"
+                         "1.1.1.1 : duplicate for [0], 64 bytes, 12.1 ms")
+    assert samples == [12.3, 11.9, 12.1, 12.0]
+    run, _ = ping._build_run(1000.0, "1.1.1.1", samples)
+    assert run["loss_pct"] == 0.0, "a duplicate reply was reported as a total outage"
+
+
+def test_diagnostic_before_the_result_does_not_block_it(monkeypatch):
+    from smokemon import config
+    monkeypatch.setattr(config, "TARGETS", ["1.1.1.1"])
+    assert _parse_run("1.1.1.1 : duplicate for [0], 64 bytes, 12.1 ms\n"
+                      "1.1.1.1 : 12.3 11.9") == [12.3, 11.9]
+
+
+def test_genuine_total_loss_is_still_recorded(monkeypatch):
+    """The guard must not swallow a real outage: an all-lost line is dashes, which parse to
+    Nones and are truthy, so it is a result line like any other."""
+    from smokemon import config
+    monkeypatch.setattr(config, "TARGETS", ["1.1.1.1"])
+    samples = _parse_run("1.1.1.1 : - - - -")
+    assert samples == [None, None, None, None]
+    run, _ = ping._build_run(1000.0, "1.1.1.1", samples)
+    assert run["loss_pct"] == 100.0
