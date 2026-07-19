@@ -149,14 +149,23 @@ remote_script() {
     cat <<REMOTE
 set -euo pipefail
 
-echo "-- installing"
-# The installer retires the units this replaces and drops a single zipapp, so there is no
-# teardown to do here beyond the legacy checkout and data directory it does not know about.
-curl -fsSL "$REPO_RAW" | bash -s -- \\
-    --node "$node" --hub-url "$HUB_URL" --secret "$SECRET" $TARGETS_ARG
-
-echo "-- removing pre-zipapp leftovers"
-rm -rf /opt/smokemon
+echo "-- forcing everything smokemon off this box first"
+# Deliberately a purge rather than trusting the installer's own teardown. An install that
+# starts from a known-empty box has one outcome; an install layered onto whatever the previous
+# version left behind has as many outcomes as there are previous versions.
+systemctl stop 'smokemon*' 2>/dev/null || true
+for u in \$(systemctl list-unit-files --no-legend 'smokemon*' 2>/dev/null | awk '{print \$1}'); do
+    systemctl disable "\$u" 2>/dev/null || true
+done
+rm -f /etc/systemd/system/smokemon*.service /etc/systemd/system/smokemon*.timer
+rm -f /etc/systemd/system/*.wants/smokemon*
+systemctl daemon-reload
+# A unit deleted while failed leaves a "not-found failed" entry that shows up in list-units
+# forever and matches any health check grepping for failures.
+systemctl reset-failed 'smokemon*' 2>/dev/null || true
+pkill -f 'smokemon' 2>/dev/null || true
+rm -rf /opt/smokemon /usr/local/lib/smokemon.pyz /usr/local/bin/smoke /usr/local/bin/smokeincidents
+rm -f /etc/profile.d/smokemon.sh
 # Old node databases. Nothing the previous schema wrote is readable by the current code, and
 # the set-aside copies occupy exactly the SD-card space this design exists to save. Guarded on
 # data/ rather than globbing rm -rf across every home: a coincidentally named ~/smokemon that
@@ -166,6 +175,14 @@ for d in /root/smokemon /home/*/smokemon; do
     echo "   removing \$d"
     rm -rf "\$d"
 done
+rm -rf /var/lib/smokemon
+
+echo "-- installing"
+# Cache-busted. raw.githubusercontent caches for 300 s per CDN edge, so an install run shortly
+# after a push can silently fetch the previous installer -- which is exactly how the last
+# attempt appeared to succeed while applying none of the changes it was meant to.
+curl -fsSL "$REPO_RAW?cb=\$(date +%s)" | bash -s -- \\
+    --node "$node" --hub-url "$HUB_URL" --secret "$SECRET" $TARGETS_ARG
 
 echo "-- verification"
 sleep 3

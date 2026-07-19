@@ -134,7 +134,11 @@ if [ "$MODE" = "hub" ]; then
     unit smokemon-hub.service
     install -m 755 "$SRC/scripts/fleet-reprovision.sh" /usr/local/bin/smokemon-fleet
     systemctl daemon-reload
-    systemctl enable --now smokemon-hub.service
+    systemctl enable smokemon-hub.service
+    # restart, not `enable --now`: on a box that already runs smokemon, --now sees an active
+    # unit and does nothing, so a reinstall silently leaves the OLD agent running against the
+    # new files. Every install must end with the code that was just written actually executing.
+    systemctl restart smokemon-hub.service
     IP="$(tailscale ip -4 2>/dev/null | head -1 || hostname -I | awk '{print $1}')"
     cat <<EOF
 
@@ -150,7 +154,8 @@ EOF
 else
     unit smokemon.service
     systemctl daemon-reload
-    systemctl enable --now smokemon.service
+    systemctl enable smokemon.service
+    systemctl restart smokemon.service   # see the hub branch: --now would not replace a running agent
     echo
     echo "==> node running.  journalctl -u smokemon -f   |   smoke incidents"
     [ -z "$HUB_URL" ] && echo "    (no --hub-url given: running standalone, shipping nothing)"
