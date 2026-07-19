@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Wipe every trace of an older smokemon from a set of hosts and install the current code.
+# Reinstall the current smokemon code on a set of hosts: binary and units are always replaced,
+# the local database is preserved unless --purge-data is passed (see below).
 #
 # This is deliberately a reprovision, not an update. Two reasons a plain `update.sh` will not
 # work here:
@@ -17,6 +18,16 @@
 # From anywhere else, pass --secret S explicitly.
 #
 # Destructive steps require --yes. Without it the script prints exactly what it would run.
+#
+# /var/lib/smokemon (the node's local DB) is preserved by default -- only the binary and unit
+# files are replaced. Pass --purge-data for a genuine from-scratch reprovision (a node still
+# carrying a truly old, incompatible schema; a corrupted local DB). Routine reruns -- e.g. an
+# hourly "make sure the fleet has current code" cron -- must NOT wipe it: the hub dedupes
+# shipped rows on (node, src_id), and src_id is the node's local autoincrement id. Wiping the
+# DB resets that counter to 1 while the hub still remembers the node's old high-water mark, so
+# every row shipped after the wipe collides with old history and is silently dropped by
+# INSERT OR IGNORE -- heartbeats included, which is why a purged node reads "unknown" on the
+# dashboard for as long as it takes its fresh ids to climb back past where they left off.
 set -euo pipefail
 
 HUB_URL="${SMOKEMON_HUB_URL:-http://100.127.203.7:8765/ingest}"
@@ -28,6 +39,7 @@ REPO_RAW="${SMOKEMON_REPO_RAW:-https://raw.githubusercontent.com/oovets/smokemon
 JOBS=4
 YES=0
 LIMIT=0
+PURGE_DATA=0
 TARGETS_ARG=""
 # Index-aligned. NAMES is what the node is called on the hub; ADDRS is how we reach it. They
 # are kept apart on purpose: SSH goes to the Tailscale IP, which works whether or not MagicDNS
@@ -167,7 +179,8 @@ while [ $# -gt 0 ]; do
         --jobs)        JOBS="$2"; shift 2 ;;
         --limit)       LIMIT="$2"; shift 2 ;;
         --yes)         YES=1; shift ;;
-        -h|--help)     sed -n '2,22p' "$0"; exit 0 ;;
+        --purge-data)  PURGE_DATA=1; shift ;;
+        -h|--help)     sed -n '2,28p' "$0"; exit 0 ;;
         -*)            die "unknown option: $1" ;;
         *)             add_host "$1"; shift ;;
     esac
@@ -241,6 +254,12 @@ fi
 HOUSEKEEPING
 }
 
+# Baked into the per-host heredoc below (unquoted, so $PURGE_LINE expands to its value at
+# construction time, not on the remote end) rather than an `if` in the remote script itself --
+# PURGE_DATA is one global flag for the whole run, so there is nothing to branch on remotely.
+PURGE_LINE=":"
+[ "$PURGE_DATA" = 1 ] && PURGE_LINE="rm -rf /var/lib/smokemon"
+
 # The remote teardown + verification, run under sudo bash. install.sh itself is scp'd up
 # separately and invoked by path -- embedding a few hundred lines of it inside a heredoc was
 # fragile to quote and added nothing an ordinary file copy does not already do better.
@@ -283,7 +302,7 @@ for d in /root/smokemon /home/*/smokemon; do
     echo "   removing \$d"
     rm -rf "\$d"
 done
-rm -rf /var/lib/smokemon
+$PURGE_LINE
 
 echo "-- installing"
 bash /tmp/smokemon-install.sh --node "$node" --hub-url "$HUB_URL" --secret "$SECRET" $TARGETS_ARG
