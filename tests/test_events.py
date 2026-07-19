@@ -83,8 +83,7 @@ def test_uid_passes_through_trip_edge_and_counter(node_db):
                    detail_fn=lambda d: f"{d} new")           # first sight: seeds silently
     events.counter(node_db, "oom", 2, source="host", severity="crit", event="oom-kill",
                    detail_fn=lambda d: f"{d} new", uid="uid-3")
-    uids = {event: uid for (event, uid) in
-            node_db.execute("SELECT event,uid FROM ext_events ORDER BY id").fetchall()}
+    uids = dict(node_db.execute("SELECT event,uid FROM ext_events ORDER BY id").fetchall())
     assert uids == {"overtemp": "uid-1", "http-error": "uid-2", "oom-kill": "uid-3"}
 
 

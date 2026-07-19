@@ -20,8 +20,7 @@ import sqlite3
 import sys
 import time
 
-from . import (baseline, config, core, detect, events, governor, heartbeat, incidents, prune,
-               schema, ship)
+from . import baseline, config, core, detect, events, governor, heartbeat, incidents, prune, schema, ship
 from .probes import host, inventory, logexcerpt, net, ping, wifi
 
 # How often to consider shipping -- not how often we ship. ship.tick() sends when an elevated

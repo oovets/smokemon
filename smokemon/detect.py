@@ -261,9 +261,8 @@ def incident_key(signal: str, entity: str) -> str:
 def _breach(value: float, rule: Rule, thresh: float | None, z: float | None) -> bool:
     """Trip test. Absolute OR z, never AND: z is the addition that gives per-node context, not
     a second hurdle. A rule with one side None degenerates cleanly to the other."""
-    if thresh is not None:
-        if (value > thresh) if rule.direction == "+" else (value < thresh):
-            return True
+    if thresh is not None and ((value > thresh) if rule.direction == "+" else (value < thresh)):
+        return True
     if z is not None and rule.trip_z is not None:
         return (z > rule.trip_z) if rule.direction == "+" else (z < -rule.trip_z)
     return False
@@ -314,9 +313,9 @@ def evaluate(signal: str, entity: str = "", value: float | None = None,
 
     b = baseline.get(signal, entity)
     z = None
-    if rule.kind in Z_ELIGIBLE and (rule.trip_z is not None or rule.dynamic):
-        if b.ready(rule.min_baseline_n):
-            z = b.z(value, rule.abs_floor, rule.rel_floor)
+    if (rule.kind in Z_ELIGIBLE and (rule.trip_z is not None or rule.dynamic)
+            and b.ready(rule.min_baseline_n)):
+        z = b.z(value, rule.abs_floor, rule.rel_floor)
     trip_t, clear_t = _thresholds(rule, b)
 
     breaching = _breach(value, rule, trip_t, z)

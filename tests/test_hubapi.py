@@ -321,7 +321,10 @@ def test_dashboard_is_served_from_disk_and_is_packaged():
     module, unlintable, and testable only by asserting substrings. It is a file now, so this
     checks the two things that can actually break: that it is present, and that packaging
     ships it (without package-data an installed hub serves the missing-file fallback)."""
-    import tomllib
+    try:
+        import tomllib  # stdlib on 3.11+
+    except ModuleNotFoundError:
+        import tomli as tomllib  # backport, dev-only dep (see pyproject.toml)
 
     asset = Path(hubapi.__file__).with_name("static") / "dashboard.html"
     assert asset.exists(), "dashboard.html is missing from the source tree"

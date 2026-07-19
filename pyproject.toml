@@ -29,7 +29,7 @@ classifiers = [
 dependencies = []  # stdlib only, everywhere: node, shipper, hub and CLI alike.
 
 [project.optional-dependencies]
-dev = ["pytest>=7", "ruff>=0.5"]
+dev = ["pytest>=7", "ruff>=0.5", "tomli>=2; python_version < '3.11'"]
 docs = ["mkdocs-material>=9.5"]
 
 [project.scripts]
