@@ -48,14 +48,24 @@ fi
     echo "a --hub-url needs a --secret (the one the hub printed)." >&2; exit 1; }
 
 echo "==> deps"
-apt-get update -qq
-if [ "$MODE" = "hub" ]; then
-    apt-get install -y --no-install-recommends python3 curl >/dev/null
+# fping is the ping probe, iw reads wifi RSSI. That is the entire node dependency list.
+if [ "$MODE" = "hub" ]; then NEED="python3 curl"; else NEED="python3 curl fping iw"; fi
+MISSING=""
+for c in $NEED; do command -v "$c" >/dev/null 2>&1 || MISSING="$MISSING $c"; done
+if [ -n "$MISSING" ]; then
+    echo "   installing:$MISSING"
+    apt-get update -qq
+    apt-get install -y --no-install-recommends $MISSING >/dev/null
 else
-    # fping is the ping probe, iw reads wifi RSSI. That is the entire node dependency list.
-    apt-get install -y --no-install-recommends python3 curl fping iw >/dev/null
+    # `apt-get update` alone is 10-30 s and dominates a reinstall. Nothing here changes often
+    # enough to pay that on every run; a deploy should be seconds, or it stops being rerun.
+    echo "   already present"
+fi
+if [ "$MODE" != "hub" ]; then
     bin="$(command -v fping || true)"
-    [ -n "$bin" ] && setcap cap_net_raw+ep "$bin" 2>/dev/null && echo "    setcap $bin" || true
+    if [ -n "$bin" ] && ! getcap "$bin" 2>/dev/null | grep -q cap_net_raw; then
+        setcap cap_net_raw+ep "$bin" 2>/dev/null && echo "    setcap $bin" || true
+    fi
 fi
 
 echo "==> building agent from $REPO@$BRANCH"

@@ -38,7 +38,15 @@ ADDRS=()
 die() { echo "error: $*" >&2; exit 1; }
 log() { printf '%s\n' "$*" >&2; }
 
-add_host() { NAMES+=("$1"); ADDRS+=("${2:-$1}"); }
+add_host() {
+    # "name=addr" separates what the node is called on the hub from how we reach it, for a box
+    # whose tailnet name does not resolve from here or that is quicker to reach over the LAN.
+    # A bare "host" means both.
+    case "$1" in
+        *=*) NAMES+=("${1%%=*}"); ADDRS+=("${1#*=}") ;;
+        *)   NAMES+=("$1");       ADDRS+=("${2:-$1}") ;;
+    esac
+}
 
 from_tailscale() {  # from_tailscale PATTERN
     command -v tailscale >/dev/null 2>&1 || die "tailscale not found; use --hosts-file instead"
@@ -261,10 +269,19 @@ done
 # writes nothing but its heartbeat, so give it one heartbeat interval plus slack to appear.
 log ""
 log "waiting for nodes to appear on the hub (first heartbeat is up to 5 min away)"
-deadline=$(( $(date +%s) + 420 ))
+START="$(date +%s)"
+deadline=$(( START + 420 ))
 while [ "$(date +%s)" -lt "$deadline" ]; do
+    # Only nodes whose newest heartbeat postdates the rollout count. Asking merely "is this
+    # node known to the hub" passes for a host that was already reporting before we touched
+    # it, so a reinstall that never ran -- an unreachable box, a failed ssh -- reports success.
     seen="$(curl -fsS --max-time 10 "$HUB_API/api/fleet" 2>/dev/null \
-            | python3 -c 'import json,sys;print(" ".join(n["node"] for n in json.load(sys.stdin).get("fleet",[])))' 2>/dev/null || true)"
+            | START="$START" python3 -c '
+import json, os, sys
+cut = float(os.environ["START"])
+d = json.load(sys.stdin)
+print(" ".join(n["node"] for n in d.get("fleet", [])
+                if (n.get("heartbeat") or {}).get("ts", 0) >= cut))' 2>/dev/null || true)"
     missing=()
     for h in "${NAMES[@]}"; do
         case " $seen " in *" $h "*) ;; *) missing+=("$h") ;; esac
