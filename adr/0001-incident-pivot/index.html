@@ -1,0 +1,882 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="incident-centric network + host monitoring for the edge — anomalies detected on-node, only incidents and their evidence stored, in stdlib python and ~30 mb of ram. no cloud, no dependencies, nothing to install but python.">
+      
+      
+      
+        <link rel="canonical" href="https://oovets.github.io/smokemon/adr/0001-incident-pivot/">
+      
+      
+        <link rel="prev" href="../../detector-spec/">
+      
+      
+        <link rel="next" href="../../CONTRIBUTING/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>incident pivot (adr) - smokemon</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=JetBrains+Mono:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"JetBrains Mono";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../extra.css">
+    
+      <link rel="stylesheet" href="https://stevoo.net/theme.css">
+    
+      <link rel="stylesheet" href="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="green">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#0001-incident-centric-storage" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="/" title="smokemon" class="md-header__button md-logo" aria-label="smokemon" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            smokemon
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              incident pivot (adr)
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="/" title="smokemon" class="md-nav__button md-logo" aria-label="smokemon" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    smokemon
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    readme
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../QUICKSTART.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../INSTALL/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    install
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../package/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    package
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../probes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    probes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../detector-spec/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    detector
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    incident pivot (adr)
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    incident pivot (adr)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#context" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Context
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#decision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Decision
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#five-load-bearing-design-decisions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Five load-bearing design decisions
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Five load-bearing design decisions">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#d1-incidents-is-an-append-only-transition-log" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D1 — incidents is an append-only transition log
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#d2-uid-is-a-content-key-not-a-foreign-key" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D2 — uid is a content key, not a foreign key
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#d3-node-local-mutable-state-is-kept-out-of-schema_body" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D3 — node-local mutable state is kept out of schema._BODY
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#d4-monotonic-clock-for-logic-wall-clock-for-storage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D4 — monotonic clock for logic, wall clock for storage
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#d5-detectevaluate-returns-declarative-actions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D5 — detect.evaluate returns declarative actions
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#consequences" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Consequences
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#invariants" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Invariants
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../CHANGELOG.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../CONTRIBUTING/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../SECURITY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="0001-incident-centric-storage">0001 — Incident-centric storage<a class="headerlink" href="#0001-incident-centric-storage" title="Permanent link">&para;</a></h1>
+<p>Status: accepted
+Date: 2026-07</p>
+<hr />
+<h2 id="context">Context<a class="headerlink" href="#context" title="Permanent link">&para;</a></h2>
+<p>Smokemon stored continuous time series. Every probe wrote every sample: <code>ping_rtts</code> alone
+produced roughly 345 000 rows a day per node, and all of it was shipped to the hub, where
+anomaly detection ran after the fact as SQL over the accumulated history.</p>
+<p>The cost was not primarily storage. It was four things at once:</p>
+<ul>
+<li><strong>Write budget.</strong> The nodes are Raspberry Pis and Jetsons on SD cards and eMMC. A monitoring
+  agent that writes continuously spends a finite flash-write budget on recording that nothing
+  happened.</li>
+<li><strong>Ship volume.</strong> Raw per-ping rows were about 85% of wire traffic, and the hub had no reader
+  for them; they had already been reduced to percentiles before anything looked at them.</li>
+<li><strong>Hub-side detection.</strong> Anomaly rules ran as SQL over a window on the hub. A window median
+  used as a baseline is poisonable by an incident sitting inside that same window, and every
+  rule's sensitivity silently depended on the sampling rate of whatever probe produced the data.</li>
+<li><strong>Rollups.</strong> <code>_1m</code>/<code>_1h</code> downsampling existed only to make long windows of dense data cheap
+  to query — infrastructure whose entire purpose was to manage a problem we had created.</li>
+</ul>
+<p>More importantly it conflicted with the project's own stated design principles. Smokemon's
+premise is that the observer must cost less than what it explains, and that detail should
+degrade gracefully rather than the footprint overrunning target. Storing normal operation
+forever is the opposite: it is noise, retained at full fidelity, at permanent cost, on the
+assumption that some future question might want it.</p>
+<h2 id="decision">Decision<a class="headerlink" href="#decision" title="Permanent link">&para;</a></h2>
+<p>Change what the system considers valuable information.</p>
+<blockquote>
+<p>Observe continuously. Persist selectively. Ship evidence. Forget noise.</p>
+</blockquote>
+<p>Normal operation becomes ephemeral. Deviation becomes durable. The <strong>incident</strong> becomes the
+primary data model.</p>
+<p>Concretely:</p>
+<ul>
+<li>Probes sample and hand values to a detector; they no longer decide anything and no longer
+  write sample rows.</li>
+<li>Normal operation lives in a bounded in-memory ring (<code>signals.py</code>) and is never written.</li>
+<li>Only confirmed incident state transitions reach disk, plus a decimated evidence window
+  captured around each one.</li>
+<li>A healthy node's only periodic disk write is the heartbeat.</li>
+<li>Detection moves to the node, online, in <code>detect.py</code>. The hub reduces and reports; it no
+  longer decides.</li>
+<li><code>rollup.py</code> and its tables are deleted — without dense data there is nothing to roll up.</li>
+</ul>
+<p>The operational reference for the detector — rule table, state machine, baseline, env vars —
+is <a href="../../detector-spec/"><code>docs/detector-spec.md</code></a>.</p>
+<h2 id="five-load-bearing-design-decisions">Five load-bearing design decisions<a class="headerlink" href="#five-load-bearing-design-decisions" title="Permanent link">&para;</a></h2>
+<p>These are the ones that, if reversed, break the system rather than merely change it.</p>
+<h3 id="d1-incidents-is-an-append-only-transition-log">D1 — <code>incidents</code> is an append-only transition log<a class="headerlink" href="#d1-incidents-is-an-append-only-transition-log" title="Permanent link">&para;</a></h3>
+<p>Forced by the shipper. <code>ship.gather()</code> walks each table with a strict monotonic rowid cursor
+and the hub inserts with <code>INSERT OR IGNORE</code>. An <code>UPDATE</code> to an already-shipped row changes no
+rowid, so <strong>the hub would never see it</strong> — the incident would close on the node and stay open
+on the hub forever.</p>
+<p>So the lifecycle is expressed as separate rows sharing a <code>uid</code>
+(<code>open|reopen|close|stale|expired|persistent</code>), and the hub reduces per <code>(node, uid)</code>. There is
+no "current row" to select; every read does the reduction.</p>
+<p>The constraint and the right design happen to agree. An append-only log also buys replay,
+idempotence, readable history, and correct handling of late arrival for free.</p>
+<h3 id="d2-uid-is-a-content-key-not-a-foreign-key">D2 — <code>uid</code> is a content key, not a foreign key<a class="headerlink" href="#d2-uid-is-a-content-key-not-a-foreign-key" title="Permanent link">&para;</a></h3>
+<p>Child rows (<code>incident_samples</code>, <code>log_excerpts</code>) key on the node-generated
+<code>uid TEXT</code>, never on a local rowid. <code>hub._insert_std</code> remaps ids for one legacy table only; a
+rowid foreign key would be meaningless on the hub and would recreate the <code>ping_rtts</code> bug where
+redelivered children were silently dropped.</p>
+<p>Because <code>uid</code> is derived from content (<code>sha1(key|opened_wall)</code>), a sample that arrives before
+its parent transition is an unjoined-but-valid row that completes when the parent lands. The
+loaders are written to exploit this: <code>query.load_incident_samples</code> queries
+<code>incident_samples</code> <strong>alone</strong> and never joins, because a join would hide exactly the rows that
+prove what happened. <code>hubapi.hub_health</code> promotes the orphan count to a first-class metric —
+a steady trickle is normal, a growing backlog of old orphans means transition rows are being
+lost and every incident view is quietly incomplete.</p>
+<h3 id="d3-node-local-mutable-state-is-kept-out-of-schema_body">D3 — node-local mutable state is kept out of <code>schema._BODY</code><a class="headerlink" href="#d3-node-local-mutable-state-is-kept-out-of-schema_body" title="Permanent link">&para;</a></h3>
+<p>Membership in <code>_BODY</code> <em>is</em> the ship switch. Anything mutable — <code>incident_state</code>,
+<code>signal_baseline</code>, <code>log_cursors</code> — is declared by its owning module instead, so the shipper
+never sees it. This follows the <code>log_cursors</code> precedent and is what makes D1 tenable: the
+append-only log is what ships, the mutable working state stays home.</p>
+<h3 id="d4-monotonic-clock-for-logic-wall-clock-for-storage">D4 — monotonic clock for logic, wall clock for storage<a class="headerlink" href="#d4-monotonic-clock-for-logic-wall-clock-for-storage" title="Permanent link">&para;</a></h3>
+<p>A hard boundary in the implementation. Every duration the detector reasons about — debounce,
+hysteresis hold, cooldown, staleness — is measured on <code>time.monotonic()</code>. Wall clock is carried
+alongside purely so stored rows have a timestamp a human can read.</p>
+<p>Pi and Jetson nodes NTP-step at boot, routinely by hours, and a node with a dead RTC boots to
+1970. That is the normal state, not the exception. A debounce measured on wall clock would
+either fire on the first sample or never. The one place wall clock enters the logic is
+<code>INCIDENT_MAX_OPEN_S</code> in <code>sweep()</code>, which compares against the persisted <code>opened_wall</code> because
+it must survive a restart; <code>detect.restore</code> re-seeds monotonic timers from wall clock and
+treats negative arithmetic (the clock stepped backwards while we were down) as a freshly
+started timer — failing toward a longer debounce, never toward a spurious incident.</p>
+<h3 id="d5-detectevaluate-returns-declarative-actions">D5 — <code>detect.evaluate</code> returns declarative actions<a class="headerlink" href="#d5-detectevaluate-returns-declarative-actions" title="Permanent link">&para;</a></h3>
+<p><code>detect.py</code> never touches SQLite. <code>evaluate()</code> returns a list of <code>Action</code> namedtuples
+describing what should be persisted; <code>incidents.py</code> decides how, and owns the transaction
+boundary.</p>
+<p>Policy code — thresholds, debounce, hysteresis, reopen semantics — is the single largest
+future complexity risk in this system. Keeping it in a pure function makes the entire state
+machine testable against synthetic sample sequences with no database at all, which is the only
+way it stays honest as rules accumulate.</p>
+<p>The split also has a second edge: <code>detect</code> never decides incident <em>identity</em>. Whether an <code>open</code>
+continues an existing <code>uid</code> or mints a new one is the reopen policy, which lives in
+<code>incidents.py</code> next to the persisted <code>closed_wall</code> it needs.</p>
+<h2 id="consequences">Consequences<a class="headerlink" href="#consequences" title="Permanent link">&para;</a></h2>
+<p><strong>What this buys.</strong> A healthy node writes one heartbeat row per interval and nothing else. Ship
+volume drops by the entire weight of normal operation. Detection is per-node and rate-independent:
+a rule expressed in seconds behaves identically whatever cadence the probe samples at. The
+baseline is per-node, so "90 ms is fine behind this 4G modem and a fault on that fibre link" is
+expressible for the first time. Rollups, and the aggregation bugs that came with them, are gone.</p>
+<p><strong>What you can no longer do — and this is the real cost.</strong></p>
+<p><em>You cannot retro-analyse what you had no rule for.</em> If a signal degrades in a way no rule
+describes, there is no stored data to go back to. Previously you could ask a new question of
+old data; now you can only ask questions you already knew to ask. Adding a rule starts
+collecting evidence from that moment forward and never backward.</p>
+<p>This is a deliberate trade, not an oversight. The retained history was overwhelmingly not used
+for retrospective discovery — it was used to answer "what happened during this incident", which
+the evidence window answers better and for 0.01% of the rows. But the capability is genuinely
+gone, and the mitigations are partial:</p>
+<ul>
+<li><code>SMOKEMON_DETECT_DRYRUN=1</code> runs the full detector and logs what it <em>would</em> have written.
+  Run a node in that mode for a day to see the real incident rate before committing thresholds.</li>
+<li>Every incident row stores <code>threshold</code>/<code>baseline</code>/<code>baseline_mad</code>/<code>z</code> <strong>as evaluated</strong>, plus a
+  <code>rule_hash</code>, so an old incident stays interpretable after a rule change. The raw data that
+  would otherwise let you re-derive them no longer exists, so it has to be stamped at the time.</li>
+</ul>
+<p><strong>Other consequences.</strong></p>
+<ul>
+<li>Each incident costs a bounded number of rows regardless of duration. A three-day outage and a
+  three-minute one cost about the same. This is a feature, but it means a long incident's middle
+  is sparse by construction.</li>
+<li>A crash loses up to <code>BASELINE_FLUSH_S</code> of learning. <code>n</code> can go backwards and warmup can
+  lengthen after a restart.</li>
+<li>ARMED is never persisted, so an unconfirmed anomaly does not survive a restart and its
+  debounce starts over. That is the intended price of refusing to write candidates to disk.</li>
+<li>The hub can no longer draw a chart of normal operation, because normal operation is not
+  recorded anywhere. <code>hubapi.prometheus</code> deliberately exports no per-signal gauges: synthesising
+  a series from incident windows would export a chart made only of the bad moments — worse than
+  exporting nothing, because it would look complete.</li>
+<li>Old per-probe tables must be actively pruned or dropped; they do not disappear on upgrade.</li>
+</ul>
+<h2 id="invariants">Invariants<a class="headerlink" href="#invariants" title="Permanent link">&para;</a></h2>
+<p>The contract. Each has at least one test.</p>
+<ol>
+<li>Normal operation never writes signal samples to disk.</li>
+<li>ARMED never survives a restart.</li>
+<li>A confirmed incident always gets an append-only <code>open</code> transition.</li>
+<li>A transition and its node-local state change happen in the <strong>same SQLite transaction</strong>.</li>
+<li>All distributed relations use <code>uid</code>, never local rowids.</li>
+<li>All shipping goes through the same cursor and retry mechanism.</li>
+<li>Evidence may fail without the incident failing.</li>
+<li>The baseline updates only in OK.</li>
+<li><strong>Absolute safety rules are never trained away by expiry.</strong></li>
+<li>Memory use is hard-bounded by <code>SIGNAL_MAX</code> × <code>SIGNAL_RING</code>.</li>
+<li>Every incident has a maximum number of persisted sample rows.</li>
+<li>The hub never reads the absence of a <code>close</code> as evidence the fault persists.</li>
+<li>Old tables must be actively pruned or dropped.</li>
+<li>The same shipment may safely be delivered more than once.</li>
+<li>Late arrival never changes correctness.</li>
+</ol>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.top", "navigation.sections", "content.code.copy", "toc.integrate"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.js"></script>
+      
+        <script src="https://stevoo.net/map.js"></script>
+      
+    
+  </body>
+</html>

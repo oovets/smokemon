@@ -1,0 +1,681 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="incident-centric network + host monitoring for the edge — anomalies detected on-node, only incidents and their evidence stored, in stdlib python and ~30 mb of ram. no cloud, no dependencies, nothing to install but python.">
+      
+      
+      
+        <link rel="canonical" href="https://oovets.github.io/smokemon/">
+      
+      
+      
+        <link rel="next" href="INSTALL/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>smokemon</title>
+      
+    
+    
+      <link rel="stylesheet" href="assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=JetBrains+Mono:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"JetBrains Mono";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="extra.css">
+    
+      <link rel="stylesheet" href="https://stevoo.net/theme.css">
+    
+      <link rel="stylesheet" href="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.css">
+    
+    <script>__md_scope=new URL(".",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="green">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#smokemon" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="/" title="smokemon" class="md-header__button md-logo" aria-label="smokemon" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            smokemon
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              readme
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="/" title="smokemon" class="md-nav__button md-logo" aria-label="smokemon" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    smokemon
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+      <a href="." class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    readme
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="QUICKSTART.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="INSTALL/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    install
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="package/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    package
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="probes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    probes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="detector-spec/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    detector
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="adr/0001-incident-pivot/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    incident pivot (adr)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="CHANGELOG.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="CONTRIBUTING/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="SECURITY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="smokemon">Smokemon<a class="headerlink" href="#smokemon" title="Permanent link">&para;</a></h1>
+<p><a href="https://oovets.github.io/smokemon/"><img alt="Docs" src="https://img.shields.io/badge/docs-mkdocs--material-blue.svg" /></a>
+<a href="https://github.com/oovets/smokemon/blob/main/LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
+<a href="https://github.com/oovets/smokemon/blob/main/pyproject.toml"><img alt="Python 3.10+" src="https://img.shields.io/badge/python-3.10%2B-blue.svg" /></a>
+<a href="https://github.com/astral-sh/ruff"><img alt="Code style: ruff" src="https://img.shields.io/badge/code%20style-ruff-261230.svg" /></a>
+<a href="https://github.com/oovets/smokemon/blob/main/pyproject.toml"><img alt="Core deps: zero" src="https://img.shields.io/badge/core%20deps-zero%20%28stdlib%29-brightgreen.svg" /></a></p>
+<blockquote>
+<p><strong>Observability that remembers only what matters.</strong></p>
+<p><em>What if the computer decided what was worth remembering before writing anything to disk?</em></p>
+</blockquote>
+<p>Modern observability platforms collect everything.</p>
+<p>Every ping, every metric, every log line, every sample. They store millions of data points in the hope that, one day, someone might need them.</p>
+<p>Most of those data points describe perfectly healthy systems. The absence of incidents is <strong>not</strong> data worth keeping.</p>
+<p>Smokemon starts from a different assumption. Like a smoke detector, Smokemon stays quiet while everything is healthy. It reacts when something deserves attention. Healthy nodes are simply counted. Unhealthy nodes are explained.</p>
+<blockquote>
+<p><strong>Healthy systems are not interesting. Failures are.</strong></p>
+</blockquote>
+<p>Instead of building an ever-growing history of normal operation, Smokemon continuously observes the system in memory and asks a single question:</p>
+<blockquote>
+<p><strong>Has something meaningful happened?</strong></p>
+</blockquote>
+<p>If the answer is <strong>no</strong>, nothing is stored.</p>
+<p>If the answer is <strong>yes</strong>, Smokemon captures the incident, the observations that led to it, the recovery, and just enough evidence to explain what happened.</p>
+<p>The result is an observability agent that measures continuously but persists selectively.</p>
+<hr />
+<h1 id="a-different-model">A different model<a class="headerlink" href="#a-different-model" title="Permanent link">&para;</a></h1>
+<p>Traditional monitoring assumes storage comes first.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>Observe ───► Collect ───► Store ───► Aggregate ───► Search ───► Explain
+</code></pre></div>
+<p>Smokemon works a little bit different.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>Observe ───► Understand ───► Incident? ───► Capture ───► Remember
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>                              │
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>                              └────────────► Forget
+</code></pre></div>
+<p>The incident, <strong>not the metric</strong>, should be the primary unit of information.</p>
+<hr />
+<h1 id="why">Why?<a class="headerlink" href="#why" title="Permanent link">&para;</a></h1>
+<p>Healthy systems generate an enormous amount of operational data.</p>
+<p>Most of it exists only to prove that nothing happened.</p>
+<p>Keeping months of healthy ping times, CPU percentages, temperatures, network counters and log entries is expensive, not only in storage, but also in CPU time, memory, write amplification and network traffic.</p>
+<p>Smokemon treats normal operation as transient.</p>
+<p>A small rolling memory window is enough until something deserves to be remembered.</p>
+<p>The goal is not to build the largest historical database.</p>
+<p>The goal is to preserve enough evidence to explain failure.</p>
+<hr />
+<h1 id="what-gets-stored">What gets stored?<a class="headerlink" href="#what-gets-stored" title="Permanent link">&para;</a></h1>
+<p>When an incident is confirmed, Smokemon persists only what is needed to explain it.</p>
+<ul>
+<li>The transition that opened the incident</li>
+<li>The value that triggered it</li>
+<li>The recent baseline</li>
+<li>A bounded pre-incident window</li>
+<li>A bounded set of samples during the incident</li>
+<li>Recovery</li>
+<li>Optional evidence (log excerpts, events, snapshots)</li>
+</ul>
+<p>When nothing happens, <strong>nothing is written.</strong></p>
+<hr />
+<h1 id="design-philosophy">Design philosophy<a class="headerlink" href="#design-philosophy" title="Permanent link">&para;</a></h1>
+<p>Smokemon is built around a few simple principles.</p>
+<ol>
+<li>Every byte must justify itself.</li>
+<li>Every sample should answer a question.</li>
+<li>Collect evidence, not exhaust.</li>
+<li>Ship conclusions before raw data.</li>
+<li>Degrade gracefully under resource pressure.</li>
+<li>Measure the cost of measuring.</li>
+<li>Every feature must justify its lifetime.</li>
+</ol>
+<p>These principles influence every architectural decision from bounded in-memory buffers to append-only incident records.</p>
+<hr />
+<h1 id="built-for-the-edge">Built for the edge<a class="headerlink" href="#built-for-the-edge" title="Permanent link">&para;</a></h1>
+<p>Smokemon was designed for environments where observability itself must be inexpensive.</p>
+<p>Single-board computers, embedded Linux systems, remote gateways and resource-constrained servers cannot afford an agent that continuously writes to disk, grows databases indefinitely or ships every observation across the network.</p>
+<p>Instead, Smokemon keeps its own footprint bounded.</p>
+<ul>
+<li>Memory usage is fixed.</li>
+<li>Disk writes are event-driven.</li>
+<li>Network traffic grows with incidents—not uptime.</li>
+<li>Normal operation lives in memory.</li>
+<li>Only meaningful events become history.</li>
+</ul>
+<p>The observer should never become the workload.</p>
+<hr />
+<h1 id="what-smokemon-is-not">What Smokemon is not<a class="headerlink" href="#what-smokemon-is-not" title="Permanent link">&para;</a></h1>
+<p>Smokemon is <strong>NOT</strong>:</p>
+<ul>
+<li>a metrics database</li>
+<li>a log management platform</li>
+<li>a tracing system</li>
+<li>a dashboard framework</li>
+<li>a Prometheus replacement</li>
+</ul>
+<p>Those tools answer questions about <em>everything</em> and <em>anything</em> and drill down can be time consuming.</p>
+<p>Smokemon answers a different question:</p>
+<blockquote>
+<p><strong>Why did this system fail?</strong></p>
+</blockquote>
+<hr />
+<h1 id="design-principles">Design principles<a class="headerlink" href="#design-principles" title="Permanent link">&para;</a></h1>
+<p>Smokemon optimizes for understanding rather than retention.</p>
+<p>It assumes that the overwhelming majority of operational data has no long-term value. Healthy systems should not fill disks simply to prove that they remained healthy.</p>
+<p>Instead of remembering everything, Smokemon remembers what explains failure.</p>
+<blockquote>
+<p><strong>Remember the failures - Forget the noise.</strong></p>
+</blockquote>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>last updated: 2026-07-19 (commit b15160a)
+</code></pre></div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": ".", "features": ["navigation.top", "navigation.sections", "content.code.copy", "toc.integrate"], "search": "assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.js"></script>
+      
+        <script src="https://stevoo.net/map.js"></script>
+      
+    
+  </body>
+</html>

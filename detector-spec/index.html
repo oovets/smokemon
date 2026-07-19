@@ -1,0 +1,1943 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="incident-centric network + host monitoring for the edge — anomalies detected on-node, only incidents and their evidence stored, in stdlib python and ~30 mb of ram. no cloud, no dependencies, nothing to install but python.">
+      
+      
+      
+        <link rel="canonical" href="https://oovets.github.io/smokemon/detector-spec/">
+      
+      
+        <link rel="prev" href="../probes/">
+      
+      
+        <link rel="next" href="../adr/0001-incident-pivot/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>detector - smokemon</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=JetBrains+Mono:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"JetBrains Mono";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../extra.css">
+    
+      <link rel="stylesheet" href="https://stevoo.net/theme.css">
+    
+      <link rel="stylesheet" href="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="green">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#detector-specification" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="/" title="smokemon" class="md-header__button md-logo" aria-label="smokemon" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            smokemon
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              detector
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="/" title="smokemon" class="md-nav__button md-logo" aria-label="smokemon" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    smokemon
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    readme
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../QUICKSTART.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../INSTALL/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    install
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../package/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    package
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../probes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    probes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    detector
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    detector
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-signal-registry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The signal registry
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The signal registry">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-memory-bound-with-the-arithmetic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The memory bound, with the arithmetic
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#signal-kinds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Signal kinds
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-state-machine" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The state machine
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The state machine">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#transition-table" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Transition table
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#actions-stored-transitions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Actions → stored transitions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#trip-and-clear-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Trip and clear tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-rule-table" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The rule table
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The rule table">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#overrides" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overrides
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-baseline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The baseline
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The baseline">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#dt-derived-alpha" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        dt-derived alpha
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-mad-floor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The MAD floor
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-three-poison-defences" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The three poison defences
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flush-interval-and-the-restart-gap-trade-off" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Flush interval and the restart-gap trade-off
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reopen-policy-vs-cooldown" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reopen policy vs cooldown
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#expiry-absolute-vs-relative-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Expiry: absolute vs relative rules
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-decimation-ladder" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The decimation ladder
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#restart-semantics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Restart semantics
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#environment-variables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environment variables
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Environment variables">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#signal-registry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Signal registry
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#baseline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Baseline
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rules
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#incidents-and-evidence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Incidents and evidence
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#operation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Operation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#write-budget" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Write budget
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0001-incident-pivot/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    incident pivot (adr)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CHANGELOG.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CONTRIBUTING/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../SECURITY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="detector-specification">Detector specification<a class="headerlink" href="#detector-specification" title="Permanent link">&para;</a></h1>
+<p>The operational reference for the node-side detector: <code>signals.py</code>, <code>baseline.py</code>,
+<code>detect.py</code>, <code>incidents.py</code>.</p>
+<p>For <em>why</em> it works this way, see <a href="../adr/0001-incident-pivot/"><code>adr/0001-incident-pivot.md</code></a>.
+This document is the <em>what</em>: exact thresholds, exact transitions, exact defaults.</p>
+<hr />
+<h2 id="the-signal-registry">The signal registry<a class="headerlink" href="#the-signal-registry" title="Permanent link">&para;</a></h2>
+<p>A <strong>signal</strong> is a named scalar series a probe produces as a side effect of what it already
+computes: <code>(name, entity, value)</code>.</p>
+<ul>
+<li><code>name</code> is the rule namespace — <code>ping.loss</code>, <code>host.temp</code>, <code>disk.used_pct</code>.</li>
+<li><code>entity</code> is the per-instance discriminator — the ping target, the mount point, the interface.
+  The probe canonicalises it, so an interface alias or a mount-path variant does not silently
+  become a second signal with its own cold baseline.</li>
+</ul>
+<p>Each <code>(name, entity)</code> gets a fixed-capacity ring of <code>(wall, mono, value)</code> triples. This is the
+only place a sample lives while things are normal, and it is never written to disk.</p>
+<h3 id="the-memory-bound-with-the-arithmetic">The memory bound, with the arithmetic<a class="headerlink" href="#the-memory-bound-with-the-arithmetic" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>SIGNAL_MAX × SIGNAL_RING × 3 slots × 8 bytes
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>      48    ×      64    ×    3    ×    8     =  73 728 bytes  (72 KB)
+</code></pre></div>
+<p>Plus about 200 bytes per signal for the dict entry, the <code>Ring</code> object and three <code>array</code> headers:
+<code>48 × 200 = 9 600 bytes</code>. Steady-state ceiling ≈ <strong>83 KB</strong>.</p>
+<p>The three slots are three parallel <code>array('d')</code> — 8 bytes per element with no per-element Python
+object — rather than a deque of tuples, which would cost roughly 120 bytes per <code>(wall, value)</code>
+pair. That is the difference between ~83 KB and ~250 KB of RSS, and RSS is a number smokemon
+publishes about itself. The observer must not move the thing it measures.</p>
+<p>The bound is enforced <strong>in <code>signals.feed()</code></strong>, not trusted upstream: once <code>SIGNAL_MAX</code> distinct
+signals exist, feeding a new one is dropped. A node churning container names or interface
+aliases therefore cannot grow the registry. Dropping is a real loss of coverage, so
+<code>signals.drops()</code> is carried in the heartbeat and <code>should_warn_drops()</code> logs at most hourly —
+a node in that state drops every cycle, and an unthrottled warning would itself become the
+flood.</p>
+<p><code>SIGNAL_RING</code> (64) is roughly 10× <code>INCIDENT_PRE_SAMPLES</code> (6), so the same ring serves both the
+pre-incident evidence window and debounce evaluation without a second buffer.</p>
+<hr />
+<h2 id="signal-kinds">Signal kinds<a class="headerlink" href="#signal-kinds" title="Permanent link">&para;</a></h2>
+<p>The kind decides whether a robust-z rule is meaningful at all.</p>
+<table>
+<thead>
+<tr>
+<th>kind</th>
+<th>z-eligible</th>
+<th>why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>gauge</code></td>
+<td>yes</td>
+<td>continuous, has meaningful spread</td>
+</tr>
+<tr>
+<td><code>latency</code></td>
+<td>yes</td>
+<td>continuous, has meaningful spread</td>
+</tr>
+<tr>
+<td><code>ratio</code></td>
+<td>yes</td>
+<td>continuous, has meaningful spread</td>
+</tr>
+<tr>
+<td><code>capacity</code></td>
+<td>no</td>
+<td>absolute thresholds are the meaningful ones; z adds nothing to "disk is 92% full"</td>
+</tr>
+<tr>
+<td><code>counter_rate</code></td>
+<td>no</td>
+<td>zero-inflated and bursty; z produces confident nonsense</td>
+</tr>
+<tr>
+<td><code>binary</code></td>
+<td>no</td>
+<td><code>{0,1}</code> has no useful spread</td>
+</tr>
+<tr>
+<td><code>state</code></td>
+<td>no</td>
+<td>not ordered; a z-score over it is meaningless</td>
+</tr>
+</tbody>
+</table>
+<p><code>Z_ELIGIBLE = {gauge, latency, ratio}</code>. The restriction applies to the <strong>generic fallback
+rule</strong>, which is z-only. An explicit rule may still use absolute thresholds on any kind — that
+is how <code>disk.used_pct</code> (capacity) and <code>net.err_rate</code> (counter_rate) are monitored.</p>
+<p><strong>Consequence worth knowing:</strong> an unregistered signal whose kind is not z-eligible falls back
+to <code>FALLBACK._replace(trip_z=None, clear_z=None)</code> — which has no absolute threshold either, so
+it can never trip. A new counter/binary/state signal is effectively unmonitored until someone
+gives it an explicit rule. This is deliberate (better silent than confidently wrong) but it is
+not obvious from the outside.</p>
+<hr />
+<h2 id="the-state-machine">The state machine<a class="headerlink" href="#the-state-machine" title="Permanent link">&para;</a></h2>
+<p>Five states. <code>OK</code>, <code>ARMED</code>, <code>OPEN</code>, <code>CLOSING</code>, <code>COOLDOWN</code>.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>                 breach                for_s elapsed
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>        OK  ──────────────▶  ARMED  ──────────────────▶  OPEN
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>        ▲                      │                        │  ▲
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>        │       !breach        │                !breach  │  │ breach
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>        └──────────────────────┘                        ▼  │
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>                                                    CLOSING─┘
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>        ▲                                               │
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>        │  cooldown_s elapsed                           │ clearing, held clear_for_s
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>        │                                               ▼
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>        └───────────────────  COOLDOWN  ◀───────────────┘
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>                                  │
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>                                  └── breach ──▶ OPEN  (no ARMED phase)
+</code></pre></div>
+<h3 id="transition-table">Transition table<a class="headerlink" href="#transition-table" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>from</th>
+<th>condition</th>
+<th>to</th>
+<th>action written</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>OK</code></td>
+<td>breaching</td>
+<td><code>ARMED</code></td>
+<td>— (nothing is written)</td>
+</tr>
+<tr>
+<td><code>OK</code></td>
+<td>not breaching</td>
+<td><code>OK</code></td>
+<td>— (<strong>the one place the baseline learns</strong>)</td>
+</tr>
+<tr>
+<td><code>ARMED</code></td>
+<td>not breaching</td>
+<td><code>OK</code></td>
+<td>— (<strong>nothing is written; this is the flap filter</strong>)</td>
+</tr>
+<tr>
+<td><code>ARMED</code></td>
+<td>breaching, <code>mono − since ≥ for_s</code></td>
+<td><code>OPEN</code></td>
+<td><code>open</code></td>
+</tr>
+<tr>
+<td><code>ARMED</code></td>
+<td>breaching, hold not elapsed</td>
+<td><code>ARMED</code></td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>OPEN</code></td>
+<td>breaching</td>
+<td><code>OPEN</code></td>
+<td><code>sample</code> (phase <code>during</code>)</td>
+</tr>
+<tr>
+<td><code>OPEN</code></td>
+<td>not breaching</td>
+<td><code>CLOSING</code></td>
+<td><code>sample</code> (phase <code>during</code>)</td>
+</tr>
+<tr>
+<td><code>CLOSING</code></td>
+<td>breaching</td>
+<td><code>OPEN</code></td>
+<td><code>sample</code> (phase <code>during</code>) — <strong>flap absorber: a bouncing signal is ONE incident</strong></td>
+</tr>
+<tr>
+<td><code>CLOSING</code></td>
+<td>clearing, <code>mono − since ≥ clear_for_s</code></td>
+<td><code>COOLDOWN</code></td>
+<td><code>close</code></td>
+</tr>
+<tr>
+<td><code>CLOSING</code></td>
+<td>not clearing (inside the hysteresis band)</td>
+<td><code>CLOSING</code></td>
+<td>— (hold timer <strong>reset</strong>)</td>
+</tr>
+<tr>
+<td><code>CLOSING</code></td>
+<td>clearing, hold not elapsed</td>
+<td><code>CLOSING</code></td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>COOLDOWN</code></td>
+<td>breaching</td>
+<td><code>OPEN</code></td>
+<td><code>open</code> (see reopen policy)</td>
+</tr>
+<tr>
+<td><code>COOLDOWN</code></td>
+<td><code>mono − since ≥ cooldown_s</code></td>
+<td><code>OK</code></td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<p>Plus two age-based transitions from <code>sweep()</code>, which only considers <code>OPEN</code> and <code>CLOSING</code>:</p>
+<table>
+<thead>
+<tr>
+<th>from</th>
+<th>condition</th>
+<th>to</th>
+<th>action</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>OPEN</code>/<code>CLOSING</code></td>
+<td><code>now_mono − last_mono ≥ SIGNAL_STALE_S</code></td>
+<td><code>COOLDOWN</code></td>
+<td><code>stale</code></td>
+</tr>
+<tr>
+<td><code>OPEN</code>/<code>CLOSING</code></td>
+<td><code>now_wall − opened_wall ≥ INCIDENT_MAX_OPEN_S</code>, rule is absolute</td>
+<td><code>COOLDOWN</code></td>
+<td><code>persist</code></td>
+</tr>
+<tr>
+<td><code>OPEN</code>/<code>CLOSING</code></td>
+<td><code>now_wall − opened_wall ≥ INCIDENT_MAX_OPEN_S</code>, rule is relative</td>
+<td><code>COOLDOWN</code></td>
+<td><code>expire</code> + <code>baseline.thaw()</code></td>
+</tr>
+</tbody>
+</table>
+<p>The <code>stale</code> path exists because without it a probe that dies leaves its incident open forever,
+and the hub cannot tell that from a genuine ongoing fault.</p>
+<h3 id="actions-stored-transitions">Actions → stored transitions<a class="headerlink" href="#actions-stored-transitions" title="Permanent link">&para;</a></h3>
+<p><code>detect</code> emits <code>Action</code>s; <code>incidents.py</code> maps them onto rows in the <code>incidents</code> table:</p>
+<table>
+<thead>
+<tr>
+<th>action <code>op</code></th>
+<th>stored <code>transition</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>open</code></td>
+<td><code>open</code>, or <code>reopen</code> inside the reopen window</td>
+</tr>
+<tr>
+<td><code>close</code></td>
+<td><code>close</code></td>
+</tr>
+<tr>
+<td><code>stale</code></td>
+<td><code>stale</code></td>
+</tr>
+<tr>
+<td><code>expire</code></td>
+<td><code>expired</code></td>
+</tr>
+<tr>
+<td><code>persist</code></td>
+<td><code>persistent</code></td>
+</tr>
+<tr>
+<td><code>sample</code></td>
+<td>(no transition row; writes <code>incident_samples</code> if the decimation ladder keeps it)</td>
+</tr>
+</tbody>
+</table>
+<p><code>open</code>, <code>reopen</code> and <code>persist</code> carry the rule's severity. Every other transition carries
+<code>info</code>: it reports the <em>end</em>, not the fault. <code>query.load_incidents</code> is written to preserve the
+opening severity for exactly this reason — otherwise every closed incident would read as info.</p>
+<h3 id="trip-and-clear-tests">Trip and clear tests<a class="headerlink" href="#trip-and-clear-tests" title="Permanent link">&para;</a></h3>
+<p><strong>Trip</strong> is absolute <strong>OR</strong> z, never AND (<code>detect._breach</code>). The z-score is the addition that
+gives per-node context, not a second hurdle. A rule with one side <code>None</code> degenerates cleanly to
+the other.</p>
+<p><strong>Clear</strong> must be clear on <strong>both</strong> axes (<code>detect._clearing</code>) — the negation of the OR. A signal
+back under its absolute threshold but still 4σ from this node's normal is not yet recovered.</p>
+<p>Direction is per rule: <code>+</code> means high is bad, <code>-</code> means low is bad. <code>wifi.rssi</code> is the case that
+proves the flag is needed — RSSI is dBm, so −50 is good and −90 is bad, and without an explicit
+<code>direction="-"</code> it would inherit the fallback's <code>+</code> and open an incident every time reception
+<em>improved</em>.</p>
+<p>"Worst" is likewise per rule (<code>peak_mode</code>): <code>max</code> for latency, <code>min</code> for RSSI, <code>max_abs_z</code> for
+a signal whose extremity is best measured in σ. The stored row carries the mode so a reader
+never has to guess. The running extremum is tracked over <strong>every</strong> sample seen, including ones
+decimation discarded — the worst moment of an incident is frequently in a sample that was not
+kept — and is re-persisted on every sample so it survives a restart.</p>
+<hr />
+<h2 id="the-rule-table">The rule table<a class="headerlink" href="#the-rule-table" title="Permanent link">&para;</a></h2>
+<p>Generated from <code>detect.RULES</code> so it cannot drift from the code:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>python3<span class="w"> </span>-c<span class="w"> </span><span class="s1">&#39;from smokemon import detect; [print(r) for r in detect.RULES.values()]&#39;</span>
+</code></pre></div>
+<p><code>tests/test_docs_rules.py</code> asserts this table matches <code>detect.RULES</code>.</p>
+<table>
+<thead>
+<tr>
+<th>signal</th>
+<th>kind</th>
+<th>abs</th>
+<th>dir</th>
+<th>trip</th>
+<th>clear</th>
+<th>trip_z</th>
+<th>clear_z</th>
+<th>for_s</th>
+<th>clear_for_s</th>
+<th>cooldown_s</th>
+<th>sev</th>
+<th>peak</th>
+<th>abs_floor</th>
+<th>rel_floor</th>
+<th>min_n</th>
+<th>dyn</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ping.loss</td>
+<td>ratio</td>
+<td>yes</td>
+<td>+</td>
+<td>10</td>
+<td>1</td>
+<td>-</td>
+<td>-</td>
+<td>20</td>
+<td>60</td>
+<td>300</td>
+<td>error</td>
+<td>max</td>
+<td>0</td>
+<td>0</td>
+<td>30</td>
+<td>-</td>
+</tr>
+<tr>
+<td>ping.loss_run</td>
+<td>ratio</td>
+<td>yes</td>
+<td>+</td>
+<td>99.5</td>
+<td>50</td>
+<td>-</td>
+<td>-</td>
+<td>20</td>
+<td>60</td>
+<td>300</td>
+<td>crit</td>
+<td>max</td>
+<td>0</td>
+<td>0</td>
+<td>30</td>
+<td>-</td>
+</tr>
+<tr>
+<td>ping.rtt_med</td>
+<td>latency</td>
+<td>no</td>
+<td>+</td>
+<td>-</td>
+<td>-</td>
+<td>4</td>
+<td>2</td>
+<td>20</td>
+<td>90</td>
+<td>300</td>
+<td>warn</td>
+<td>max</td>
+<td>2</td>
+<td>0.05</td>
+<td>30</td>
+<td>rtt</td>
+</tr>
+<tr>
+<td>host.temp</td>
+<td>gauge</td>
+<td>yes</td>
+<td>+</td>
+<td>75</td>
+<td>70</td>
+<td>-</td>
+<td>-</td>
+<td>60</td>
+<td>180</td>
+<td>600</td>
+<td>warn</td>
+<td>max</td>
+<td>0</td>
+<td>0</td>
+<td>30</td>
+<td>-</td>
+</tr>
+<tr>
+<td>host.mem</td>
+<td>gauge</td>
+<td>yes</td>
+<td>+</td>
+<td>92</td>
+<td>80</td>
+<td>-</td>
+<td>-</td>
+<td>120</td>
+<td>300</td>
+<td>900</td>
+<td>warn</td>
+<td>max</td>
+<td>0</td>
+<td>0</td>
+<td>30</td>
+<td>-</td>
+</tr>
+<tr>
+<td>host.swap</td>
+<td>gauge</td>
+<td>yes</td>
+<td>+</td>
+<td>25</td>
+<td>10</td>
+<td>-</td>
+<td>-</td>
+<td>300</td>
+<td>600</td>
+<td>1800</td>
+<td>warn</td>
+<td>max</td>
+<td>0</td>
+<td>0</td>
+<td>30</td>
+<td>-</td>
+</tr>
+<tr>
+<td>disk.used_pct</td>
+<td>capacity</td>
+<td>yes</td>
+<td>+</td>
+<td>92</td>
+<td>85</td>
+<td>-</td>
+<td>-</td>
+<td>300</td>
+<td>900</td>
+<td>3600</td>
+<td>error</td>
+<td>max</td>
+<td>0</td>
+<td>0</td>
+<td>30</td>
+<td>-</td>
+</tr>
+<tr>
+<td>disk.inode_used_pct</td>
+<td>capacity</td>
+<td>yes</td>
+<td>+</td>
+<td>90</td>
+<td>80</td>
+<td>-</td>
+<td>-</td>
+<td>300</td>
+<td>900</td>
+<td>3600</td>
+<td>error</td>
+<td>max</td>
+<td>0</td>
+<td>0</td>
+<td>30</td>
+<td>-</td>
+</tr>
+<tr>
+<td>host.psi_cpu</td>
+<td>gauge</td>
+<td>yes</td>
+<td>+</td>
+<td>50</td>
+<td>20</td>
+<td>-</td>
+<td>-</td>
+<td>120</td>
+<td>300</td>
+<td>900</td>
+<td>warn</td>
+<td>max</td>
+<td>0</td>
+<td>0</td>
+<td>30</td>
+<td>-</td>
+</tr>
+<tr>
+<td>host.psi_io</td>
+<td>gauge</td>
+<td>yes</td>
+<td>+</td>
+<td>40</td>
+<td>15</td>
+<td>-</td>
+<td>-</td>
+<td>120</td>
+<td>300</td>
+<td>900</td>
+<td>warn</td>
+<td>max</td>
+<td>0</td>
+<td>0</td>
+<td>30</td>
+<td>-</td>
+</tr>
+<tr>
+<td>net.err_rate</td>
+<td>counter_rate</td>
+<td>yes</td>
+<td>+</td>
+<td>1</td>
+<td>0.1</td>
+<td>-</td>
+<td>-</td>
+<td>60</td>
+<td>180</td>
+<td>600</td>
+<td>warn</td>
+<td>max</td>
+<td>0</td>
+<td>0</td>
+<td>30</td>
+<td>-</td>
+</tr>
+<tr>
+<td>wifi.rssi</td>
+<td>gauge</td>
+<td>no</td>
+<td>-</td>
+<td>-80</td>
+<td>-75</td>
+<td>-</td>
+<td>-</td>
+<td>120</td>
+<td>300</td>
+<td>900</td>
+<td>warn</td>
+<td>min</td>
+<td>0</td>
+<td>0</td>
+<td>30</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>*</code> (fallback)</td>
+<td>gauge</td>
+<td>no</td>
+<td>+</td>
+<td>-</td>
+<td>-</td>
+<td>4</td>
+<td>3</td>
+<td>60</td>
+<td>180</td>
+<td>600</td>
+<td>warn</td>
+<td>max</td>
+<td>0</td>
+<td>0</td>
+<td>30</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<p>Notes on specific rules:</p>
+<ul>
+<li><strong><code>host.temp</code></strong> derives its thresholds from <code>THROTTLE_TEMP_C</code> (default 80 °C):
+  <code>trip = THROTTLE_TEMP_C − 5</code>, <code>clear = THROTTLE_TEMP_C − 10</code>. Move <code>SMOKEMON_THROTTLE_TEMP</code>
+  for a different SoC and both move together.</li>
+<li><strong><code>ping.rtt_med</code></strong> is the only <code>dynamic="rtt"</code> rule. Its thresholds come from the persisted
+  per-node baseline rather than a fixed number: <code>trip = max(centre × 3, centre + 30)</code>,
+  <code>clear = centre × 1.5</code>. Until the baseline has <code>min_baseline_n</code> (30) samples,
+  <code>_thresholds()</code> returns <code>(None, None)</code> and only the z test can fire — and z is also gated on
+  the same readiness, so <strong>this rule cannot trip at all during warmup</strong>. That is intentional:
+  a latency rule with no idea what normal looks like has nothing to say.</li>
+<li><strong><code>wifi.rssi</code></strong> has fixed thresholds but is marked <code>absolute=False</code>, so it takes the <code>expire</code>
+  path (baseline thawed) rather than <code>persistent</code> if it outlives <code>INCIDENT_MAX_OPEN_S</code>.
+  Harmless in practice — thawing the baseline does not move a fixed <code>trip</code> — but it means a
+  24-hour-long weak-signal condition is reported as expired rather than persistent.</li>
+</ul>
+<h3 id="overrides">Overrides<a class="headerlink" href="#overrides" title="Permanent link">&para;</a></h3>
+<p>Sparse, per-field, so an operator never restates a whole rule to move one number:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nv">SMOKEMON_RULES</span><span class="o">=</span><span class="s1">&#39;ping.loss:trip=15,for_s=30;host.temp:trip=75&#39;</span>
+</code></pre></div>
+<p>Overridable fields: <code>trip</code>, <code>clear</code>, <code>trip_z</code>, <code>clear_z</code>, <code>for_s</code>, <code>clear_for_s</code>, <code>cooldown_s</code>,
+<code>abs_floor</code>, <code>rel_floor</code>, <code>min_baseline_n</code> (numeric), and <code>severity</code>, <code>direction</code>, <code>peak_mode</code>
+(string). A clause naming a signal with no rule creates one from the defaults. A malformed
+clause is <strong>skipped, not raised</strong> — a typo in an env var must not stop a node monitoring.</p>
+<p>Every incident row stores a <code>rule_hash</code> (sha1 of the effective rule after overrides, 12 hex
+chars). An incident from last month is not interpretable after a threshold change unless the
+row says which thresholds it was evaluated under.</p>
+<hr />
+<h2 id="the-baseline">The baseline<a class="headerlink" href="#the-baseline" title="Permanent link">&para;</a></h2>
+<p>Per-node learned estimate of what normal looks like on <em>this</em> box. A fleet-wide threshold
+cannot know that one node sits behind a 4G modem where 90 ms is fine and another is on fibre
+where 90 ms is a fault.</p>
+<p><strong>Estimator:</strong> EWMA of the centre, plus an EWMA of the absolute deviation as an online MAD
+surrogate. Not a decaying-window median — that requires keeping the window, which is exactly
+the memory and disk cost this pivot exists to remove.</p>
+<h3 id="dt-derived-alpha">dt-derived alpha<a class="headerlink" href="#dt-derived-alpha" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>a = 1 − exp(−dt / tau)          tau = BASELINE_TAU_S (86400 s)
+</code></pre></div>
+<p><code>dt</code> is the actual wall-clock gap since the last update, so a signal fed every 10 s and one fed
+every 300 s decay at the same real-world rate. Deriving <code>a</code> from a sample <em>count</em> instead would
+make fast signals learn 30× faster than slow ones, and the central claim of the pivot — that
+sampling rate stops being the important thing — would quietly stop holding right here.</p>
+<h3 id="the-mad-floor">The MAD floor<a class="headerlink" href="#the-mad-floor" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>scale = max(dev × 0.7979 × 1.4826,  abs_floor,  rel_floor × |centre|)
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>z     = (value − centre) / scale
+</code></pre></div>
+<p><code>0.7979</code> converts <code>E|x−μ|</code> to MAD for a normal distribution; <code>1.4826</code> scales MAD to a
+standard-deviation equivalent.</p>
+<p>The floor exists because <code>dev</code> tends to 0 on a stable signal, and without it 0.1 ms of jitter
+reads as z = 200. <code>ping.rtt_med</code> sets <code>abs_floor=2.0</code> (ms) and <code>rel_floor=0.05</code> (5% of the
+centre), so both a fast fibre link and a slow modem get a sane denominator.</p>
+<p>If <code>scale</code> is still below 1e-9 — a constant signal with no configured floor, typically a ratio
+pinned at 0.0 — the spread is treated as unmeasurable rather than dividing by zero: identical to
+the centre reads as 0, anything else saturates at ±50. Saturating rather than returning <code>inf</code>
+keeps the value storable and comparable.</p>
+<h3 id="the-three-poison-defences">The three poison defences<a class="headerlink" href="#the-three-poison-defences" title="Permanent link">&para;</a></h3>
+<p>A baseline that learns during an incident teaches the node that the fault is normal. Three
+independent mechanisms prevent that:</p>
+<ol>
+<li><strong>Update only in <code>OK</code>.</strong> <code>detect.evaluate</code> calls <code>baseline.update()</code> in exactly one branch:
+   <code>OK</code> and not breaching. <code>ARMED</code>, <code>OPEN</code>, <code>CLOSING</code> and <code>COOLDOWN</code> all freeze it. <code>COOLDOWN</code>
+   freezing matters as much as <code>OPEN</code> — the recovery tail is not representative either.
+   (<code>baseline.py</code> itself refuses nothing; the freeze policy lives in one place, in <code>detect</code>.)</li>
+<li><strong>Outlier gating (winsorising).</strong> A sample beyond <code>BASELINE_GATE_Z</code> (4.0) still updates, but
+   with its weight divided by <code>|z|</code>. A single spike that never persists long enough to arm an
+   incident does not drag the centre; a genuine sustained shift still gets there, because each
+   of its samples is gated less as the centre moves toward it.</li>
+<li><strong>Alpha clamping.</strong> <code>_alpha</code> clamps to <code>min(1.0, …)</code> and returns 1.0 for a non-positive <code>dt</code>.
+   A <code>dt</code> of hours — node asleep, or a clock step — would otherwise give <code>a ≈ 1.0</code> and throw
+   away everything learned so far in a single sample.</li>
+</ol>
+<h3 id="flush-interval-and-the-restart-gap-trade-off">Flush interval and the restart-gap trade-off<a class="headerlink" href="#flush-interval-and-the-restart-gap-trade-off" title="Permanent link">&para;</a></h3>
+<p>Baselines are flushed to <code>signal_baseline</code> at most every <code>BASELINE_FLUSH_S</code> (900 s), never per
+sample. Per-sample would be roughly 8 600 extra commits a day on a node whose entire purpose is
+to stop writing constantly, and would spend the whole SD-write budget on bookkeeping.</p>
+<p>The accepted cost: <strong>a crash loses up to one flush interval of learning.</strong> <code>n</code> can go backwards
+and warmup can lengthen after a restart. An EWMA with a one-day tau does not notice 15 minutes
+of missed samples; the warmup counter (<code>min_baseline_n</code>) is the part that actually regresses,
+and on a signal that was already warm it stays warm.</p>
+<p><code>baseline.thaw()</code> is the deliberate forget. It is called from exactly one place — <code>sweep()</code>, on
+an expired <strong>relative</strong> rule — so the signal relearns the current regime.</p>
+<hr />
+<h2 id="reopen-policy-vs-cooldown">Reopen policy vs cooldown<a class="headerlink" href="#reopen-policy-vs-cooldown" title="Permanent link">&para;</a></h2>
+<p>Two different knobs answering two different questions. Conflating them is the most likely
+future mistake here.</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th><code>cooldown_s</code> (per rule)</th>
+<th><code>INCIDENT_REOPEN_WINDOW_S</code> (global, 900 s)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>question</td>
+<td>when may the detector believe a re-trip without re-debouncing?</td>
+<td>does a re-trip count as the <em>same occurrence</em>?</td>
+</tr>
+<tr>
+<td>lives in</td>
+<td><code>detect.py</code>, the state machine</td>
+<td><code>incidents.py</code>, next to the persisted <code>closed_wall</code></td>
+</tr>
+<tr>
+<td>effect</td>
+<td>governs the <code>COOLDOWN → OK</code> timer</td>
+<td>governs <code>uid</code> reuse: same <code>uid</code> + <code>reopen</code> transition, or a new <code>uid</code> + <code>open</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>What <code>cooldown_s</code> actually does.</strong> Note carefully: it does <strong>not</strong> suppress a re-trip. A
+breach while in <code>COOLDOWN</code> opens immediately, with no <code>ARMED</code> phase — the condition already
+proved it persists, so it is believed at once and the onset is that very sample. What
+<code>cooldown_s</code> governs is how long the machine waits before returning to <code>OK</code>, and therefore
+(a) how long the baseline stays frozen through the recovery tail, and (b) how long a re-trip
+gets to skip the <code>for_s</code> debounce.</p>
+<p><strong>What the reopen window does.</strong> Reusing a <code>uid</code> forever would fold a morning outage and an
+evening outage into one semantically enormous incident. Minting a new <code>uid</code> on every re-trip
+would turn a flapping link into a dozen incidents. The window separates the two cases:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>same uid (reopen)   ⟺   same (signal, entity, rule)  AND  (now − closed_wall) ≤ 900 s
+</code></pre></div>
+<p><code>uid</code> is also the alert key (<code>hubapi.open_incident_alerts</code>) — it is stable for the life of one
+occurrence and changes when a genuinely new occurrence begins, which is exactly what a
+re-notify cooldown needs.</p>
+<hr />
+<h2 id="expiry-absolute-vs-relative-rules">Expiry: absolute vs relative rules<a class="headerlink" href="#expiry-absolute-vs-relative-rules" title="Permanent link">&para;</a></h2>
+<p>An incident open longer than <code>INCIDENT_MAX_OPEN_S</code> (86 400 s) is force-closed. What happens next
+depends on <code>Rule.absolute</code>:</p>
+<p><strong>Relative rule</strong> → <code>expired</code> transition, and <code>baseline.thaw()</code>. The condition has become the
+new regime; relearn it.</p>
+<p><strong>Absolute rule</strong> → <code>persistent</code> transition, and the baseline stays <strong>frozen</strong>.</p>
+<p>The distinction is invariant 9, and it is the single most important safety property in this
+module. An absolute rule is a safety threshold, not an observation about what is typical. A disk
+at 96% is still bad after 24 hours; a CPU at 90 °C is still bad after 24 hours. Thawing the
+baseline there would train the node into accepting a permanent fault as normal, and letting
+expiry emit a <code>close</code> would make it a <strong>silent auto-acknowledge</strong>: the incident would vanish
+from the hub's open list while the fault continued.</p>
+<p>So the run is closed (it must not sit open forever, or <code>stale</code> and genuine faults become
+indistinguishable) but the record keeps saying <code>persistent</code>, and the rule keeps tripping.</p>
+<hr />
+<h2 id="the-decimation-ladder">The decimation ladder<a class="headerlink" href="#the-decimation-ladder" title="Permanent link">&para;</a></h2>
+<p>Evidence per incident, by phase:</p>
+<table>
+<thead>
+<tr>
+<th>phase</th>
+<th>source</th>
+<th>count</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>pre</code></td>
+<td><code>ring.before(onset_mono, …)</code> — samples strictly older than the moment the breach <strong>started</strong></td>
+<td>≤ <code>INCIDENT_PRE_SAMPLES</code> = 6</td>
+</tr>
+<tr>
+<td><code>during</code></td>
+<td>the onset head at native cadence, then an exponential ladder</td>
+<td>≤ <code>INCIDENT_DURING_MAX</code> = 24</td>
+</tr>
+<tr>
+<td><code>post</code></td>
+<td><code>ring.tail(…)</code> at close</td>
+<td>≤ <code>INCIDENT_POST_SAMPLES</code> = 3</td>
+</tr>
+</tbody>
+</table>
+<p>The <code>pre</code> cutoff is the moment the breach <em>started</em>, not the moment it was confirmed. The
+samples in between are already anomalous, and labelling them baseline would put the anomaly
+inside its own reference window — wrong to read and wrong to plot. Those go in as the <code>during</code>
+head instead.</p>
+<p><strong>The ladder.</strong> The first <code>INCIDENT_DURING_HEAD</code> (6) samples are kept at native cadence, so the
+shape immediately after the trigger is intact. After that, a sample is kept only once
+<code>next_step</code> seconds have passed since the last kept one, and <code>next_step</code> then grows by
+<code>INCIDENT_DURING_GROWTH</code> (2.0×) up to <code>INCIDENT_DURING_STEP_MAX</code> (3600 s):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>head:   6 samples at native cadence
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>then:  +60s  +120s  +240s  +480s  +960s  +1920s  +3600s  +3600s  …  (capped)
+</code></pre></div>
+<p>Cumulative coverage from onset, at the defaults:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>sample  6 →     60 s        sample 12 →   7 380 s  (2h03m)
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>sample  8 →    420 s        sample 18 →  28 980 s  (8h03m)
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>sample 10 →  1 860 s        sample 23 →  46 980 s (13h03m)  ← ladder exhausted
+</code></pre></div>
+<p><strong>Worst case per incident: 6 + 24 + 3 = 33 sample rows</strong>, regardless of duration. A three-day
+outage costs about the same as a three-minute one. Beyond sample 24 no more <code>during</code> samples are
+kept, so an incident longer than ~13 hours has no evidence covering its final stretch — the
+<code>worst_value</code> column is what carries that period, which is why it is tracked over every sample
+and re-persisted on every one, kept or not.</p>
+<p>Plus transition rows: 2 in the simple case (<code>open</code> + a terminal), more with reopens.</p>
+<p><strong>Storm budget.</strong> Beyond <code>INCIDENT_MAX_OPEN</code> (16) concurrent incidents, a new incident records
+its transitions only and captures no samples. Degrade detail, never detection — a node in a
+storm is exactly when we must not stop noticing things.</p>
+<hr />
+<h2 id="restart-semantics">Restart semantics<a class="headerlink" href="#restart-semantics" title="Permanent link">&para;</a></h2>
+<p><code>incidents.load_open()</code> reads <code>incident_state</code> for rows in <code>('open','closing','cooldown')</code> and
+calls <code>detect.restore()</code> for each. Per state:</p>
+<table>
+<thead>
+<tr>
+<th>persisted state</th>
+<th>restored as</th>
+<th>notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>OK</code></td>
+<td>not persisted</td>
+<td>nothing to restore</td>
+</tr>
+<tr>
+<td><code>ARMED</code></td>
+<td><strong>never persisted, never restored</strong></td>
+<td>an unconfirmed anomaly does not survive a restart; its debounce starts over. The intended cost of refusing to write candidates to disk (invariant 2).</td>
+</tr>
+<tr>
+<td><code>OPEN</code></td>
+<td><code>OPEN</code></td>
+<td>the incident <strong>resumes</strong> — the hub sees one incident spanning the restart, not two</td>
+</tr>
+<tr>
+<td><code>CLOSING</code></td>
+<td><code>OPEN</code>, hold timer reset</td>
+<td>fail toward a longer incident, never toward a close we did not actually observe</td>
+</tr>
+<tr>
+<td><code>COOLDOWN</code></td>
+<td><code>COOLDOWN</code></td>
+<td>timer re-seeded from wall clock</td>
+</tr>
+</tbody>
+</table>
+<p>Monotonic timers have no meaning across processes, so each is re-seeded:
+<code>since_mono = now_mono − (now_wall − changed_wall)</code>. If that comes out negative — the clock
+stepped backwards while we were down — the timer is treated as freshly started. Fail toward a
+longer debounce, never toward a spurious incident.</p>
+<p>Resuming rather than reopening is why <code>incident_state</code> is a table and not an in-memory set. A
+still-broken condition must continue its incident; <code>events.py</code>'s in-memory <code>_active</code> set cannot
+do that, which is precisely why <code>detect.py</code> is a separate path rather than an extension of it.</p>
+<hr />
+<h2 id="environment-variables">Environment variables<a class="headerlink" href="#environment-variables" title="Permanent link">&para;</a></h2>
+<p>Every <code>SMOKEMON_*</code> var the detector path reads, with its default. Authority is <code>config.py</code>.</p>
+<h3 id="signal-registry">Signal registry<a class="headerlink" href="#signal-registry" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>var</th>
+<th>default</th>
+<th>meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SMOKEMON_SIGNAL_MAX</code></td>
+<td><code>48</code></td>
+<td>max distinct <code>(signal, entity)</code> pairs held in memory</td>
+</tr>
+<tr>
+<td><code>SMOKEMON_SIGNAL_RING</code></td>
+<td><code>64</code></td>
+<td>samples retained per signal</td>
+</tr>
+<tr>
+<td><code>SMOKEMON_SIGNAL_STALE_S</code></td>
+<td><code>600</code></td>
+<td>a signal silent this long with an incident open closes it as <code>stale</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="baseline">Baseline<a class="headerlink" href="#baseline" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>var</th>
+<th>default</th>
+<th>meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SMOKEMON_BASELINE_TAU_S</code></td>
+<td><code>86400</code></td>
+<td>EWMA time constant, wall-clock seconds</td>
+</tr>
+<tr>
+<td><code>SMOKEMON_BASELINE_GATE_Z</code></td>
+<td><code>4.0</code></td>
+<td>winsorising threshold; beyond this a sample's weight is divided by <code>\|z\|</code></td>
+</tr>
+<tr>
+<td><code>SMOKEMON_BASELINE_MAX_N</code></td>
+<td><code>100000</code></td>
+<td>saturation point of the warmup counter</td>
+</tr>
+<tr>
+<td><code>SMOKEMON_BASELINE_FLUSH_S</code></td>
+<td><code>900</code></td>
+<td>max interval between disk flushes; also the worst-case learning lost to a crash</td>
+</tr>
+</tbody>
+</table>
+<h3 id="rules">Rules<a class="headerlink" href="#rules" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>var</th>
+<th>default</th>
+<th>meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SMOKEMON_RULES</code></td>
+<td><code>""</code></td>
+<td>sparse per-field rule overrides (see above)</td>
+</tr>
+<tr>
+<td><code>SMOKEMON_THROTTLE_TEMP</code></td>
+<td><code>80</code></td>
+<td>°C at which the SoC throttles; <code>host.temp</code>'s trip/clear derive from it</td>
+</tr>
+</tbody>
+</table>
+<h3 id="incidents-and-evidence">Incidents and evidence<a class="headerlink" href="#incidents-and-evidence" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>var</th>
+<th>default</th>
+<th>meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SMOKEMON_INCIDENT_PRE</code></td>
+<td><code>6</code></td>
+<td><code>pre</code>-phase samples captured at trip time</td>
+</tr>
+<tr>
+<td><code>SMOKEMON_INCIDENT_POST</code></td>
+<td><code>3</code></td>
+<td><code>post</code>-phase samples captured at close</td>
+</tr>
+<tr>
+<td><code>SMOKEMON_INCIDENT_DURING_MAX</code></td>
+<td><code>24</code></td>
+<td>hard cap on <code>during</code> samples per incident</td>
+</tr>
+<tr>
+<td><code>SMOKEMON_INCIDENT_DURING_HEAD</code></td>
+<td><code>6</code></td>
+<td>leading <code>during</code> samples kept at native cadence</td>
+</tr>
+<tr>
+<td><code>SMOKEMON_INCIDENT_DURING_STEP0</code></td>
+<td><code>60</code></td>
+<td>first ladder step, seconds</td>
+</tr>
+<tr>
+<td><code>SMOKEMON_INCIDENT_DURING_GROWTH</code></td>
+<td><code>2.0</code></td>
+<td>ladder step multiplier</td>
+</tr>
+<tr>
+<td><code>SMOKEMON_INCIDENT_DURING_STEP_MAX</code></td>
+<td><code>3600</code></td>
+<td>ladder step ceiling, seconds</td>
+</tr>
+<tr>
+<td><code>SMOKEMON_INCIDENT_MAX_OPEN</code></td>
+<td><code>16</code></td>
+<td>beyond this many concurrent incidents, new ones record transitions only</td>
+</tr>
+<tr>
+<td><code>SMOKEMON_INCIDENT_MAX_OPEN_S</code></td>
+<td><code>86400</code></td>
+<td>force-close an incident open this long (<code>expired</code> or <code>persistent</code>)</td>
+</tr>
+<tr>
+<td><code>SMOKEMON_INCIDENT_REOPEN_WINDOW_S</code></td>
+<td><code>900</code></td>
+<td>re-trip within this of the close continues the same <code>uid</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="operation">Operation<a class="headerlink" href="#operation" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>var</th>
+<th>default</th>
+<th>meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SMOKEMON_DETECT_DRYRUN</code></td>
+<td><code>0</code></td>
+<td>run the full detector but log what it <em>would</em> have written instead of writing it</td>
+</tr>
+<tr>
+<td><code>SMOKEMON_HEARTBEAT_INTERVAL</code></td>
+<td><code>300</code></td>
+<td>the only row a healthy node writes; also what the hub derives liveness from</td>
+</tr>
+<tr>
+<td><code>SMOKEMON_NODE</code></td>
+<td>hostname</td>
+<td>the node half of <code>incident_key</code> = <code>NODE/signal/entity</code></td>
+</tr>
+</tbody>
+</table>
+<p><code>SMOKEMON_DETECT_DRYRUN=1</code> is the bring-up aid: run a node for a day in that mode to see the
+real incident rate before committing to thresholds, and to test a threshold change before
+releasing it to the fleet. Nothing reaches disk, so it is safe to leave on.</p>
+<hr />
+<h2 id="write-budget">Write budget<a class="headerlink" href="#write-budget" title="Permanent link">&para;</a></h2>
+<p>Measured, not estimated — <code>scripts/bench_write_budget.py</code> feeds a simulated day through the
+real detector and the real persistence path and reports what reached disk.</p>
+<p>A day of steady state (10 s ping, 30 s host, 300 s heartbeat, two three-minute incidents):</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>measured</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>commits</td>
+<td>326 / day</td>
+</tr>
+<tr>
+<td>appended to db + WAL</td>
+<td>2.9 MB / day</td>
+</tr>
+<tr>
+<td>final database size</td>
+<td>0.13 MB</td>
+</tr>
+<tr>
+<td>rows</td>
+<td>288 heartbeats, 4 incident transitions, 32 incident samples, 4 events</td>
+</tr>
+</tbody>
+</table>
+<p><code>device_facts</code> and <code>log_excerpts</code> stay empty in steady state by design: the first is
+delta-coded and writes only when a fact changes, the second only on an incident with evidence
+capture enabled.</p>
+<p>Two numbers are reported because they answer different questions. <strong>Appended bytes</strong> is the
+summed growth of the database and its WAL — portable, and a good proxy in WAL mode because the
+WAL is append-only. <strong>Physical writes</strong> comes from <code>/proc/self/io</code> <code>write_bytes</code>, the kernel's
+count of bytes handed to the storage layer, which is what actually wears an SD card. The gap
+between them is write amplification: SQLite commits whole pages and appends a commit frame per
+transaction, so a ~180-byte heartbeat row does not cost 180 bytes.</p>
+<p>Physical writes require Linux. Run the benchmark on the node to get the figure that matters for
+card wear; a developer machine reports the portable number only.</p>
+<p>The commit count is the number to watch. Bytes follow from it, because at this row size the
+per-commit overhead dominates the payload — which is also why <code>BASELINE_FLUSH_S</code> exists at all:
+persisting the baseline per sample would add ~8600 commits a day to a budget of 326.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.top", "navigation.sections", "content.code.copy", "toc.integrate"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.js"></script>
+      
+        <script src="https://stevoo.net/map.js"></script>
+      
+    
+  </body>
+</html>

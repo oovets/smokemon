@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+    <url>
+         <loc>https://oovets.github.io/smokemon/</loc>
+         <lastmod>2026-07-19</lastmod>
+    </url>
+    <url>
+         <loc>https://oovets.github.io/smokemon/CONTRIBUTING/</loc>
+         <lastmod>2026-07-19</lastmod>
+    </url>
+    <url>
+         <loc>https://oovets.github.io/smokemon/INSTALL/</loc>
+         <lastmod>2026-07-19</lastmod>
+    </url>
+    <url>
+         <loc>https://oovets.github.io/smokemon/SECURITY/</loc>
+         <lastmod>2026-07-19</lastmod>
+    </url>
+    <url>
+         <loc>https://oovets.github.io/smokemon/detector-spec/</loc>
+         <lastmod>2026-07-19</lastmod>
+    </url>
+    <url>
+         <loc>https://oovets.github.io/smokemon/package/</loc>
+         <lastmod>2026-07-19</lastmod>
+    </url>
+    <url>
+         <loc>https://oovets.github.io/smokemon/probes/</loc>
+         <lastmod>2026-07-19</lastmod>
+    </url>
+    <url>
+         <loc>https://oovets.github.io/smokemon/adr/0001-incident-pivot/</loc>
+         <lastmod>2026-07-19</lastmod>
+    </url>
+</urlset>

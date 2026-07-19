@@ -1,0 +1,878 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="incident-centric network + host monitoring for the edge — anomalies detected on-node, only incidents and their evidence stored, in stdlib python and ~30 mb of ram. no cloud, no dependencies, nothing to install but python.">
+      
+      
+      
+        <link rel="canonical" href="https://oovets.github.io/smokemon/package/">
+      
+      
+        <link rel="prev" href="../INSTALL/">
+      
+      
+        <link rel="next" href="../probes/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>package - smokemon</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=JetBrains+Mono:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"JetBrains Mono";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../extra.css">
+    
+      <link rel="stylesheet" href="https://stevoo.net/theme.css">
+    
+      <link rel="stylesheet" href="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="green">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#smokemon" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="/" title="smokemon" class="md-header__button md-logo" aria-label="smokemon" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            smokemon
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              package
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="/" title="smokemon" class="md-nav__button md-logo" aria-label="smokemon" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    smokemon
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    readme
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../QUICKSTART.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../INSTALL/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    install
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    package
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    package
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#runtime-core-imported-everywhere" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        runtime core (imported everywhere)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#detection-node-stdlib-only-the-core-of-the-design" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        detection (node, stdlib-only — the core of the design)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#collection-node-stdlib-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        collection (node, stdlib-only)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#shipping-retention-node" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        shipping + retention (node)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#hub-central-stdlib-only-ingest-serving" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        hub (central, stdlib-only ingest + serving)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#read-surfaces-any-db-node-or-hub" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        read surfaces (any DB; node or hub)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#surfaces-entrypoints" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        surfaces / entrypoints
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-hard-rules-what-holds-the-package-together" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        the hard rules (what holds the package together)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#entrypoints-systemd-or-by-hand-with-pythonpathrepo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        entrypoints (systemd, or by hand with PYTHONPATH=repo)
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../probes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    probes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../detector-spec/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    detector
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0001-incident-pivot/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    incident pivot (adr)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CHANGELOG.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CONTRIBUTING/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../SECURITY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="smokemon">smokemon/<a class="headerlink" href="#smokemon" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p>the python package. one codebase runs three roles — a <strong>node</strong> samples + detects + ships, a
+<strong>hub</strong> ingests + serves, and <strong>read surfaces</strong> (cli / text / json) reduce whatever's in a DB.
+everything is stdlib-only: node, shipper, hub and cli alike. a node stays at ~30 mb rss on a
+pi/jetson, and writes nothing to disk while things are normal.</p>
+</blockquote>
+<p>every module is small and single-purpose. the split below is the whole architecture: a probe
+samples, the detector decides, the scheduler runs the loop, the shipper pushes deltas, the hub
+ingests and serves, and the read layer only ever <em>reduces</em> an already-populated DB. nothing here
+daemonizes itself — systemd runs the entrypoints.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>== data flow ==
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>node                                            hub
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>  collect (fast/slow) -&gt; probes/                  POST /ingest (gzip delta, X-Smokemon-Key)
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>                          ^  adapters/ (os reads)       |
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>                          |                             v
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>     signals (in-memory ring, NEVER written)      hub -&gt; smokemon-hub.db
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>                          |                             |  alerts (delivery only)
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>     detect + baseline -&gt; incidents.py --\               v
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>     heartbeat --------------------------+-&gt; smokemon.db
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>     events -&gt; ext_events ---------------+        hubapi -&gt; GET / · /metrics · /api/*
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>     expedite ---------------------------+--&gt; ship ---^
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>     governor (sheds) / prune (retention)
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>read surfaces (any DB; node or hub):
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>  cli -&gt; hubapi -&gt; report      fleet / incidents / incident detail
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>  cli -&gt; query  -&gt; report      status / digest (text, stdlib)
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>  cli -&gt; footprint             rows/day + ship bytes/day estimate
+</code></pre></div>
+<h2 id="runtime-core-imported-everywhere">runtime core (imported everywhere)<a class="headerlink" href="#runtime-core-imported-everywhere" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>__init__.py    package marker + __version__ (the one place the version string lives).
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>config.py      all SMOKEMON_* env vars, node identity, paths, tool-path lookup. tri-state
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>               _enabled() (unset=auto, 0/off=disabled) backs the auto/opt-in probe gating.
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>               the single place config is read from the environment.
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>core.py        the daemon runtime shared by every collector: log(), connect() (WAL sqlite),
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>               install_signals(), run_scheduler() and a stable per-node _jitter() so a fleet
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>               fires on the same wall-clock boundary without all pinging in lockstep.
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>schema.py      SINGLE SOURCE OF TRUTH for the SQLite schema. each table&#39;s body columns are
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>               declared once; node DDL, hub DDL (+ node + src_id + UNIQUE for idempotent
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>               ingest), STD_TABLES and the generic insert()/insert_one() all derive from it.
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>               membership in _BODY is exactly &quot;this table ships to the hub&quot; — six tables:
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>               ext_events, device_facts, incidents, incident_samples, heartbeats,
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>               log_excerpts. node-local working state is declared by its owning module.
+<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>events.py      edge-triggered ext_events emitters: trip/clear/edge/counter fire ONE row when a
+<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>               condition goes bad (and a quiet &#39;recovered&#39; when it clears), so a stuck problem
+<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>               never re-floods the table or the wire. inputs are values a probe already computed.
+<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a>governor.py    footprint back-off: when this process exceeds the RSS or DB-size budget, the
+<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a>               scheduler sheds the costliest probes for that cycle and logs a throttled event.
+<a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a>               both budgets default off, so default behaviour is unchanged.
+</code></pre></div>
+<h2 id="detection-node-stdlib-only-the-core-of-the-design">detection (node, stdlib-only — the core of the design)<a class="headerlink" href="#detection-node-stdlib-only-the-core-of-the-design" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>signals.py     the bounded in-memory registry: the node&#39;s working memory, and the only place a
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>               sample lives while things are normal. three parallel array(&#39;d&#39;) per signal, so
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>               the ceiling is SIGNAL_MAX * SIGNAL_RING * 3 * 8 bytes (~74 KB) BY CONSTRUCTION,
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>               enforced in feed() — a node churning entity names cannot grow it. touches no
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>               SQLite, no shipping, no rules.
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>baseline.py    per-node learned normal: EWMA centre + EWMA absolute deviation as an online MAD
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>               surrogate. the decay constant is derived from the ACTUAL dt between samples
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>               (a = 1 - exp(-dt/tau)), so a 10 s signal and a 300 s signal learn at the same
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>               wall-clock rate. flushed on a timer, not per sample.
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>detect.py      the policy core: the rule table, the trip/clear thresholds, debounce, hysteresis,
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>               cooldown, and the OK/ARMED/OPEN/CLOSING/COOLDOWN state machine. two boundaries
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>               are enforced: it never touches SQLite (evaluate() returns Actions), and it never
+<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>               decides incident identity. every duration is on time.monotonic(), because pi and
+<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>               jetson nodes NTP-step at boot by hours.
+<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a>incidents.py   persistence + identity: turns Actions into rows, mints the uid, owns the reopen
+<a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a>               policy and the transaction. writes one row per STATE TRANSITION, never an update
+<a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a>               in place — the shipper&#39;s monotonic cursor would make an update invisible to the
+<a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a>               hub forever.
+<a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a>heartbeat.py   agent liveness + the slow trends that only make sense as a continuous series
+<a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a>               (disk headroom, sd wear, the agent&#39;s own DB size). the only row a healthy node
+<a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a>               writes, and the reason the hub can tell &quot;healthy&quot; from &quot;dead&quot; once normal
+<a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a>               operation stops reaching disk. carries interval_s so staleness is derived from
+<a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a>               what the node does, not from hub-side config.
+</code></pre></div>
+<h2 id="collection-node-stdlib-only">collection (node, stdlib-only)<a class="headerlink" href="#collection-node-stdlib-only" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>collect.py     the unified collector daemon. `collect {fast|slow|all}` selects the probe set;
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>               fast = ping+net @10s, slow = wifi+host+inventory+heartbeat (+ sweep and the
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>               baseline flush). wraps each probe in _guarded() so the governor can shed it and
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>               a crash becomes an error event instead of killing the loop.
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>probes/        one module per signal, each exposing collect(conn). probes sample and hand
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>               values to the detector; they decide nothing. full reference, what each does and
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>               refuses to do, and the shared footprint rules → probes/README.md.
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>adapters/      OS-specific reads behind one interface (read_net_counters / read_net_errors /
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>               detect_tailscale_iface / wifi_probe):
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>                 linux.py   /proc/net/dev counters, tailscale0, iw / /proc/net/wireless WiFi.
+</code></pre></div>
+<h2 id="shipping-retention-node">shipping + retention (node)<a class="headerlink" href="#shipping-retention-node" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>ship.py        push new rows (delta by ascending id) to the hub&#39;s /ingest. a node-local
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>               ship_state(dest,table_name,last_id) cursor advances only on HTTP 200; the hub is
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>               idempotent (UNIQUE(node,src_id)) so optimistic advance is safe. gzips each batch
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>               once, reuses it across multiple hubs, and refuses plain-HTTP to a non-loopback
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>               host so the secret never crosses the wire in clear. drain-once (timer) or loop.
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>expedite.py    out-of-band ship trigger: when a new elevated ext_events row lands, ship within
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>               ~10s instead of waiting for the bulk tick. one indexed MAX(id) read per check,
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>               at most one ship in flight, on a short-lived thread so a hung POST can&#39;t stall
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>               the collector loop.
+<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>prune.py       node-DB retention. deletes rows only when BOTH older than RETENTION_DAYS AND
+<a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a>               already shipped (when a hub is configured), so a hub outage backs up on disk
+<a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a>               rather than losing data. always wal_checkpoint(TRUNCATE)s; optional full VACUUM.
+</code></pre></div>
+<h2 id="hub-central-stdlib-only-ingest-serving">hub (central, stdlib-only ingest + serving)<a class="headerlink" href="#hub-central-stdlib-only-ingest-serving" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>hub.py         the central ingest + web server (stdlib ThreadingHTTPServer). POST /ingest writes
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>               the hub DB in one idempotent transaction (INSERT OR IGNORE on UNIQUE(node,src_id));
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>               GET / serves the fleet dashboard, /metrics prometheus, /health, and the read-only
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>               /api/* family. a writer connection (lock-guarded) + a separate read-only
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>               connection, plus a short-TTL response cache and the alerts background pass.
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>hubapi.py      the read-only query layer behind those GET endpoints: fleet liveness, the
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>               incident feed, incident detail with its evidence, node x hour incident density,
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>               events + excerpts, inventory, hub self-health, ship volume and the prometheus
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>               exposition. split from hub.py so it&#39;s unit-testable without a socket.
+<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a>               static/dashboard.html is read from disk, not embedded here as a string.
+<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a>alerts.py      hub-side alert DELIVERY only: a background pass projects the incidents the nodes
+<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a>               have ALREADY opened (hubapi.open_incident_alerts) and pushes newly firing /
+<a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a>               resolved ones to SMOKEMON_NOTIFY_URL (dedup / mute / re-notify cooldown).
+<a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a>               detection is never repeated here — that would be a second, disagreeing opinion.
+</code></pre></div>
+<h2 id="read-surfaces-any-db-node-or-hub">read surfaces (any DB; node or hub)<a class="headerlink" href="#read-surfaces-any-db-node-or-hub" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>query.py       the shared read-side: window(), load_incidents() (reduces the transition log per
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>               (node, uid)), load_incident_samples(), latest_heartbeat(), orphan_stats(). takes
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>               an optional --node filter (required on a multi-node hub DB).
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>report.py      the text surfaces: `smoke status` (one line), `smoke incidents` (the feed),
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>               `smoke incident UID` (detail + evidence), `smoke fleet`, `smoke fleet --heatmap`
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>               (incident density), `smoke digest`. stdlib, so they run on a bare node.
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>analyze.py     hub-side shaping of incidents the nodes ALREADY detected: correlation into
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>               clusters, target classification, severity ranking and the robust statistics
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a>               those need. it never re-derives an incident — the continuous series that would
+<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a>               take is not stored. read-only, never imported by collectors/ship/probes.
+<a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a>footprint.py   read-only collector-footprint estimator: rows produced in a window -&gt; rows/day,
+<a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a>               and ship wire bytes by encoding the same compact JSON+gzip shape ship.py posts.
+</code></pre></div>
+<h2 id="surfaces-entrypoints">surfaces / entrypoints<a class="headerlink" href="#surfaces-entrypoints" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>cli.py         the `smoke` command: one argparse entry point dispatching every subcommand
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>               (fleet/incidents/incident/status/digest/footprint/hub). the incident views read
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>               a hub DB, a node DB, or the hub over --hub-url — all three go through the same
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>               hubapi functions, so every transport hands the renderer the same shape.
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>notify.py      push/webhook alerting from opened incidents — ntfy / slack / discord / generic
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>               JSON, kind auto-detected from the URL. payload build is split from the send so it
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>               unit-tests without a socket; severity-gated so an all-clear window never alerts.
+</code></pre></div>
+<h2 id="the-hard-rules-what-holds-the-package-together">the hard rules (what holds the package together)<a class="headerlink" href="#the-hard-rules-what-holds-the-package-together" title="Permanent link">&para;</a></h2>
+<p><code>-</code> = a boundary the code must never cross; <code>+</code> = the invariant it keeps instead.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a># architecture guardrails — enforced by import direction, not just convention
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="gd">- normal operation is never written to disk; only confirmed transitions + their evidence are</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="gd">- detect.py never touches SQLite, and never decides incident identity — incidents.py owns both</span>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="gd">- collectors/ship/probes/adapters never import analyze/hubapi/alerts</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="gd">- the node never grows a dependency: the whole node-side list is fping, iw and python3 stdlib</span>
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="gd">- no second copy of the schema: every table is declared once in schema.py and derived from</span>
+<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="gd">- no fabricated/seeded values anywhere — every surface reads only real collected rows</span>
+<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a><span class="gi">+ absence of a `close` is NEVER read as proof a fault persists: an open incident on a node with</span>
+<a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a><span class="gi">+ a stale heartbeat reports as `unknown`, not `ongoing`</span>
+<a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a><span class="gi">+ the hub only DELIVERS alerts; the node already did debounce, hysteresis, cooldown and dedup</span>
+<a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a><span class="gi">+ one schema feeds two DBs: node (raw) and hub (+ node + src_id + UNIQUE for idempotent ingest)</span>
+<a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a><span class="gi">+ the daemons only sample/detect/ship/serve; every read surface is a pure function of some DB</span>
+</code></pre></div>
+<h2 id="entrypoints-systemd-or-by-hand-with-pythonpathrepo">entrypoints (systemd, or by hand with PYTHONPATH=repo)<a class="headerlink" href="#entrypoints-systemd-or-by-hand-with-pythonpathrepo" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>python -m smokemon.collect {fast|slow|all}   the collector + detector daemon (node)
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>python -m smokemon.ship                       drain deltas to the hub(s)
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>python -m smokemon.prune                      delete shipped+old rows, shrink the WAL
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>python -m smokemon.hub                        ingest + read-api + dashboard server (hub)
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>python -m smokemon.notify                     alert on the last window&#39;s incidents (timer)
+<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>python -m smokemon.cli &lt;sub&gt;                  the `smoke` command (all read surfaces)
+</code></pre></div>
+<p>full env-var + deploy reference → <a href="../INSTALL/">../INSTALL.md</a> · what every signal means →
+<a href="../">../README.md</a> · the probes in depth → <a href="../probes/">probes/README.md</a> ·
+the rule table + state machine → <a href="../detector-spec/">../docs/detector-spec.md</a>.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.top", "navigation.sections", "content.code.copy", "toc.integrate"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.js"></script>
+      
+        <script src="https://stevoo.net/map.js"></script>
+      
+    
+  </body>
+</html>
