@@ -41,6 +41,14 @@ UNIT_DIR=/etc/systemd/system
 SVC_USER="${SMOKEMON_USER:-smokemon}"
 
 # A hub with no secret accepts unauthenticated ingest from anyone, and it binds 0.0.0.0.
+# Generating a fresh one is only correct on a box that has never been a hub: on a re-run --
+# picking up a code update, say -- it would silently overwrite the secret every already-
+# provisioned node is still using, breaking ingest for the whole fleet until every node is
+# re-provisioned too. Reuse whatever is already in ENV_FILE if there is one.
+if [ "$MODE" = "hub" ] && [ -z "$SECRET" ] && [ -r "$ENV_FILE" ]; then
+    SECRET="$(sed -n 's/^SMOKEMON_HUB_SECRET=//p' "$ENV_FILE" | head -1)"
+    [ -n "$SECRET" ] && echo "==> reusing existing SMOKEMON_HUB_SECRET from $ENV_FILE"
+fi
 if [ "$MODE" = "hub" ] && [ -z "$SECRET" ]; then
     SECRET="$(head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9')"
 fi
