@@ -220,9 +220,20 @@ def _mounts_linux() -> list[str]:
         with open("/proc/mounts") as f:
             for line in f:
                 p = line.split()
-                if len(p) >= 2 and p[0].startswith("/dev/") and p[0] not in seen:
-                    seen.add(p[0])
-                    mounts.append(p[1].replace("\\040", " "))
+                if len(p) < 3:
+                    continue
+                dev, mnt, fstype = p[0], p[1], p[2]
+                # squashfs loop mounts -- every snap revision on the box, one per package per
+                # version -- are read-only, fixed-size compressed images. They read ~100% used
+                # and ~100% inode-used by construction: that is what a full compressed archive
+                # looks like, not a capacity signal. Without this filter each one opens its own
+                # permanent disk.used_pct/disk.inode_used_pct incident, and a box with 40 snap
+                # revisions opens 80 incidents that can never clear.
+                if fstype == "squashfs":
+                    continue
+                if dev.startswith("/dev/") and dev not in seen:
+                    seen.add(dev)
+                    mounts.append(mnt.replace("\\040", " "))
     except OSError:
         return ["/"]
     return mounts or ["/"]

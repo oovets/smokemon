@@ -115,7 +115,6 @@ pre{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padd
 
 <main>
   <section id="v-incidents" class="on">
-    <div class="fleet" id="fleet-strip"></div>
     <h2>incidents — last <select id="hours">
       <option value="6">6h</option><option value="24" selected>24h</option>
       <option value="168">7d</option><option value="720">30d</option></select></h2>
@@ -183,10 +182,13 @@ async function loadFleet() {
   // shape change it could just as well have handled.
   const r = await get("/api/fleet");
   const f = Array.isArray(r) ? r : (r.fleet || []);
-  const strip = $("#fleet-strip"), full = $("#fleet-full");
-  strip.innerHTML = ""; full.innerHTML = "";
+  // Host cards belong to the fleet tab only. The incidents tab lists the incidents table --
+  // repeating the same node tiles above it doubled the page for no reason and pushed the
+  // thing an operator actually came to read below the fold.
+  const full = $("#fleet-full");
+  full.innerHTML = "";
   const wrap = el("div", "fleet");
-  f.forEach(n => { strip.appendChild(nodeTile(n)); wrap.appendChild(nodeTile(n)); });
+  f.forEach(n => wrap.appendChild(nodeTile(n)));
   full.appendChild(wrap);
 
   const live = f.filter(n => n.liveness === "live").length;
