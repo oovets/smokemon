@@ -10,8 +10,9 @@ from urllib.parse import urlparse
 from . import schema
 
 # Shown when a viewer finds no DB yet, so first-run users know the next step.
-COLLECT_HINT = ("Nothing collected yet — start a collector:  python -m smokemon.collect all\n"
-                "  (give it a minute, then retry; see QUICKSTART.md)")
+COLLECT_HINT = ("Nothing collected yet.  systemctl status smokemon   |   journalctl -u smokemon -f\n"
+                "  A healthy node writes only a heartbeat, so give it one interval (5 min) before"
+                " expecting rows.")
 
 
 def window(hours: float, minutes: float | None, since: str | None, until: str | None) -> tuple[float, float]:

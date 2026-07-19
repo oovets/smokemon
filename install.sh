@@ -76,7 +76,11 @@ echo "    $AGENT ($(du -h "$AGENT" | cut -f1))"
 
 echo "==> service user + data dir"
 id -u "$SVC_USER" >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin "$SVC_USER"
-install -d -o "$SVC_USER" -g "$SVC_USER" -m 750 "$DATA_DIR"
+# 755, not 750: the daemon writes as $SVC_USER but `smoke` is run by whoever is logged in, and
+# a mode that stops an admin reading their own node's incidents just teaches them to use sudo
+# for everything. Nothing secret lives here -- incidents and heartbeats. The shared secret is
+# in $ENV_FILE at 640 root:$SVC_USER, which is where the restriction belongs.
+install -d -o "$SVC_USER" -g "$SVC_USER" -m 755 "$DATA_DIR"
 
 echo "==> $ENV_FILE"
 {
@@ -122,6 +126,9 @@ for old in smokemon-collect-fast.service smokemon-collect-slow.service \
     systemctl disable --now "$old" >/dev/null 2>&1 || true
     rm -f "$UNIT_DIR/$old"
 done
+# A unit removed while it was in a failed state leaves a "not-found failed" entry behind that
+# shows up in every `systemctl list-units` and in any health check that greps for failures.
+systemctl reset-failed 'smokemon*' >/dev/null 2>&1 || true
 
 if [ "$MODE" = "hub" ]; then
     unit smokemon-hub.service
