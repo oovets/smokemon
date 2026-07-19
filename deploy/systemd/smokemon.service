@@ -1,0 +1,25 @@
+[Unit]
+Description=smokemon node agent (sample, detect, ship, prune)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+EnvironmentFile=-__ENV_FILE__
+ExecStart=__PYTHON__ __AGENT__ collect
+Restart=always
+RestartSec=5
+# The agent must never be the reason a box is slow. It yields to everything else and its own
+# writes go to the back of the IO queue -- on an SD card that matters more than the CPU nice.
+Nice=10
+IOSchedulingClass=idle
+# It reads /proc and /sys, writes one database, and talks to the hub. Nothing else.
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=__DATA_DIR__
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

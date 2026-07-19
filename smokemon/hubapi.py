@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import html
 import time
-from pathlib import Path
 
 from . import analyze, config, query
 
@@ -348,13 +347,19 @@ def prometheus(conn, now: float | None = None) -> str:
 # ---------- dashboard ----------
 
 def dashboard_html() -> str:
-    """The dashboard is a static asset read from disk, not a string constant in this module.
+    """The dashboard is a static asset, not a string constant in this module.
 
     It used to be 1612 lines of embedded HTML/CSS/JS -- 59% of this file, with no syntax
-    checking, no linting, and tests that could only assert substrings against it."""
+    checking, no linting, and tests that could only assert substrings against it.
+
+    Read through importlib.resources rather than Path(__file__): the agent ships as a zipapp,
+    where __file__ points inside the archive and open() cannot follow it. The fallback below
+    would then be served instead of the dashboard, and because it is also valid HTML that
+    failure looks like a working page until you read the words."""
     try:
-        return (Path(__file__).with_name("static") / "dashboard.html").read_text("utf-8")
-    except OSError:
+        from importlib import resources
+        return (resources.files("smokemon") / "static" / "dashboard.html").read_text("utf-8")
+    except (OSError, ModuleNotFoundError, AttributeError):
         return ("<!doctype html><meta charset=utf-8><title>smokemon</title>"
                 "<p>dashboard.html is missing from this install.")
 

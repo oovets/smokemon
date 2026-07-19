@@ -2,18 +2,23 @@
 A local ship_state(table_name,last_id) cursor advances only on HTTP 200; the hub is
 idempotent (UNIQUE(node,src_id)) so optimistic advancement is safe.
 
-Default: drain once and exit (for a timer). Set SMOKEMON_SHIP_INTERVAL>0 to loop."""
+This module owns both halves of shipping: the transport (gather/compress/post) and the
+decision of when to run it (tick). Keeping them together is deliberate -- there must be
+exactly one shipping mechanism, or two of them race for the same cursors."""
 
 import gzip
 import ipaddress
 import json
 import sqlite3
 import sys
+import threading
+import time
 import urllib.error
 import urllib.request
 from urllib.parse import urlparse
 
 from . import config, core, schema
+from .probes.logexcerpt import is_elevated
 
 _LOOPBACK_HOSTS = ("127.0.0.1", "::1", "localhost")
 # Tailscale's address ranges: CGNAT IPv4 (100.64.0.0/10) and the IPv6 ULA prefix. Traffic to a
@@ -210,14 +215,89 @@ def connect_and_drain(hubs: list[tuple[str, str]]) -> int:
 
 
 def expedite() -> int:
-    """One-shot drain triggered out-of-band (by the collector when an elevated event lands) so
-    errors reach the hub without waiting for the bulk ship timer. No-op without configured/valid
-    hubs. Safe to run concurrently with the timer shipper: the hub is idempotent on
-    UNIQUE(node, src_id) and per-dest cursors converge."""
+    """One-shot drain on its own connection, for the shipping thread. No-op without
+    configured/valid hubs."""
     if not config.HUBS:
         return 0
     valid = valid_hubs(config.HUBS)
     return connect_and_drain(valid) if valid else 0
+
+
+# ---------- when to ship ----------
+#
+# One mechanism, in the module that owns shipping. This used to be a systemd timer firing a
+# fresh `python -m smokemon.ship` every 15 s -- 5760 interpreter startups a day, ~200 ms each
+# on Pi-class hardware, purely to import modules and usually find nothing to send. For an agent
+# whose entire claim is a small footprint, that was the largest thing it did.
+#
+# Now the collector calls tick() on its scheduler. Shipping still happens on a thread, because
+# a POST to an unreachable hub blocks for the socket timeout and must never stall sampling.
+
+_seen_id: int | None = None      # high-water mark of ext_events already examined
+_pending = False                 # something is waiting to be shipped (a LEVEL, not an edge)
+_next_due = 0.0                  # monotonic deadline for the periodic ship
+_inflight = threading.Lock()     # coalesce: at most one ship in flight
+
+
+def _elevated_pending(conn) -> bool:
+    """Raise the pending flag if an elevated ext_events row has appeared since the last look.
+
+    A level rather than an edge: a correlated storm -- a thermal throttle tripping temperature,
+    loss and latency at once -- raises it once and costs one ship, not one per incident. It is
+    cleared only when a ship actually starts, so a detection arriving mid-flight is not lost;
+    the running ship's gather() may already have passed those rows.
+
+    The first call only seeds the mark, so a pre-existing backlog is not expedited on startup."""
+    global _seen_id, _pending
+    row = conn.execute("SELECT COALESCE(MAX(id),0) FROM ext_events").fetchone()
+    cur_max = int(row[0]) if row else 0
+    first = _seen_id is None
+    prev = _seen_id or 0
+    _seen_id = cur_max
+    if first or cur_max <= prev:
+        return _pending
+    for source, sev in conn.execute(
+            "SELECT source, severity FROM ext_events WHERE id>? ORDER BY id", (prev,)):
+        # The collector's own events (probe-crash / db-contention) must NOT trigger a ship: a
+        # ship is another local writer, so reacting to a local contention event would add write
+        # pressure and feed a crash->ship->crash loop. Those ride the periodic tick.
+        if source == "collector":
+            continue
+        if is_elevated(sev):
+            _pending = True
+            break
+    return _pending
+
+
+def _run() -> None:
+    try:
+        n = expedite()
+        if n:
+            core.log(f"ship: sent {n} rows")
+    except Exception as e:  # noqa: BLE001 -- a thread that dies silently stops all shipping
+        core.log(f"ship: failed: {e!r}")
+    finally:
+        try:
+            _inflight.release()
+        except RuntimeError:
+            pass
+
+
+def tick(conn) -> None:
+    """Collector hook. Ships when an elevated event is waiting or the periodic deadline has
+    passed, at most one at a time, never blocking the caller."""
+    global _pending, _next_due
+    if not config.HUBS:
+        return
+    now = time.monotonic()
+    due = now >= _next_due
+    if not (_elevated_pending(conn) or due):
+        return
+    if not _inflight.acquire(blocking=False):
+        return  # already shipping; _pending stays raised so the next tick re-arms if needed
+    _pending = False
+    _next_due = now + config.SHIP_INTERVAL
+    threading.Thread(target=_run, name="smokemon-ship", daemon=True).start()
 
 
 def main() -> int:

@@ -1,134 +1,150 @@
 #!/usr/bin/env bash
-# smokemon installer (Linux node or hub). Installs deps, grants fping CAP_NET_RAW
-# (no sudo), writes /etc/smokemon.env, installs + enables systemd units. Works two ways:
+# smokemon installer. One command, either role:
 #
-#   local:   sudo ./install.sh --node NAME [--hub-url http://HUB-HOST:8765/ingest --secret S]
-#   one-line: curl -fsSL https://raw.githubusercontent.com/oovets/smokemon/main/install.sh \
-#               | sudo bash -s -- --node NAME [--hub-url URL --secret S]
-#   hub:     ... --hub --secret S          (--secret must match between node and hub)
+#   hub:   curl -fsSL https://raw.githubusercontent.com/oovets/smokemon/main/install.sh | sudo bash -s -- --hub
+#   node:  curl -fsSL .../install.sh | sudo bash -s -- --hub-url http://HUB:8765/ingest --secret S
 #
-# When piped (no local checkout) it clones the repo to $SMOKEMON_DIR (default /opt/smokemon).
+# The hub install prints the exact node command, secret filled in, and installs `smokemon-fleet`
+# so the rest of the fleet is one more command.
+#
+# There is no checkout on the target. smokemon is stdlib-only, so it ships as a single zipapp
+# built here and dropped at /usr/local/lib/smokemon.pyz. Nothing to pull, nothing to go stale,
+# and no git history for a future rewrite to break: reinstalling is just overwriting one file.
 set -euo pipefail
-# non-interactive apt: a debconf prompt would hang a piped `curl | sudo bash` install (no tty)
-# and abort it before the env/units are written.
-export DEBIAN_FRONTEND=noninteractive
+export DEBIAN_FRONTEND=noninteractive   # a debconf prompt would hang a piped `curl | bash`
 
-MODE="node"; NODE_NAME="$(hostname)"; HUB_URL=""   # empty -> local-only node (ship no-ops)
-SECRET=""; TARGETS="1.1.1.1,gw"   # 'gw' auto-expands to each node's own default gateway
+MODE="node"
+NODE_NAME="$(hostname)"
+HUB_URL=""
+SECRET=""
+TARGETS="1.1.1.1,gw"
+BRANCH="${SMOKEMON_BRANCH:-main}"
+REPO="${SMOKEMON_REPO:-oovets/smokemon}"
+
 while [ $# -gt 0 ]; do
     case "$1" in
-        --hub) MODE="hub"; shift ;;
-        --node) NODE_NAME="$2"; shift 2 ;;
-        --hub-url) HUB_URL="$2"; shift 2 ;;
-        --secret) SECRET="$2"; shift 2 ;;
-        --targets) TARGETS="$2"; shift 2 ;;
+        --hub)      MODE="hub"; shift ;;
+        --node)     NODE_NAME="$2"; shift 2 ;;
+        --hub-url)  HUB_URL="$2"; shift 2 ;;
+        --secret)   SECRET="$2"; shift 2 ;;
+        --targets)  TARGETS="$2"; shift 2 ;;
+        --branch)   BRANCH="$2"; shift 2 ;;
         *) echo "unknown argument: $1" >&2; exit 1 ;;
     esac
 done
 [ "$(id -u)" -eq 0 ] || { echo "run as root (sudo)." >&2; exit 1; }
 
-# A hub with no secret accepts unauthenticated ingest from anyone (and it binds 0.0.0.0 by
-# default), so when configuring a hub without an explicit --secret, generate a strong random one.
+AGENT=/usr/local/lib/smokemon.pyz
+DATA_DIR=/var/lib/smokemon
+ENV_FILE=/etc/smokemon.env
+UNIT_DIR=/etc/systemd/system
+SVC_USER="${SMOKEMON_USER:-smokemon}"
+
+# A hub with no secret accepts unauthenticated ingest from anyone, and it binds 0.0.0.0.
 if [ "$MODE" = "hub" ] && [ -z "$SECRET" ]; then
     SECRET="$(head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9')"
-    echo "==> generated SMOKEMON_HUB_SECRET (nodes must install with the same --secret)"
 fi
+[ "$MODE" = "node" ] && [ -n "$HUB_URL" ] && [ -z "$SECRET" ] && {
+    echo "a --hub-url needs a --secret (the one the hub printed)." >&2; exit 1; }
 
-# Use the local checkout if run from one, otherwise clone (curl-piped).
-SELF="${BASH_SOURCE[0]:-}"
-if [ -n "$SELF" ] && [ -f "$(dirname "$SELF")/deploy/systemd/smokemon-hub.service" ]; then
-    DIR="$(cd "$(dirname "$SELF")" && pwd)"
-else
-    DIR="${SMOKEMON_DIR:-/opt/smokemon}"
-    REPO="${SMOKEMON_REPO:-https://github.com/oovets/smokemon.git}"
-    command -v git >/dev/null 2>&1 || { apt-get update -qq && apt-get install -y --no-install-recommends git; }
-    if [ -d "$DIR/.git" ]; then echo "==> updating $DIR"; git -C "$DIR" pull -q --ff-only
-    else echo "==> cloning $REPO -> $DIR"; git clone -q --depth 1 "$REPO" "$DIR"; fi
-fi
-
-USER_NAME="${SUDO_USER:-$(whoami)}"
-PYTHON="$(command -v python3)"
-ENV_FILE="/etc/smokemon.env"
-UNIT_DIR="/etc/systemd/system"
-echo "==> smokemon install: mode=$MODE dir=$DIR user=$USER_NAME python=$PYTHON"
-
-echo "==> apt deps"
+echo "==> deps"
 apt-get update -qq
-# The hub is pure stdlib: it ingests, reduces incidents and serves a static dashboard.
 if [ "$MODE" = "hub" ]; then
-    apt-get install -y --no-install-recommends python3-pip
+    apt-get install -y --no-install-recommends python3 curl >/dev/null
 else
-    # fping = the ping probe; iw = wifi RSSI. Both are the whole node-side dependency list.
-    apt-get install -y --no-install-recommends fping iw python3-pip
-    echo "==> CAP_NET_RAW on fping (skip sudo)"
+    # fping is the ping probe, iw reads wifi RSSI. That is the entire node dependency list.
+    apt-get install -y --no-install-recommends python3 curl fping iw >/dev/null
     bin="$(command -v fping || true)"
-    [ -n "$bin" ] && setcap cap_net_raw+ep "$bin" && echo "    setcap $bin" || true
+    [ -n "$bin" ] && setcap cap_net_raw+ep "$bin" 2>/dev/null && echo "    setcap $bin" || true
 fi
 
-echo "==> writing $ENV_FILE"
+echo "==> building agent from $REPO@$BRANCH"
+# Source tarball rather than a clone: no git dependency, and nothing left behind to diverge.
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+curl -fsSL "https://codeload.github.com/$REPO/tar.gz/refs/heads/$BRANCH" | tar xz -C "$TMP"
+SRC="$(find "$TMP" -maxdepth 1 -type d -name 'smokemon-*' | head -1)"
+[ -d "$SRC/smokemon" ] || { echo "unexpected tarball layout" >&2; exit 1; }
+find "$SRC/smokemon" -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null || true
+install -d /usr/local/lib
+python3 -m zipapp "$SRC" -m "smokemon.__main__:main" -p "/usr/bin/env python3" -o "$AGENT.new" -c \
+    --compress 2>/dev/null || python3 -m zipapp "$SRC" -m "smokemon.__main__:main" \
+    -p "/usr/bin/env python3" -o "$AGENT.new" -c
+# Swap in atomically: a half-written agent that systemd then restarts into is worse than a
+# brief window of the old one still running.
+mv "$AGENT.new" "$AGENT"; chmod 755 "$AGENT"
+echo "    $AGENT ($(du -h "$AGENT" | cut -f1))"
+
+echo "==> service user + data dir"
+id -u "$SVC_USER" >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin "$SVC_USER"
+install -d -o "$SVC_USER" -g "$SVC_USER" -m 750 "$DATA_DIR"
+
+echo "==> $ENV_FILE"
 {
     echo "# smokemon config (generated by install.sh)"
-    echo "PYTHONPATH=$DIR"
-    echo "SMOKEMON_DB=$DIR/data/smokemon.db"
     echo "SMOKEMON_NODE=$NODE_NAME"
     if [ "$MODE" = "hub" ]; then
-        echo "SMOKEMON_HUB_DB=$DIR/data/smokemon-hub.db"
+        echo "SMOKEMON_HUB_DB=$DATA_DIR/hub.db"
         echo "SMOKEMON_HUB_BIND=0.0.0.0"
         echo "SMOKEMON_HUB_PORT=8765"
     else
+        echo "SMOKEMON_DB=$DATA_DIR/node.db"
         echo "SMOKEMON_TARGETS=$TARGETS"
         [ -n "$HUB_URL" ] && echo "SMOKEMON_HUB_URL=$HUB_URL"
     fi
     echo "SMOKEMON_HUB_SECRET=$SECRET"
 } > "$ENV_FILE"
-chmod 600 "$ENV_FILE"
-mkdir -p "$DIR/data"; chown -R "$USER_NAME" "$DIR/data"
+chmod 640 "$ENV_FILE"; chown root:"$SVC_USER" "$ENV_FILE"
 
-echo "==> smoke command (/usr/local/bin/smoke)"
-# A real executable on PATH works in every shell immediately - no relogin, no profile
-# sourcing (/etc/profile.d only loads in login shells, and not at all under zsh/fish).
-# Bake the resolved paths in so `smoke`/`smoke fleet` find the right DB without reading
-# the root-owned /etc/smokemon.env (the secret stays out of this world-readable file).
-rm -f /etc/profile.d/smokemon.sh   # retire the old login-shell-only helper
-BIN=/usr/local/bin
-cat > "$BIN/smoke" <<EOF
+echo "==> smoke command"
+cat > /usr/local/bin/smoke <<EOF
 #!/bin/sh
 # smokemon viewer (generated by install.sh)
-export PYTHONPATH="$DIR"
-export SMOKEMON_DB="$DIR/data/smokemon.db"
-export SMOKEMON_HUB_DB="$DIR/data/smokemon-hub.db"
+export SMOKEMON_DB="$DATA_DIR/node.db"
+export SMOKEMON_HUB_DB="$DATA_DIR/hub.db"
 export SMOKEMON_NODE="$NODE_NAME"
-exec "$PYTHON" -m smokemon.cli "\$@"
+exec "$AGENT" "\$@"
 EOF
-chmod 755 "$BIN/smoke"
-# `smokeincidents` is the one worth a shortcut: it is what an operator runs first after a page.
-cat > "$BIN/smokeincidents" <<EOF
-#!/bin/sh
-exec "$BIN/smoke" incidents "\$@"
-EOF
-chmod 755 "$BIN/smokeincidents"
+chmod 755 /usr/local/bin/smoke
 
-install_unit() {
-    sed -e "s|__USER__|$USER_NAME|g" -e "s|__SMOKEMON_DIR__|$DIR|g" \
-        -e "s|__PYTHON__|$PYTHON|g" -e "s|__ENV_FILE__|$ENV_FILE|g" \
-        "$DIR/deploy/systemd/$1" > "$UNIT_DIR/$1"
-    echo "    installed $1"
+unit() {
+    sed -e "s|__USER__|$SVC_USER|g" -e "s|__PYTHON__|$(command -v python3)|g" \
+        -e "s|__ENV_FILE__|$ENV_FILE|g" -e "s|__AGENT__|$AGENT|g" \
+        -e "s|__DATA_DIR__|$DATA_DIR|g" "$SRC/deploy/systemd/$1" > "$UNIT_DIR/$1"
 }
 
-echo "==> systemd units"
+echo "==> systemd"
+# Retire the units this replaces. Leaving them enabled would run a second collector against
+# the same database -- the write contention the single-process design exists to remove.
+for old in smokemon-collect-fast.service smokemon-collect-slow.service \
+           smokemon-shipper.service smokemon-shipper.timer \
+           smokemon-prune.service smokemon-prune.timer \
+           smokemon-iperf.service smokemon-iperf.timer smokemon-iperf-server.service; do
+    systemctl disable --now "$old" >/dev/null 2>&1 || true
+    rm -f "$UNIT_DIR/$old"
+done
+
 if [ "$MODE" = "hub" ]; then
-    install_unit smokemon-hub.service
+    unit smokemon-hub.service
+    install -m 755 "$SRC/scripts/fleet-reprovision.sh" /usr/local/bin/smokemon-fleet
     systemctl daemon-reload
     systemctl enable --now smokemon-hub.service
-    echo "==> done. Hub on :8765 — systemctl status smokemon-hub"
-    echo "    try now:  smoke fleet --hub-url http://localhost:8765   (or open http://localhost:8765/)"
+    IP="$(tailscale ip -4 2>/dev/null | head -1 || hostname -I | awk '{print $1}')"
+    cat <<EOF
+
+==> hub running on http://$IP:8765/
+
+    roll out to the fleet (reads the secret from $ENV_FILE):
+      sudo smokemon-fleet --tailscale 'aspace-prod-*' --ssh-user aspace
+
+    or install one node by hand:
+      curl -fsSL https://raw.githubusercontent.com/$REPO/$BRANCH/install.sh | sudo bash -s -- \\
+        --hub-url http://$IP:8765/ingest --secret $SECRET
+EOF
 else
-    for u in smokemon-collect-fast.service smokemon-collect-slow.service \
-             smokemon-shipper.service smokemon-shipper.timer \
-             smokemon-prune.service smokemon-prune.timer; do install_unit "$u"; done
+    unit smokemon.service
     systemctl daemon-reload
-    systemctl enable --now smokemon-collect-fast.service smokemon-collect-slow.service \
-        smokemon-shipper.timer smokemon-prune.timer
-    echo "==> done. journalctl -u smokemon-collect-fast -f"
-    echo "    try now:  smoke   (give the collectors a minute to gather data first)"
+    systemctl enable --now smokemon.service
+    echo
+    echo "==> node running.  journalctl -u smokemon -f   |   smoke incidents"
+    [ -z "$HUB_URL" ] && echo "    (no --hub-url given: running standalone, shipping nothing)"
 fi

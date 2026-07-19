@@ -120,11 +120,19 @@ fi
 # Run from the hub and the secret is already on this box. Reading it beats retyping it: a
 # mistyped secret produces an install that looks entirely successful and then silently fails
 # to ship, which is only caught minutes later by the hub-side check at the end.
-if [ -z "$SECRET" ] && [ -r /etc/smokemon.env ]; then
+if [ -z "$SECRET" ]; then
+    if [ ! -e /etc/smokemon.env ]; then
+        die "no secret and no /etc/smokemon.env.
+  If this box is the hub, it was started by hand rather than installed. Install it properly:
+    curl -fsSL https://raw.githubusercontent.com/oovets/smokemon/main/install.sh | sudo bash -s -- --hub
+  Otherwise pass --secret explicitly."
+    elif [ ! -r /etc/smokemon.env ]; then
+        die "/etc/smokemon.env exists but is not readable as $(id -un) -- rerun with sudo."
+    fi
     SECRET="$(sed -n 's/^SMOKEMON_HUB_SECRET=//p' /etc/smokemon.env | head -1)"
-    [ -n "$SECRET" ] && log "using SMOKEMON_HUB_SECRET from /etc/smokemon.env"
+    [ -n "$SECRET" ] || die "/etc/smokemon.env has no SMOKEMON_HUB_SECRET line"
+    log "using SMOKEMON_HUB_SECRET from /etc/smokemon.env"
 fi
-[ -n "$SECRET" ] || die "no secret: pass --secret, or run this on the hub where /etc/smokemon.env is readable"
 
 ssh_to() {  # ssh_to HOST COMMAND...
     local host="$1"; shift
@@ -141,56 +149,37 @@ remote_script() {
     cat <<REMOTE
 set -euo pipefail
 
-echo "-- stopping any existing smokemon units"
-# Timers before services: a timer that fires during the teardown would restart what we just
-# stopped and race the reinstall.
-for u in smokemon-prune.timer smokemon-shipper.timer smokemon-iperf.timer \\
-         smokemon-collect-fast.service smokemon-collect-slow.service smokemon-hub.service \\
-         smokemon-shipper.service smokemon-prune.service smokemon-iperf.service \\
-         smokemon-iperf-server.service; do
-    systemctl stop "\$u" 2>/dev/null || true
-    systemctl disable "\$u" 2>/dev/null || true
-    rm -f "/etc/systemd/system/\$u"
-done
-systemctl daemon-reload
+echo "-- installing"
+# The installer retires the units this replaces and drops a single zipapp, so there is no
+# teardown to do here beyond the legacy checkout and data directory it does not know about.
+curl -fsSL "$REPO_RAW" | bash -s -- \\
+    --node "$node" --hub-url "$HUB_URL" --secret "$SECRET" $TARGETS_ARG
 
-echo "-- removing old checkout and data"
-# The checkout must go: its git history has no common ancestor with the current origin/main,
-# so install.sh's fast-forward pull would fail here rather than replacing it.
+echo "-- removing pre-zipapp leftovers"
 rm -rf /opt/smokemon
-# Node databases and their set-aside predecessors. Nothing the old schema wrote is readable by
-# the current code, and leaving *.old-v* behind occupies the SD card we are trying to spare.
-# /etc/smokemon.env is rewritten by install.sh.
-#
-# Guarded on data/ rather than globbing rm -rf across every home directory: a coincidentally
-# named ~/smokemon that is not a smokemon data dir must survive this.
+# Old node databases. Nothing the previous schema wrote is readable by the current code, and
+# the set-aside copies occupy exactly the SD-card space this design exists to save. Guarded on
+# data/ rather than globbing rm -rf across every home: a coincidentally named ~/smokemon that
+# is not a smokemon data directory must survive this.
 for d in /root/smokemon /home/*/smokemon; do
     [ -d "\$d/data" ] || continue
     echo "   removing \$d"
     rm -rf "\$d"
 done
 
-echo "-- installing current code"
-curl -fsSL "$REPO_RAW" | bash -s -- \\
-    --node "$node" --hub-url "$HUB_URL" --secret "$SECRET" $TARGETS_ARG
-
-echo "-- local verification"
+echo "-- verification"
 sleep 3
 fail=0
-for u in smokemon-collect-fast smokemon-collect-slow; do
-    if systemctl is-active --quiet "\$u"; then
-        echo "   \$u active"
-    else
-        echo "   \$u NOT ACTIVE"; fail=1
-    fi
-done
-# A probe that dies on the first cycle is the failure this rollout is most likely to hit, and
-# it is invisible from the hub until the node fails to ship anything at all.
-if journalctl -u smokemon-collect-fast -u smokemon-collect-slow --since "-60s" --no-pager 2>/dev/null \\
-     | grep -qE "probe .* (failed|crashed)"; then
-    echo "   PROBE ERRORS in journal:"
-    journalctl -u smokemon-collect-fast -u smokemon-collect-slow --since "-60s" --no-pager \\
-      | grep -E "probe .* (failed|crashed)" | tail -5 | sed 's/^/     /'
+if systemctl is-active --quiet smokemon.service; then
+    echo "   smokemon.service active"
+else
+    echo "   smokemon.service NOT ACTIVE"; fail=1
+fi
+# A probe that dies on its first cycle is the failure a rollout is most likely to hit, and it
+# is invisible from the hub: a node that never starts also never ships anything to be missed.
+if journalctl -u smokemon --since "-60s" --no-pager 2>/dev/null | grep -qE "probe .* failed"; then
+    echo "   PROBE ERRORS:"
+    journalctl -u smokemon --since "-60s" --no-pager | grep -E "probe .* failed" | tail -5 | sed 's/^/     /'
     fail=1
 fi
 exit \$fail

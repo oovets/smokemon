@@ -288,15 +288,22 @@ def test_prometheus_on_empty_db_is_valid_not_a_crash(hub_conn):
 
 # ---------- dashboard asset ----------
 
-def test_dashboard_html_is_read_from_disk():
-    assert hubapi.dashboard_html().lstrip().lower().startswith("<!doctype html")
+def test_dashboard_html_is_read_from_the_package():
+    html = hubapi.dashboard_html()
+    assert html.lstrip().lower().startswith("<!doctype html")
+    # Not the fallback, which is also valid HTML -- that is what makes a packaging mistake
+    # look like a working page until you read the words on it.
+    assert "missing from this install" not in html
+    assert "/api/incidents" in html
 
 
-def test_dashboard_html_missing_file_degrades_to_a_message(monkeypatch):
+def test_dashboard_html_missing_asset_degrades_to_a_message(monkeypatch):
     """A missing asset must not 500 the hub's only human-facing page."""
+    from importlib import resources
+
     def boom(*_a, **_k):
         raise OSError("gone")
-    monkeypatch.setattr(hubapi.Path, "read_text", boom)
+    monkeypatch.setattr(resources, "files", boom)
     assert "dashboard.html is missing" in hubapi.dashboard_html()
 
 

@@ -1,16 +1,20 @@
 [Unit]
-Description=smokemon hub ingest (central receiver)
+Description=smokemon hub (ingest + dashboard)
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
 User=__USER__
-WorkingDirectory=__SMOKEMON_DIR__
 EnvironmentFile=-__ENV_FILE__
-ExecStart=__PYTHON__ -m smokemon.hub
+ExecStart=__PYTHON__ __AGENT__ hub
 Restart=always
 RestartSec=5
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=__DATA_DIR__
+PrivateTmp=true
+NoNewPrivileges=true
 
 [Install]
 WantedBy=multi-user.target

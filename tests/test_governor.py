@@ -47,7 +47,7 @@ def test_sheddable_probes_are_all_actually_registered(monkeypatch):
     monkeypatch.setattr(config, "LOGEXCERPT_ENABLED", True)
     monkeypatch.setattr(config, "LOGEXCERPT_PATHS", ["/var/log/syslog"])
     monkeypatch.setattr(config, "INVENTORY_ENABLED", True)
-    registered = {name for _interval, name, _fn in collect._probes("all")}
+    registered = {name for _interval, name, _fn in collect._probes()}
     missing = set(governor.EXPENSIVE) - registered
     assert not missing, f"governor would try to shed probes that do not run: {missing}"
 

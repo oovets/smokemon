@@ -196,12 +196,10 @@ HUB_SECRET = os.environ.get("SMOKEMON_HUB_SECRET", "changeme")
 # HUB_URL is https, or the host is loopback, or this is set. Set =1 only for trusted LANs.
 HUB_INSECURE = os.environ.get("SMOKEMON_HUB_INSECURE", "0") != "0"
 SHIP_BATCH = _i("SMOKEMON_SHIP_BATCH", "2000")
-SHIP_INTERVAL = _f("SMOKEMON_SHIP_INTERVAL", "0")  # 0 = drain once and exit
-# Expedite: when an elevated ext_events row lands, the collector kicks an immediate ship so errors
-# reach the hub in seconds rather than on the next bulk tick. Event-driven + rate-limited by the
-# check interval (also the effective min gap between expedited ships). No-op without a hub.
-SHIP_EXPEDITE = os.environ.get("SMOKEMON_SHIP_EXPEDITE", "1") != "0"
-SHIP_EXPEDITE_INTERVAL = _f("SMOKEMON_SHIP_EXPEDITE_INTERVAL", "10")
+# How long a healthy, quiet node may sit on its heartbeat before sending it. An elevated event
+# does not wait for this -- ship.tick() sends as soon as one lands, so an incident reaches the
+# hub within a tick regardless of how this is set.
+SHIP_INTERVAL = _f("SMOKEMON_SHIP_INTERVAL", "60")
 # Tables to NOT ship to the hub. The rows are still collected and kept node-local; they are just
 # excluded from the gather/push. Backward compatible - the hub simply receives fewer table keys
 # and ignores the absence (UNIQUE(node,src_id) ingest never required any table).
@@ -262,6 +260,9 @@ HUB_CACHE_TTL_S = _f("SMOKEMON_HUB_CACHE_TTL_S", "20")
 # truncated so the file actually shrinks; freed main-DB pages are reused by later inserts.
 # PRUNE_VACUUM=1 additionally runs a full VACUUM (heavy, needs free space) to reclaim pages.
 RETENTION_DAYS = _f("SMOKEMON_RETENTION_DAYS", "14")
+# The daemon runs the retention sweep itself rather than a systemd timer spawning a second
+# interpreter for a job that deletes nothing on most days.
+PRUNE_INTERVAL = _f("SMOKEMON_PRUNE_INTERVAL", "86400")
 PRUNE_VACUUM = os.environ.get("SMOKEMON_PRUNE_VACUUM", "0") != "0"
 
 # Footprint governor (node-side, opt-in). When this process exceeds a budget, the collector
