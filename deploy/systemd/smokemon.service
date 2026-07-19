@@ -20,6 +20,15 @@ ProtectHome=read-only
 ReadWritePaths=__DATA_DIR__
 PrivateTmp=true
 NoNewPrivileges=true
+# ping needs a raw ICMP socket. The kernel does not apply a binary's file capability
+# (setcap cap_net_raw+ep on fping) through execve when the calling process has
+# NoNewPrivileges=true -- fping runs, opens no socket, and reports total loss on every
+# target with no error, which reads as a genuine outage everywhere at once. Ambient
+# capabilities are the directive built for exactly this: granted to this unit's own
+# process and inherited by fping across exec, unaffected by NoNewPrivileges. install.sh's
+# setcap step still runs, for anyone invoking fping outside this unit (`smoke`, by hand).
+AmbientCapabilities=CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_RAW
 
 [Install]
 WantedBy=multi-user.target
