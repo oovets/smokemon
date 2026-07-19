@@ -158,5 +158,11 @@ else
     systemctl restart smokemon.service   # see the hub branch: --now would not replace a running agent
     echo
     echo "==> node running.  journalctl -u smokemon -f   |   smoke incidents"
-    [ -z "$HUB_URL" ] && echo "    (no --hub-url given: running standalone, shipping nothing)"
+    # An `if`, not a trailing `[ ] && echo`: that test is the last command in the script, so
+    # under `set -e` a false one makes the whole installer exit non-zero. Every successful node
+    # install (which is exactly when this test is false) reported failure -- and a fleet rollout
+    # would have looked like every host had broken while every host was fine.
+    if [ -z "$HUB_URL" ]; then
+        echo "    (no --hub-url given: running standalone, shipping nothing)"
+    fi
 fi

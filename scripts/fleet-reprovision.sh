@@ -212,11 +212,15 @@ summary() {
     for i in "${!NAMES[@]}"; do log "   ${NAMES[$i]}  (${ADDRS[$i]})"; done
     # Offline peers are reported rather than silently dropped: after a rollout it must be
     # obvious which boxes still carry the old code, or they turn into a quiet long tail.
-    [ "$SKIPPED_N" -gt 0 ] && {
+    #
+    # An `if`, not `[ ] && { }`: under `set -e` a trailing false test makes the function return
+    # non-zero and kills the script. That fired whenever nothing was skipped -- which is every
+    # run that names hosts explicitly, i.e. every canary.
+    if [ "$SKIPPED_N" -gt 0 ]; then
         log ""
         log "skipped $SKIPPED_N offline peer(s); rerun later to catch them, e.g."
         log "   $(printf '%s' "$SKIPPED" | tr ',' ' ' | cut -c1-70)..."
-    }
+    fi
 }
 
 if [ "$YES" -ne 1 ]; then
