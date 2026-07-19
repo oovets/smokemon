@@ -38,6 +38,16 @@ ADDRS=()
 die() { echo "error: $*" >&2; exit 1; }
 log() { printf '%s\n' "$*" >&2; }
 
+# The installer is sent over the wire, not fetched by the node. raw.githubusercontent caches
+# per path per CDN edge, and appending a query string does not reliably defeat it -- a rollout
+# started minutes after a push repeatedly ran the PREVIOUS installer while reporting success.
+# Shipping the local copy also means the installer you can read is the one that ran.
+_here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+for _p in "$_here/../install.sh" /usr/local/lib/smokemon-install.sh; do
+    [ -f "$_p" ] && { INSTALLER="$_p"; break; }
+done
+[ -n "${INSTALLER:-}" ] || die "cannot find install.sh (looked next to this script and in /usr/local/lib)"
+
 add_host() {
     # "name=addr" separates what the node is called on the hub from how we reach it, for a box
     # whose tailnet name does not resolve from here or that is quicker to reach over the LAN.
@@ -186,11 +196,11 @@ done
 rm -rf /var/lib/smokemon
 
 echo "-- installing"
-# Cache-busted. raw.githubusercontent caches for 300 s per CDN edge, so an install run shortly
-# after a push can silently fetch the previous installer -- which is exactly how the last
-# attempt appeared to succeed while applying none of the changes it was meant to.
-curl -fsSL "$REPO_RAW?cb=\$(date +%s)" | bash -s -- \\
-    --node "$node" --hub-url "$HUB_URL" --secret "$SECRET" $TARGETS_ARG
+cat > /tmp/smokemon-install.\$\$.sh <<'SMOKEMON_INSTALLER_EOF'
+$(cat "$INSTALLER")
+SMOKEMON_INSTALLER_EOF
+bash /tmp/smokemon-install.\$\$.sh --node "$node" --hub-url "$HUB_URL" --secret "$SECRET" $TARGETS_ARG
+rm -f /tmp/smokemon-install.\$\$.sh
 
 echo "-- verification"
 sleep 3
@@ -245,6 +255,10 @@ summary
 log ""
 log "reprovisioning ${#NAMES[@]} host(s)"
 mkdir -p .fleet-logs
+# Taken BEFORE the installs, not after. A node writes its first heartbeat as the daemon starts,
+# which is during this loop -- anchoring the freshness cut afterwards discards that one and
+# leaves the check waiting a full heartbeat interval for the next.
+START="$(date +%s)"
 # Fixed-size batches rather than a sliding window: `wait -n` needs bash 4.3, and this may well
 # be invoked from a Mac, where bash is 3.2.
 i=0
@@ -268,9 +282,8 @@ done
 # The local check proves the agent runs; only the hub proves it is being heard. A healthy node
 # writes nothing but its heartbeat, so give it one heartbeat interval plus slack to appear.
 log ""
-log "waiting for nodes to appear on the hub (first heartbeat is up to 5 min away)"
-START="$(date +%s)"
-deadline=$(( START + 420 ))
+log "waiting for nodes to report to the hub"
+deadline=$(( $(date +%s) + 420 ))
 while [ "$(date +%s)" -lt "$deadline" ]; do
     # Only nodes whose newest heartbeat postdates the rollout count. Asking merely "is this
     # node known to the hub" passes for a host that was already reporting before we touched

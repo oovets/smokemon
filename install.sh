@@ -143,6 +143,9 @@ systemctl reset-failed 'smokemon*' >/dev/null 2>&1 || true
 if [ "$MODE" = "hub" ]; then
     unit smokemon-hub.service
     install -m 755 "$SRC/scripts/fleet-reprovision.sh" /usr/local/bin/smokemon-fleet
+    # smokemon-fleet sends this installer to each node rather than having the node curl it,
+    # so it needs a copy next to itself once there is no checkout to read from.
+    install -m 755 "$SRC/install.sh" /usr/local/lib/smokemon-install.sh
     systemctl daemon-reload
     systemctl enable smokemon-hub.service
     # restart, not `enable --now`: on a box that already runs smokemon, --now sees an active
