@@ -10,9 +10,11 @@
 #   * The old schema is gone. Nothing in an old node database is readable by the new code, and
 #     nothing in it is worth reading.
 #
-# Usage:
-#   scripts/fleet-reprovision.sh --secret S host1 host2 ...
-#   scripts/fleet-reprovision.sh --secret S --hosts-file nodes.txt --jobs 6
+# Usage, run from the hub (where the secret is already on disk and the API is local):
+#   scripts/fleet-reprovision.sh --yes host1 host2 ...
+#   scripts/fleet-reprovision.sh --yes --hosts-file nodes.txt --jobs 6
+#
+# From anywhere else, pass --secret S explicitly.
 #
 # Destructive steps require --yes. Without it the script prints exactly what it would run.
 set -euo pipefail
@@ -50,7 +52,15 @@ while [ $# -gt 0 ]; do
 done
 
 [ "${#HOSTS[@]}" -gt 0 ] || die "no hosts given (positional args or --hosts-file)"
-[ -n "$SECRET" ] || die "--secret is required; it must match the hub's SMOKEMON_HUB_SECRET"
+
+# Run from the hub and the secret is already on this box. Reading it beats retyping it: a
+# mistyped secret produces an install that looks entirely successful and then silently fails
+# to ship, which is only caught minutes later by the hub-side check at the end.
+if [ -z "$SECRET" ] && [ -r /etc/smokemon.env ]; then
+    SECRET="$(sed -n 's/^SMOKEMON_HUB_SECRET=//p' /etc/smokemon.env | head -1)"
+    [ -n "$SECRET" ] && log "using SMOKEMON_HUB_SECRET from /etc/smokemon.env"
+fi
+[ -n "$SECRET" ] || die "no secret: pass --secret, or run this on the hub where /etc/smokemon.env is readable"
 
 ssh_to() {  # ssh_to HOST COMMAND...
     local host="$1"; shift
