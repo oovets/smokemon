@@ -52,10 +52,16 @@ h2{font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--dim);
 
 /* incident feed. The wrapper scrolls rather than the page: a wide table must never make the
    whole document scroll sideways, and the state column is the one that would get clipped. */
-#inc-wrap,#logs{overflow-x:auto}
+#inc-wrap,#hist-wrap,#logs{overflow-x:auto}
 table{width:100%;border-collapse:collapse;min-width:640px}
 th{text-align:left;font-weight:600;color:var(--dim);font-size:11px;text-transform:uppercase;
   letter-spacing:.5px;padding:6px 8px;border-bottom:1px solid var(--line)}
+th.sortable{cursor:pointer;user-select:none}
+th.sortable:hover{color:var(--fg)}
+.filter{display:block;width:100%;max-width:320px;margin:8px 0;padding:5px 8px;
+  background:var(--panel2);border:1px solid var(--line);border-radius:6px;
+  color:var(--fg);font:inherit}
+.filter::placeholder{color:var(--dim)}
 td{padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
 tr.inc{cursor:pointer} tr.inc:hover{background:var(--panel2)}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
@@ -120,6 +126,7 @@ pre{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padd
       <option value="6">6h</option><option value="24" selected>24h</option>
       <option value="168">7d</option><option value="720">30d</option></select>
       <span id="node-filter"></span></h2>
+    <input class="filter" id="inc-filter" type="text" placeholder="filter by node or signal…">
     <div id="inc-wrap"></div>
   </section>
 
@@ -127,6 +134,7 @@ pre{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padd
     <h2>history — resolved, last <select id="hist-hours">
       <option value="6">6h</option><option value="24" selected>24h</option>
       <option value="168">7d</option><option value="720">30d</option></select></h2>
+    <input class="filter" id="hist-filter" type="text" placeholder="filter by node or signal…">
     <div id="hist-wrap"></div>
   </section>
 
@@ -239,25 +247,77 @@ function stateTag(i) {
   return `<span class="tag err">ongoing</span>`;
 }
 
+// Sort and free-text filter are shared across both tabs -- one thing to type, consistent
+// behaviour wherever you're looking. Data is cached per tab so re-sorting or typing a filter
+// re-renders from memory instead of re-hitting the API on every keystroke.
+let SORT_COL = "opened_ts", SORT_DIR = -1;
+let FILTER_TEXT = "";
+let LAST_INC = null, LAST_HIST = null;   // {list, until, emptyHtml, truncated}
+
+const COLUMNS = [["opened_ts", "opened"], ["node", "node"], ["signal", "signal"],
+                 ["worst_value", "worst"], ["lasted_s", "lasted"], ["state", "state"]];
+
+function sortIncidents(list) {
+  const col = SORT_COL, dir = SORT_DIR;
+  return list.slice().sort((a, b) => {
+    let av = a[col], bv = b[col];
+    if (typeof av === "string" || typeof bv === "string") {
+      av = (av ?? "").toString().toLowerCase(); bv = (bv ?? "").toString().toLowerCase();
+      return av < bv ? -dir : av > bv ? dir : 0;
+    }
+    return ((av ?? -Infinity) - (bv ?? -Infinity)) * dir;
+  });
+}
+
+function filterIncidents(list, text) {
+  const q = text.trim().toLowerCase();
+  if (!q) return list;
+  return list.filter(i => (i.node || "").toLowerCase().includes(q)
+    || (i.signal || "").toLowerCase().includes(q)
+    || (i.entity || "").toLowerCase().includes(q));
+}
+
 // Shared renderer for both the incidents and history tabs -- they show the same rows, just
-// split by state, so keeping the table markup in one place is the point.
-function renderIncidentsTable(w, list, until, emptyHtml, truncated) {
+// split by state, so keeping the table markup and sort/filter logic in one place is the point.
+function renderIncidentsTable(w, cache) {
+  const { list, emptyHtml, truncated } = cache;
   if (!list.length) {
     w.innerHTML = `<div class="empty">${emptyHtml}</div>`;
     return;
   }
+  // Per-node counts, computed from the FULL (unfiltered) tab list -- a search for one signal
+  // must not make an otherwise-noisy node look isolated. This is the answer to "group by host"
+  // without an actual grouped view: a node having several rows is visible at a glance.
+  const nodeCounts = new Map();
+  list.forEach(i => nodeCounts.set(i.node, (nodeCounts.get(i.node) || 0) + 1));
+
+  const visible = sortIncidents(filterIncidents(list, FILTER_TEXT));
   const t = el("table");
-  t.innerHTML = `<thead><tr><th>opened</th><th>node</th><th>signal</th>
-    <th>worst</th><th>lasted</th><th>state</th></tr></thead>`;
+  const head = el("tr");
+  COLUMNS.forEach(([col, label]) => {
+    const th = el("th", "sortable", label + (col === SORT_COL ? (SORT_DIR === 1 ? " ▲" : " ▼") : ""));
+    th.onclick = () => {
+      if (SORT_COL === col) SORT_DIR = -SORT_DIR; else { SORT_COL = col; SORT_DIR = 1; }
+      renderIncidentsTable(w, cache);
+    };
+    head.appendChild(th);
+  });
+  const thead = el("thead"); thead.appendChild(head);
+  t.appendChild(thead);
   const tb = el("tbody");
-  list.forEach(i => {
+  if (!visible.length) {
+    tb.innerHTML = `<tr><td colspan="${COLUMNS.length}" class="muted">no rows match "${esc(FILTER_TEXT)}"</td></tr>`;
+  }
+  visible.forEach(i => {
     const tr = el("tr", "inc");
     const where = i.entity ? `${esc(i.signal)} <span class="muted">${esc(i.entity)}</span>`
                            : esc(i.signal);
+    const count = nodeCounts.get(i.node);
+    const nodeBadge = count > 1 ? ` <span class="tag" title="${count} incidents for this node in this list">${count}</span>` : "";
     tr.innerHTML = `<td><span class="dot sev${i.severity_rank}"></span>${clock(i.opened_ts)}</td>
-      <td>${esc(i.node)}</td><td>${where}</td>
+      <td>${esc(i.node)}${nodeBadge}</td><td>${where}</td>
       <td>${num(i.worst_value)}</td>
-      <td>${i.state === "closed" ? dur(i.duration_s) : dur((until - i.opened_ts))}</td>
+      <td>${dur(i.lasted_s)}</td>
       <td>${stateTag(i)}</td>`;
     tr.onclick = () => showDetail(i.uid);
     tb.appendChild(tr);
@@ -267,6 +327,14 @@ function renderIncidentsTable(w, list, until, emptyHtml, truncated) {
   w.appendChild(t);
   if (truncated) w.appendChild(el("p", "muted", "list truncated — narrow the window"));
 }
+
+// One shared filter box value across both tabs' inputs, and a re-render that never refetches.
+const setFilter = v => {
+  FILTER_TEXT = v;
+  $("#inc-filter").value = v; $("#hist-filter").value = v;
+  if (VIEW === "incidents" && LAST_INC) renderIncidentsTable($("#inc-wrap"), LAST_INC);
+  else if (VIEW === "history" && LAST_HIST) renderIncidentsTable($("#hist-wrap"), LAST_HIST);
+};
 
 async function loadIncidents() {
   const nf = $("#node-filter");
@@ -278,17 +346,20 @@ async function loadIncidents() {
   // Resolved incidents live in the history tab, not here -- an operator on this page wants to
   // know what is still broken or unknown, not re-read yesterday's closed rows every visit.
   const open = d.incidents.filter(i => i.state !== "closed");
+  open.forEach(i => { i.lasted_s = d.until - i.opened_ts; });
   const scope = NODE_FILTER ? ` for <b>${esc(NODE_FILTER)}</b>` : "";
-  renderIncidentsTable($("#inc-wrap"), open, d.until,
-    `<b>Nothing to explain.</b><br>No open or unknown incidents in this window${scope}.`,
-    d.truncated);
+  LAST_INC = { list: open, truncated: d.truncated,
+    emptyHtml: `<b>Nothing to explain.</b><br>No open or unknown incidents in this window${scope}.` };
+  renderIncidentsTable($("#inc-wrap"), LAST_INC);
 }
 
 async function loadHistory() {
   const d = await get(`/api/incidents?hours=${HOURS}`);
   const closed = d.incidents.filter(i => i.state === "closed");
-  renderIncidentsTable($("#hist-wrap"), closed, d.until,
-    "No resolved incidents in this window.", d.truncated);
+  closed.forEach(i => { i.lasted_s = i.duration_s; });
+  LAST_HIST = { list: closed, truncated: d.truncated,
+    emptyHtml: "No resolved incidents in this window." };
+  renderIncidentsTable($("#hist-wrap"), LAST_HIST);
 }
 
 /* ---------- incident detail ---------- */
@@ -471,6 +542,8 @@ document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
 const setHours = v => { HOURS = +v; $("#hours").value = HOURS; $("#hist-hours").value = HOURS; refresh(); };
 $("#hours").onchange = e => setHours(e.target.value);
 $("#hist-hours").onchange = e => setHours(e.target.value);
+$("#inc-filter").oninput = e => setFilter(e.target.value);
+$("#hist-filter").oninput = e => setFilter(e.target.value);
 
 const params = new URLSearchParams(location.search);
 const every = Math.max(2, +(params.get("refresh") || 10)) * 1000;
