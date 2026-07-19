@@ -293,6 +293,23 @@ def test_active_uid_reports_the_open_incident(conn):
     assert incidents.active_uid(conn) is None
 
 
+def test_open_and_close_stamp_ext_events_with_the_incident_uid(conn):
+    """incidents.py emits through events._emit on open/close (see _apply_open/_apply_terminal) so
+    the same ship path and expedite trigger handle incident notifications. Those rows must carry
+    the exact incident uid, not a guess -- it's the one piece of evidence linkage that can be
+    exact instead of best-effort."""
+    f = Feeder(conn)
+    f.open_one()
+    uid = conn.execute("SELECT uid FROM incidents WHERE transition='open'").fetchone()[0]
+    open_ev = conn.execute(
+        "SELECT uid FROM ext_events WHERE event='incident-open'").fetchone()
+    assert open_ev == (uid,)
+    _close(f)
+    close_ev = conn.execute(
+        "SELECT uid FROM ext_events WHERE event='incident-close'").fetchone()
+    assert close_ev == (uid,)
+
+
 # ---------- baseline persistence ----------
 
 def test_baseline_survives_a_restart(conn):

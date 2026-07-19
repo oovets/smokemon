@@ -94,13 +94,16 @@ def _guarded(name: str, fn, conn):
             fn(conn)
         except sqlite3.OperationalError as e:
             # Transient DB contention (another collector holding the write lock): report it, but
-            # do not treat it as a probe fault - the next cycle usually succeeds.
+            # do not treat it as a probe fault - the next cycle usually succeeds. uid: best-effort
+            # link to whatever incident was open when it happened, not causal proof.
             events.trip(conn, f"db:{name}", source="collector", severity="warn",
-                        event="db-contention", detail=f"{name}: {e}")
+                        event="db-contention", detail=f"{name}: {e}",
+                        uid=incidents.active_uid(conn))
         except Exception as e:  # noqa: BLE001
             core.log(f"probe {name} failed: {e!r}")
             events.trip(conn, f"probe:{name}", source="collector", severity="error",
-                        event="probe-crash", detail=f"{name}: {e!r}")
+                        event="probe-crash", detail=f"{name}: {e!r}",
+                        uid=incidents.active_uid(conn))
         else:
             events.clear(conn, f"probe:{name}", source="collector", event="probe-recovered",
                          detail=name)

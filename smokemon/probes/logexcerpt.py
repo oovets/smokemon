@@ -110,10 +110,16 @@ def _read_tail(path: str, offset: int, prev_size: int) -> tuple[str | None, int,
     return raw.decode("utf-8", "replace"), size, max(0, dropped), size
 
 
-def _trigger(conn) -> tuple[bool, str]:
-    """(should_capture, reason). True when a new elevated ext_events row appeared since the last
-    check, or when SMOKEMON_LOGEXCERPT_ALWAYS is set. First call only seeds the high-water mark
-    (so we don't react to pre-existing events on startup)."""
+def _trigger(conn) -> tuple[bool, str, str | None]:
+    """(should_capture, reason, uid). True when a new elevated ext_events row appeared since the
+    last check, or when SMOKEMON_LOGEXCERPT_ALWAYS is set. First call only seeds the high-water
+    mark (so we don't react to pre-existing events on startup).
+
+    uid is carried straight off the triggering row: incident-open/-close events already carry
+    the exact incident uid, everything else (oom-kill, probe-crash, ...) carries whatever
+    incidents.active_uid() resolved to when it fired, or None. Copying it through here -- rather
+    than re-querying incident_state at capture time -- keeps the excerpt attributed to the
+    condition that actually triggered it, not to whatever happens to be open a cycle later."""
     global _last_event_id
     row = conn.execute("SELECT COALESCE(MAX(id), 0) FROM ext_events").fetchone()
     cur_max = int(row[0]) if row else 0
@@ -121,17 +127,18 @@ def _trigger(conn) -> tuple[bool, str]:
     prev = cur_max if first else _last_event_id
     _last_event_id = cur_max
     if config.LOGEXCERPT_ALWAYS:
-        return True, "always"
+        return True, "always", None
     if first:
-        return False, ""
-    reason = ""
-    for _id, source, event, severity in conn.execute(
-            "SELECT id, source, event, severity FROM ext_events WHERE id > ? ORDER BY id",
+        return False, "", None
+    reason, uid = "", None
+    for _id, source, event, severity, ev_uid in conn.execute(
+            "SELECT id, source, event, severity, uid FROM ext_events WHERE id > ? ORDER BY id",
             (prev,)).fetchall():
         if not is_elevated(severity):
             continue
         reason = f"ext_event:{source or '?'}/{event or severity or '?'}"  # keep the latest match
-    return bool(reason), reason
+        uid = ev_uid
+    return bool(reason), reason, uid
 
 
 def _name(path: str) -> str:
@@ -149,7 +156,7 @@ def collect(conn) -> None:
     # would be seeded away and lost. No-op once a cursor row exists.
     for path in config.LOGEXCERPT_PATHS:
         _get_cursor(conn, path)
-    fire, reason = _trigger(conn)
+    fire, reason, uid = _trigger(conn)
     if not fire:
         conn.commit()  # persist the first-run cursor seed
         return
@@ -164,7 +171,7 @@ def collect(conn) -> None:
         text = _redact(text)
         rows.append({"ts": now, "source": _name(path), "path": path, "reason": reason,
                      "bytes": len(text.encode("utf-8", "replace")), "dropped": dropped,
-                     "excerpt": text})
+                     "excerpt": text, "uid": uid})
     if rows:
         schema.insert(conn, "log_excerpts", rows)
     conn.commit()

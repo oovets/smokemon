@@ -206,7 +206,7 @@ def _apply_open(conn, act) -> None:
     # keeps one coalesced shipping mechanism and reuses the feedback-loop guard. source is the
     # signal family, never "collector", which expedite deliberately skips.
     events._emit(conn, act.signal.split(".")[0], act.rule.severity,
-                 "incident-open" if not reopen else "incident-reopen", act.detail)
+                 "incident-open" if not reopen else "incident-reopen", act.detail, uid=uid)
 
 
 def _apply_sample(conn, act) -> None:
@@ -242,7 +242,7 @@ def _apply_terminal(conn, act, transition: str) -> None:
     _update(conn, act.key, state=detect.COOLDOWN, changed_ts=act.wall,
             closed_wall=act.wall, worst_value=worst)
     events._emit(conn, act.signal.split(".")[0], "info", f"incident-{transition}",
-                 act.detail or "")
+                 act.detail or "", uid=uid)
 
 
 _HANDLERS = {

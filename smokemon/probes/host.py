@@ -588,12 +588,19 @@ def collect(conn) -> None:
     # firing at different thresholds. What stays here is a genuinely different class: counter
     # deltas and hardware bitfields, where the edge IS the event and there is nothing to
     # debounce.
+    # uid links these to whatever incident happens to be open right now (best-effort, not
+    # causal proof) -- an OOM kill during an open host.mem incident is worth surfacing on that
+    # incident's page; one with nothing open ships as unlinked evidence.
+    uid = incidents.active_uid(conn)
     events.counter(conn, "host:oom", oom, source="host", severity="crit",
-                   event="oom-kill", detail_fn=lambda d: f"{d} new OOM kill(s)")
+                   event="oom-kill", detail_fn=lambda d: f"{d} new OOM kill(s)", uid=uid)
     events.counter(conn, "host:cpu-throttle", throttle, source="host", severity="warn",
-                   event="cpu-throttle", detail_fn=lambda d: f"{d} new CPU thermal-throttle event(s)")
+                   event="cpu-throttle", detail_fn=lambda d: f"{d} new CPU thermal-throttle event(s)",
+                   uid=uid)
     if pi_bits is not None:  # only on the 5-min Pi sampling tier; bit0 = under-voltage now, bit2 = throttled now
         events.edge(conn, bool(pi_bits & 0x1), "host:undervolt", source="host", severity="crit",
-                    event="under-voltage", detail="Pi under-voltage detected", clear_detail="voltage ok")
+                    event="under-voltage", detail="Pi under-voltage detected", clear_detail="voltage ok",
+                    uid=uid)
         events.edge(conn, bool(pi_bits & 0x4), "host:pi-throttle", source="host", severity="warn",
-                    event="pi-throttled", detail="Pi currently throttled", clear_detail="not throttled")
+                    event="pi-throttled", detail="Pi currently throttled", clear_detail="not throttled",
+                    uid=uid)

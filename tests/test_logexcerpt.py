@@ -16,9 +16,9 @@ def _enable(monkeypatch, path, max_bytes=16 * 1024, always=False):
     monkeypatch.setattr(config, "LOGEXCERPT_ALWAYS", always)
 
 
-def _event(conn, severity="warn", source="governor", event="shed"):
+def _event(conn, severity="warn", source="governor", event="shed", uid=None):
     schema.insert(conn, "ext_events", [{"ts": 1.0, "source": source, "severity": severity,
-                                        "event": event, "detail": "x"}])
+                                        "event": event, "detail": "x", "uid": uid}])
     conn.commit()
 
 
@@ -102,3 +102,30 @@ def test_info_events_do_not_trigger(node_db, tmp_path, monkeypatch):
     _event(node_db, severity="info")         # routine event -> no capture
     logexcerpt.collect(node_db)
     assert _count(node_db) == 0
+
+
+def test_capture_is_stamped_with_the_triggering_event_uid(node_db, tmp_path, monkeypatch):
+    """The excerpt must be attributed to the incident that actually triggered its capture, not
+    to whatever else happens to be open a cycle later -- so the uid is copied straight off the
+    triggering ext_events row (see logexcerpt._trigger), not re-derived at capture time."""
+    _reset()
+    log = tmp_path / "app.log"; log.write_text("")
+    _enable(monkeypatch, log)
+    logexcerpt.collect(node_db)              # seed
+    log.write_text("link flapped\n")
+    _event(node_db, source="host", event="incident-open", uid="abc123")
+    logexcerpt.collect(node_db)
+    assert node_db.execute("SELECT uid FROM log_excerpts").fetchone() == ("abc123",)
+
+
+def test_capture_with_no_incident_open_is_unlinked(node_db, tmp_path, monkeypatch):
+    """A governor shed or probe crash with nothing open ships as unlinked evidence (uid NULL)
+    rather than guessed -- readers must tolerate that, not inner-join it away."""
+    _reset()
+    log = tmp_path / "app.log"; log.write_text("")
+    _enable(monkeypatch, log)
+    logexcerpt.collect(node_db)              # seed
+    log.write_text("shed\n")
+    _event(node_db, source="governor", event="shed")  # uid=None, nothing open
+    logexcerpt.collect(node_db)
+    assert node_db.execute("SELECT uid FROM log_excerpts").fetchone() == (None,)

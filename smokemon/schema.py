@@ -12,7 +12,11 @@ from . import config
 
 # Body = everything except `id INTEGER PRIMARY KEY` and the trailing node/src_id.
 _BODY = {
-    "ext_events": "ts REAL NOT NULL, source TEXT NOT NULL, severity TEXT, event TEXT NOT NULL, detail TEXT",
+    # uid links an event to the incident that was open when it fired (precise for
+    # incident-open/-close, best-effort via active_uid() for everything else). NULL means
+    # unlinked -- a governor shed or probe crash with no incident open.
+    "ext_events": "ts REAL NOT NULL, source TEXT NOT NULL, severity TEXT, event TEXT NOT NULL, "
+                  "detail TEXT, uid TEXT",
     "device_facts": "ts REAL NOT NULL, key TEXT NOT NULL, value TEXT, kind TEXT",
     # One row per STATE TRANSITION (open|reopen|close|stale|expired|persistent), never updated
     # in place. The shipper's monotonic rowid cursor makes an UPDATE to an already-shipped row

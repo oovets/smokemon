@@ -72,6 +72,27 @@ def test_probe_crash_recorded_then_recovers(node_db, monkeypatch):
     assert [r[2] for r in _evs(node_db)] == ["probe-crash", "probe-recovered"]
 
 
+def test_uid_passes_through_trip_edge_and_counter(node_db):
+    """uid links an event to whatever incident was open when it fired. None ships as NULL
+    (unlinked evidence) rather than a guessed value."""
+    events.trip(node_db, "k1", source="host", severity="crit", event="overtemp", detail="hot",
+                uid="uid-1")
+    events.edge(node_db, True, "k2", source="http", severity="warn", event="http-error",
+                detail="500", uid="uid-2")
+    events.counter(node_db, "oom", 1, source="host", severity="crit", event="oom-kill",
+                   detail_fn=lambda d: f"{d} new")           # first sight: seeds silently
+    events.counter(node_db, "oom", 2, source="host", severity="crit", event="oom-kill",
+                   detail_fn=lambda d: f"{d} new", uid="uid-3")
+    uids = {event: uid for (event, uid) in
+            node_db.execute("SELECT event,uid FROM ext_events ORDER BY id").fetchall()}
+    assert uids == {"overtemp": "uid-1", "http-error": "uid-2", "oom-kill": "uid-3"}
+
+
+def test_no_uid_is_unlinked_not_guessed(node_db):
+    events.trip(node_db, "k", source="host", severity="warn", event="swap-high", detail="x")
+    assert node_db.execute("SELECT uid FROM ext_events").fetchone() == (None,)
+
+
 def test_db_contention_is_warn_not_crash(node_db, monkeypatch):
     """A transient 'database is locked' is contention, not a probe bug: one warn (edge), never a
     per-cycle error - so it can't spam or (with expedite ignoring collector events) cascade."""
