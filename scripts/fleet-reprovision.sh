@@ -106,11 +106,58 @@ print(f"OFF\t{len(off)}\t" + ",".join(off))
     done <<< "$out"
 }
 
+# from_tailscale_tags TAG [TAG ...] -- ANY of the given tags matches (union), not all. Node
+# names on a tag-organised fleet (n892, n77, ...) don't follow a hostname pattern the way
+# aspace-prod-* does, so tag membership -- an ACL property, not a naming convention -- is the
+# only reliable selector. Multiple tags are resolved in ONE call rather than one call per tag:
+# a node carrying both tags would otherwise be matched (and reprovisioned) twice.
+from_tailscale_tags() {
+    command -v tailscale >/dev/null 2>&1 || die "tailscale not found; use --hosts-file instead"
+    local out
+    out="$(tailscale status --json | python3 -c '
+import json, sys
+
+wanted = {t if t.startswith("tag:") else f"tag:{t}" for t in sys.argv[1:]}
+d = json.load(sys.stdin)
+me = (d.get("Self") or {}).get("HostName", "")
+
+by_name = {}
+for p in (d.get("Peer") or {}).values():
+    h = p.get("HostName") or ""
+    if not h or h == me or not (wanted & set(p.get("Tags") or [])):
+        continue
+    ips = p.get("TailscaleIPs") or []
+    online = bool(p.get("Online")) and bool(ips)
+    prev = by_name.get(h)
+    if prev is None or (online and not prev[0]):
+        by_name[h] = (online, ips[0] if ips else "")
+    elif online and prev[0]:
+        print(f"DUP\t{h}\t{prev[1]},{ips[0]}")
+
+on  = sorted((h, ip) for h, (o, ip) in by_name.items() if o)
+off = sorted(h for h, (o, _) in by_name.items() if not o)
+for h, ip in on:
+    print(f"ON\t{h}\t{ip}")
+print(f"OFF\t{len(off)}\t" + ",".join(off))
+' "$@")" || die "could not read tailscale status"
+    local kind a b
+    while IFS=$'\t' read -r kind a b; do
+        case "$kind" in
+            ON)  add_host "$a" "$b" ;;
+            OFF) SKIPPED_N="$a"; SKIPPED="$b" ;;
+            DUP) die "two ONLINE peers both named '$a' ($b). Rename one in the tailnet, or list hosts explicitly." ;;
+        esac
+    done <<< "$out"
+}
+
+WANT_TAGS=()
+
 while [ $# -gt 0 ]; do
     case "$1" in
         --secret)      SECRET="$2"; shift 2 ;;
         --hub-url)     HUB_URL="$2"; HUB_API="${HUB_URL%/ingest}"; shift 2 ;;
         --tailscale)   from_tailscale "$2"; shift 2 ;;
+        --tailscale-tag) WANT_TAGS+=("$2"); shift 2 ;;
         --hosts-file)  while IFS= read -r _h; do
                            case "$_h" in ''|\#*) continue ;; esac
                            add_host "$_h"
@@ -126,8 +173,10 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+[ "${#WANT_TAGS[@]}" -gt 0 ] && from_tailscale_tags "${WANT_TAGS[@]}"
+
 SKIPPED_N="${SKIPPED_N:-0}"; SKIPPED="${SKIPPED:-}"
-[ "${#NAMES[@]}" -gt 0 ] || die "no hosts (positional args, --hosts-file, or --tailscale PATTERN)"
+[ "${#NAMES[@]}" -gt 0 ] || die "no hosts (positional args, --hosts-file, --tailscale PATTERN, or --tailscale-tag TAG)"
 
 if [ "$LIMIT" -gt 0 ] && [ "$LIMIT" -lt "${#NAMES[@]}" ]; then
     log "limiting to the first $LIMIT of ${#NAMES[@]} host(s)"
@@ -214,7 +263,15 @@ systemctl daemon-reload
 # A unit deleted while failed leaves a "not-found failed" entry that shows up in list-units
 # forever and matches any health check grepping for failures.
 systemctl reset-failed 'smokemon*' 2>/dev/null || true
-pkill -f 'smokemon' 2>/dev/null || true
+# NOT a bare 'smokemon' pattern: pkill -f matches a process's FULL command line, and the shell
+# invoking THIS SCRIPT is itself "sudo mv ~/smokemon-install.sh ... && sudo bash -s" -- which
+# contains the string "smokemon" twice. A bare pattern self-matches that ancestor process,
+# killing the SSH session's own remote shell mid-script: the orphaned bash -s child (this
+# script) carries on and completes normally, so the install silently succeeds anyway, but the
+# torn-down SSH channel reports the run as failed (exit 255) to the caller. Confirmed live:
+# every host in a from-scratch fleet showed FAIL despite the hub recording a fresh heartbeat
+# for every one of them seconds later. Match only the actual daemon processes.
+pkill -f 'smokemon\.pyz|smokemon/collect|smokemon/ship|smokemon/hub' 2>/dev/null || true
 rm -rf /opt/smokemon /usr/local/lib/smokemon.pyz /usr/local/bin/smoke /usr/local/bin/smokeincidents
 rm -f /etc/profile.d/smokemon.sh
 # Old node databases. Nothing the previous schema wrote is readable by the current code, and
