@@ -19,6 +19,7 @@ periodic disk write is the heartbeat.
 import sqlite3
 import sys
 import time
+import signal
 
 from . import baseline, config, core, detect, events, governor, heartbeat, incidents, prune, schema, ship
 from .probes import host, inventory, logexcerpt, net, ping, wifi
@@ -43,9 +44,10 @@ def _probes() -> list[tuple[float, str, object]]:
         # ones that have outlived INCIDENT_MAX_OPEN_S.
         (config.PROBE_INTERVAL, "sweep", _sweep),
         (config.BASELINE_FLUSH_S, "baseline-flush", _flush_baseline),
+        # Ship is always scheduled. It is a no-op when no hub is configured, but SIGHUP can add
+        # one later without restarting the daemon.
+        (SHIP_TICK, "ship", ship.tick),
     ]
-    if config.HUBS:
-        tasks.append((SHIP_TICK, "ship", ship.tick))
     if config.INVENTORY_ENABLED:  # delta-coded device/environment facts (vslow, cheap)
         tasks.append((config.INVENTORY_INTERVAL, "inventory", inventory.collect))
     if config.LOGEXCERPT_ENABLED and config.LOGEXCERPT_PATHS:  # event-driven capped log tails
@@ -118,6 +120,17 @@ def main(argv: list[str] | None = None) -> int:
     if argv and argv[0] in ("fast", "slow"):
         core.log(f"note: '{argv[0]}' is obsolete -- the collector is one process now")
     core.install_signals()
+
+    def _reload_hubs(signum, _frame):
+        config.reload_hubs()
+        core.log(f"signal {signum} received, reloaded hubs: "
+                 f"{[u for u, _ in config.HUBS] or '(none)'}")
+
+    try:
+        signal.signal(signal.SIGHUP, _reload_hubs)
+    except (AttributeError, ValueError):
+        pass  # platform without SIGHUP or in a thread
+
     conn = core.connect(config.DB_PATH)
     schema.init_node(conn)
     ship.init_state(conn)

@@ -10,10 +10,14 @@ rather than signal."""
 
 import time
 
-from .. import adapters, incidents
+from .. import adapters, config, incidents
 
 _ts = {"iface": None, "exp": 0.0}
 _prev_err: dict[str, tuple[int, float]] = {}   # iface -> (cumulative errs+drops, ts)
+# Interfaces that vanish for more than 10 ping cycles stop being tracked; this bounds memory
+# on hosts with churning container/virtual interfaces while keeping stable interfaces across
+# a missed cycle or two.
+_IFACE_STALE_S = 10 * config.PING_INTERVAL
 
 
 def _tailscale_iface() -> str | None:
@@ -48,3 +52,7 @@ def _feed_error_rates(conn, ts: float, tsi: str | None) -> None:
         if dt <= 0 or errs < prev_errs:
             continue
         incidents.evaluate(conn, "net.err_rate", name, (errs - prev_errs) / dt, ts)
+    # Evict stale entries (e.g. removed container veths) so the dict stays bounded.
+    for name in list(_prev_err):
+        if ts - _prev_err[name][1] > _IFACE_STALE_S:
+            del _prev_err[name]

@@ -95,18 +95,18 @@ def test_main_no_hub_returns_0(monkeypatch):
 
 # --- SHIP_EXCLUDE: stop shipping tables the hub does not consume (kept node-local) ---
 
-def test_ship_exclude_default_drops_synthetic():
-    """Out of the box (no env override) synthetic_samples is excluded: it has no hub reader, so
-    shipping it is dead weight. The default set is baked into config."""
-    assert "synthetic_samples" in config._SHIP_EXCLUDE_DEFAULT
-    assert "synthetic_samples" in config.SHIP_EXCLUDE
+def test_ship_exclude_default_is_empty():
+    """Out of the box no tables are excluded from shipping; previously defaulted-out tables
+    that have no hub-side reader have been removed from the codebase."""
+    assert config._SHIP_EXCLUDE_DEFAULT == frozenset()
+    assert config.SHIP_EXCLUDE == frozenset()
 
 
 def test_ordered_tables_drops_default_exclusions(monkeypatch):
-    # with only the baked-in default, every table except the default exclusions ships
+    # with only the baked-in default, every table ships
     monkeypatch.setattr(config, "SHIP_EXCLUDE", config._SHIP_EXCLUDE_DEFAULT)
     ordered = ship._ordered_tables()
-    assert "synthetic_samples" not in ordered
+    assert "legacy_table" not in ordered  # arbitrary non-STD table name
     assert set(ordered) == set(schema.STD_TABLES) - config._SHIP_EXCLUDE_DEFAULT
     assert ordered[:2] == ("incidents", "incident_samples")  # priority preserved
 
@@ -119,13 +119,12 @@ def test_ship_exclude_env_adds_to_default(monkeypatch):
     monkeypatch.delenv("SMOKEMON_SHIP_INCLUDE", raising=False)
     importlib.reload(config)
     try:
-        expected = frozenset({"synthetic_samples", "gpu_samples"})
+        expected = frozenset({"gpu_samples"})
         assert expected == config.SHIP_EXCLUDE
         # SHIP_INCLUDE wins: force-ship a defaulted table
-        monkeypatch.setenv("SMOKEMON_SHIP_INCLUDE", "synthetic_samples")
+        monkeypatch.setenv("SMOKEMON_SHIP_INCLUDE", "gpu_samples")
         importlib.reload(config)
-        assert "synthetic_samples" not in config.SHIP_EXCLUDE
-        assert "gpu_samples" in config.SHIP_EXCLUDE
+        assert "gpu_samples" not in config.SHIP_EXCLUDE
     finally:
         monkeypatch.delenv("SMOKEMON_SHIP_EXCLUDE", raising=False)
         monkeypatch.delenv("SMOKEMON_SHIP_INCLUDE", raising=False)
@@ -133,11 +132,11 @@ def test_ship_exclude_env_adds_to_default(monkeypatch):
 
 
 def test_ordered_tables_excludes_configured(monkeypatch):
-    monkeypatch.setattr(config, "SHIP_EXCLUDE", frozenset({"synthetic_samples"}))
+    monkeypatch.setattr(config, "SHIP_EXCLUDE", frozenset({"device_facts"}))
     ordered = ship._ordered_tables()
-    assert "synthetic_samples" not in ordered
+    assert "device_facts" not in ordered
     # everything else is still there, and the priority tables still lead
-    assert set(ordered) == set(schema.STD_TABLES) - {"synthetic_samples"}
+    assert set(ordered) == set(schema.STD_TABLES) - {"device_facts"}
     assert ordered[:2] == ("incidents", "incident_samples")
 
 
@@ -153,16 +152,16 @@ def test_gather_skips_excluded_table(tmp_db, monkeypatch):
     non-excluded table written in the same cycle still ships. The excluded table is created by
     hand: exclusion is keyed on the name, and a name that is no longer a STD_TABLE (a probe that
     was removed, a leftover from an older build) must still be honoured rather than shipped."""
-    monkeypatch.setattr(config, "SHIP_EXCLUDE", frozenset({"synthetic_samples"}))
+    monkeypatch.setattr(config, "SHIP_EXCLUDE", frozenset({"legacy_table"}))
     conn = core.connect(str(tmp_db))
     schema.init_node(conn)
     ship.init_state(conn)
     ts = time.time()
-    conn.execute("CREATE TABLE synthetic_samples (id INTEGER PRIMARY KEY, ts REAL, node TEXT)")
-    conn.execute("INSERT INTO synthetic_samples (ts, node) VALUES (?, 'testnode')", (ts,))
+    conn.execute("CREATE TABLE legacy_table (id INTEGER PRIMARY KEY, ts REAL, node TEXT)")
+    conn.execute("INSERT INTO legacy_table (ts, node) VALUES (?, 'testnode')", (ts,))
     schema.insert(conn, "heartbeats", [{"ts": ts, "cpu_pct": 20.0}])
     conn.commit()
     payload, maxids = ship.gather(conn, "d")
-    assert "synthetic_samples" not in payload and "synthetic_samples" not in maxids
+    assert "legacy_table" not in payload and "legacy_table" not in maxids
     assert "heartbeats" in payload  # a non-excluded table written the same cycle still ships
     conn.close()

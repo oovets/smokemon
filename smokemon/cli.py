@@ -15,7 +15,7 @@ import shutil
 import sys
 import time
 
-from . import config
+from . import config, ship
 
 
 def _common(p: argparse.ArgumentParser) -> None:
@@ -385,8 +385,8 @@ def _hub(args) -> int:
     """`smoke hub` shows where this node ships; `smoke hub HOST [HOST2 ...]` repoints it by writing
     the node env file (config.ENV_FILE). One host writes SMOKEMON_HUB_URL; several write the
     semicolon list SMOKEMON_HUB_URLS (fan-out: every hub gets a full copy). Whichever form is
-    written, the other var is cleared so it can't shadow it. The shipper re-reads the file
-    on its next run."""
+    written, the other var is cleared so it can't shadow it. The collector re-reads the file on
+    SIGHUP; without SIGHUP the change applies on the next process restart."""
     envf = config.ENV_FILE
     current = _current_hubs(envf)
 
@@ -415,6 +415,13 @@ def _hub(args) -> int:
         if u not in seen:
             seen.add(u)
             urls.append(u)
+
+    for u in urls:
+        ok, why = ship.hub_url_ok(u)
+        if not ok:
+            print(f"hub: warning: {u} will be ignored by the shipper unless transport is safe: {why}",
+                  file=sys.stderr)
+
     if len(urls) == 1:
         print(f"hub -> {urls[0]}")
     else:
@@ -434,8 +441,8 @@ def _hub(args) -> int:
         status = ", ".join(f"{u} {_hub_status(u)}" for u in urls)
     if ok:
         print(f"  written to {envf} — {status}")
-        print("  applies on the next shipper run (<=15s); force now:")
-        print("    sudo systemctl start smokemon-shipper.service")
+        print("  applies after SIGHUP or process restart; force now:")
+        print("    pkill -HUP smokemon      (or sudo systemctl reload smokemon)")
     else:
         print(f"  can't write {envf} ({why}); edit it with sudo (set the var shown above).")
     return 0

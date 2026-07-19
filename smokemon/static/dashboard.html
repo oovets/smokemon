@@ -108,6 +108,7 @@ pre{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padd
 
 <nav>
   <button data-v="incidents" class="on">incidents</button>
+  <button data-v="history">history</button>
   <button data-v="fleet">fleet</button>
   <button data-v="density">density</button>
   <button data-v="logs">logs</button>
@@ -120,6 +121,13 @@ pre{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padd
       <option value="168">7d</option><option value="720">30d</option></select>
       <span id="node-filter"></span></h2>
     <div id="inc-wrap"></div>
+  </section>
+
+  <section id="v-history">
+    <h2>history — resolved, last <select id="hist-hours">
+      <option value="6">6h</option><option value="24" selected>24h</option>
+      <option value="168">7d</option><option value="720">30d</option></select></h2>
+    <div id="hist-wrap"></div>
   </section>
 
   <section id="v-fleet"><h2>fleet</h2><div id="fleet-full"></div></section>
@@ -231,32 +239,25 @@ function stateTag(i) {
   return `<span class="tag err">ongoing</span>`;
 }
 
-async function loadIncidents() {
-  const nf = $("#node-filter");
-  nf.innerHTML = NODE_FILTER
-    ? ` · <span class="tag">${esc(NODE_FILTER)} <a href="#" onclick="clearNodeFilter();return false">×</a></span>`
-    : "";
-  const q = `/api/incidents?hours=${HOURS}` + (NODE_FILTER ? `&node=${encodeURIComponent(NODE_FILTER)}` : "");
-  const d = await get(q);
-  const w = $("#inc-wrap");
-  if (!d.incidents.length) {
-    const scope = NODE_FILTER ? ` for <b>${esc(NODE_FILTER)}</b>` : "";
-    w.innerHTML = `<div class="empty"><b>Nothing to explain.</b><br>
-      No incidents in this window${scope}. Normal operation is not recorded.</div>`;
+// Shared renderer for both the incidents and history tabs -- they show the same rows, just
+// split by state, so keeping the table markup in one place is the point.
+function renderIncidentsTable(w, list, until, emptyHtml, truncated) {
+  if (!list.length) {
+    w.innerHTML = `<div class="empty">${emptyHtml}</div>`;
     return;
   }
   const t = el("table");
   t.innerHTML = `<thead><tr><th>opened</th><th>node</th><th>signal</th>
     <th>worst</th><th>lasted</th><th>state</th></tr></thead>`;
   const tb = el("tbody");
-  d.incidents.forEach(i => {
+  list.forEach(i => {
     const tr = el("tr", "inc");
     const where = i.entity ? `${esc(i.signal)} <span class="muted">${esc(i.entity)}</span>`
                            : esc(i.signal);
     tr.innerHTML = `<td><span class="dot sev${i.severity_rank}"></span>${clock(i.opened_ts)}</td>
       <td>${esc(i.node)}</td><td>${where}</td>
       <td>${num(i.worst_value)}</td>
-      <td>${i.state === "closed" ? dur(i.duration_s) : dur((d.until - i.opened_ts))}</td>
+      <td>${i.state === "closed" ? dur(i.duration_s) : dur((until - i.opened_ts))}</td>
       <td>${stateTag(i)}</td>`;
     tr.onclick = () => showDetail(i.uid);
     tb.appendChild(tr);
@@ -264,7 +265,30 @@ async function loadIncidents() {
   t.appendChild(tb);
   w.innerHTML = "";
   w.appendChild(t);
-  if (d.truncated) w.appendChild(el("p", "muted", "list truncated — narrow the window"));
+  if (truncated) w.appendChild(el("p", "muted", "list truncated — narrow the window"));
+}
+
+async function loadIncidents() {
+  const nf = $("#node-filter");
+  nf.innerHTML = NODE_FILTER
+    ? ` · <span class="tag">${esc(NODE_FILTER)} <a href="#" onclick="clearNodeFilter();return false">×</a></span>`
+    : "";
+  const q = `/api/incidents?hours=${HOURS}` + (NODE_FILTER ? `&node=${encodeURIComponent(NODE_FILTER)}` : "");
+  const d = await get(q);
+  // Resolved incidents live in the history tab, not here -- an operator on this page wants to
+  // know what is still broken or unknown, not re-read yesterday's closed rows every visit.
+  const open = d.incidents.filter(i => i.state !== "closed");
+  const scope = NODE_FILTER ? ` for <b>${esc(NODE_FILTER)}</b>` : "";
+  renderIncidentsTable($("#inc-wrap"), open, d.until,
+    `<b>Nothing to explain.</b><br>No open or unknown incidents in this window${scope}.`,
+    d.truncated);
+}
+
+async function loadHistory() {
+  const d = await get(`/api/incidents?hours=${HOURS}`);
+  const closed = d.incidents.filter(i => i.state === "closed");
+  renderIncidentsTable($("#hist-wrap"), closed, d.until,
+    "No resolved incidents in this window.", d.truncated);
 }
 
 /* ---------- incident detail ---------- */
@@ -421,6 +445,7 @@ async function refresh() {
   try {
     await Promise.all([loadFleet(), loadHealth()]);
     if (VIEW === "incidents") await loadIncidents();
+    else if (VIEW === "history") await loadHistory();
     else if (VIEW === "density") await loadDensity();
     else if (VIEW === "logs") await loadLogs();
   } catch (e) {
@@ -441,7 +466,11 @@ document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
   if (location.hash) history.replaceState(null, "", location.pathname + location.search);
   showView(b.dataset.v);
 });
-$("#hours").onchange = e => { HOURS = +e.target.value; refresh(); };
+// Both selects drive the same HOURS -- keep them in sync so switching tabs never shows a
+// window the operator didn't actually pick on this tab.
+const setHours = v => { HOURS = +v; $("#hours").value = HOURS; $("#hist-hours").value = HOURS; refresh(); };
+$("#hours").onchange = e => setHours(e.target.value);
+$("#hist-hours").onchange = e => setHours(e.target.value);
 
 const params = new URLSearchParams(location.search);
 const every = Math.max(2, +(params.get("refresh") || 10)) * 1000;

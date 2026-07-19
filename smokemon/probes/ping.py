@@ -14,10 +14,19 @@ from .. import config, incidents
 
 
 def _run_fping() -> dict[str, list[float | None]]:
+    # Cap total runtime so a dead/faraway target cannot block the single-threaded scheduler
+    # for tens of seconds. The timeout is at most the probe interval (so the next cycle is
+    # never delayed) and at least a few seconds (so a slow-but-alive target is not killed
+    # mid-run). On timeout fping is killed and whatever output it produced is parsed; targets
+    # with no result line become total loss, which is the correct signal for an unreachable host.
+    expected_s = config.PING_COUNT * config.PING_PERIOD / 1000.0 + 1.0
+    timeout_s = max(3.0, min(config.PING_INTERVAL, expected_s))
     cmd = [config.FPING, "-C", str(config.PING_COUNT), "-p", str(config.PING_PERIOD), "-q", *config.TARGETS]
-    proc = subprocess.run(cmd, capture_output=True, text=True,
-                          timeout=config.PING_COUNT * config.PING_PERIOD / 1000 + 30)
-    out = proc.stderr or proc.stdout  # fping writes per-target results to stderr in -q -C mode
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_s)
+        out = proc.stderr or proc.stdout
+    except subprocess.TimeoutExpired as e:
+        out = e.stderr or e.stdout or ""
     results: dict[str, list[float | None]] = {}
     for line in out.splitlines():
         target, sep, rest = line.partition(":")

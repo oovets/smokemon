@@ -17,9 +17,7 @@ Tiers (gated by internal timers inside collect() so callers stay simple):
   slow (every 5 min):  vcgencmd get_throttled (Pi)
   vslow (every 60 min):SD-card wear-level (mmcblk* life_time)
 
-The Jetson rail/GPU, tcp/conntrack, disk-IO and cpu-freq reads are no longer called from
-collect(): their only consumer was the sample tables the incident pivot removed, so running
-them each cycle was pure cost. The helpers are kept because tests still exercise them and a
+The tcp/conntrack and Jetson rail helpers are kept because tests still exercise them and a
 future rule could wire them into the detector.
 
 The top-N process scan was deleted outright rather than kept dormant. Its shape belonged to
@@ -46,7 +44,6 @@ _VSLOW_INTERVAL = 3600.0   # SD wear-level cadence
 _prev_cpu: tuple[int, int] | None = None
 _prev_self_cpu: float | None = None
 _prev_self_io: tuple[int, float] | None = None  # (summed write_bytes, ts) for the SD-write rate
-_prev_diskio: tuple[int, int, float] | None = None
 _last = 0.0
 _slow_last = 0.0
 _vslow_last = 0.0
@@ -79,33 +76,6 @@ def _cpu_linux() -> float | None:
             pct = round(100.0 * (dtotal - didle) / dtotal, 1)
     _prev_cpu = (total, idle)
     return pct
-
-
-def _cpu_freq_linux() -> float | None:
-    """Average current frequency across all cores, in MHz. Detects throttling that
-    cpu_pct cannot see ('100% busy at 600 MHz' looks the same as 'at 1500 MHz')."""
-    freqs = []
-    for p in glob.glob("/sys/devices/system/cpu/cpu[0-9]*/cpufreq/scaling_cur_freq"):
-        try:
-            with open(p) as f:
-                freqs.append(int(f.read().strip()) / 1000.0)  # kHz -> MHz
-        except (OSError, ValueError, TypeError):
-            continue
-    return round(sum(freqs) / len(freqs), 1) if freqs else None
-
-
-def _cpu_throttle_linux() -> int | None:
-    """Sum of per-core thermal_throttle counters (x86 only; ARM has no such counter)."""
-    total = 0
-    found = False
-    for p in glob.glob("/sys/devices/system/cpu/cpu[0-9]*/thermal_throttle/core_throttle_count"):
-        try:
-            with open(p) as f:
-                total += int(f.read().strip())
-                found = True
-        except (OSError, ValueError, TypeError):
-            continue
-    return total if found else None
 
 
 # ---------- Memory / swap / OOM ----------
@@ -190,29 +160,7 @@ def _thermal_zones_linux() -> dict[str, float]:
     return out
 
 
-# ---------- Disk IO + mounts ----------
-
-def _diskio_linux(ts: float) -> tuple[float | None, float | None]:
-    global _prev_diskio
-    rb = wb = 0
-    try:
-        with open("/proc/diskstats") as f:
-            for line in f:
-                p = line.split()
-                if len(p) >= 14 and _WHOLE_DISK_RE.match(p[2]):
-                    rb += int(p[5]) * 512
-                    wb += int(p[9]) * 512
-    except (OSError, ValueError):
-        return (None, None)
-    res: tuple[float | None, float | None] = (None, None)
-    if _prev_diskio:
-        pr, pw, pt = _prev_diskio
-        dt = ts - pt
-        if dt > 0:
-            res = (round((rb - pr) / 1e6 / dt, 2), round((wb - pw) / 1e6 / dt, 2))
-    _prev_diskio = (rb, wb, ts)
-    return res
-
+# ---------- Disk mounts ----------
 
 def _mounts_linux() -> list[str]:
     mounts, seen = [], set()
@@ -337,45 +285,6 @@ def _jetson_power_linux() -> list[dict]:
     return rails
 
 
-# ---------- Jetson GPU util/frequency (sysfs only) ----------
-
-def _read_float(path: str, scale: float = 1.0) -> float | None:
-    try:
-        with open(path) as f:
-            return float(f.read().strip()) / scale
-    except (OSError, ValueError, TypeError):
-        return None
-
-
-def _jetson_gpu_linux() -> list[dict]:
-    """Read GPU busy/frequency from sysfs/devfreq. No tegrastats/nvidia-smi process.
-    JetPack paths vary, so this best-effort probe accepts the common actmon/devfreq
-    names and returns an empty list when unavailable."""
-    out = []
-    seen = set()
-    paths = set(glob.glob("/sys/devices/*gpu*/devfreq/*") + glob.glob("/sys/class/devfreq/*gpu*"))
-    for dev in sorted(paths):
-        real = os.path.realpath(dev)
-        if real in seen:
-            continue
-        seen.add(real)
-        name = os.path.basename(dev)
-        util = None
-        for candidate in ("load", "device/load", "busy"):
-            util = _read_float(os.path.join(dev, candidate))
-            if util is not None:
-                break
-        if util is not None and util > 100.0:
-            util = util / 10.0 if util <= 1000.0 else util / 1000.0
-        freq = _read_float(os.path.join(dev, "cur_freq"), 1_000_000.0)
-        if freq is None:
-            freq = _read_float(os.path.join(dev, "device/cur_freq"), 1_000_000.0)
-        if util is not None or freq is not None:
-            out.append({"gpu": name, "util_pct": round(util, 1) if util is not None else None,
-                        "freq_mhz": round(freq, 1) if freq is not None else None})
-    return out
-
-
 # ---------- Pi vcgencmd get_throttled (slow tier) ----------
 
 def _pi_throttle_bits() -> int | None:
@@ -450,44 +359,29 @@ def _self_rss_mb(ru) -> float | None:
 
 
 def _fleet_footprint_linux() -> tuple[float | None, int | None]:
-    """One /proc pass summing RSS and lifetime storage writes across *every* smokemon
-    process (collect fast + slow, transient shipper/iperf), so the self panel reports the
-    honest multi-daemon footprint - README's "~30 MB" is per process, not the real
-    steady-state - and exposes SD write load. RSS from statm field 2 (pages); writes from
-    io.write_bytes (bytes that actually reached storage, the figure that wears an SD card).
-    A process is "smokemon" if its cmdline mentions the package."""
-    pages = wbytes = 0
-    saw_rss = saw_io = False
+    """This process's RSS and cumulative storage writes from /proc/self.
+
+    The collector now runs the shipper and pruner in-process, so the own-process figure is the
+    real multi-daemon footprint; scanning every /proc entry every host cycle was measurable
+    work for a metric that should itself be cheap. RSS from statm field 2 (pages); writes from
+    io.write_bytes (bytes that actually reached storage - the figure that wears an SD card)."""
     try:
-        scan = os.scandir("/proc")
-    except OSError:
+        with open("/proc/self/statm") as f:
+            pages = int(f.read().split()[1])
+    except (OSError, ValueError, IndexError):
         return (None, None)
-    with scan as it:
-        for entry in it:
-            if not entry.name.isdigit():
-                continue
-            try:
-                with open(f"/proc/{entry.name}/cmdline", "rb") as f:
-                    if b"smokemon" not in f.read():
-                        continue
-            except OSError:
-                continue
-            try:
-                with open(f"/proc/{entry.name}/statm") as f:
-                    pages += int(f.read().split()[1])
-                    saw_rss = True
-            except (OSError, ValueError, IndexError):
-                pass
-            try:  # /proc/<pid>/io is readable for our own uid; absent on some kernels
-                with open(f"/proc/{entry.name}/io") as f:
-                    for line in f:
-                        if line.startswith("write_bytes:"):
-                            wbytes += int(line.split()[1])
-                            saw_io = True
-                            break
-            except (OSError, ValueError, IndexError):
-                pass
-    return (round(pages * _PAGE / 1e6, 1) if saw_rss else None, wbytes if saw_io else None)
+    wbytes = 0
+    saw_io = False
+    try:  # /proc/self/io is readable for our own uid; absent on some kernels
+        with open("/proc/self/io") as f:
+            for line in f:
+                if line.startswith("write_bytes:"):
+                    wbytes = int(line.split()[1])
+                    saw_io = True
+                    break
+    except (OSError, ValueError, IndexError):
+        pass
+    return (round(pages * _PAGE / 1e6, 1), wbytes if saw_io else None)
 
 
 def _self_proc(dt: float) -> dict | None:

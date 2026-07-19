@@ -70,7 +70,7 @@ def load_ext_events(conn, since, until, node=None, limit: int = 20):
 _TERMINAL = ("close", "stale", "expired")
 
 
-def load_incidents(conn, since, until, node=None) -> list[dict]:
+def load_incidents(conn, since, until, node=None, uid=None) -> list[dict]:
     """One dict per incident, reduced from the append-only transition rows in `incidents`.
 
     The table is a log keyed by (node, uid), never updated in place, so every read has to do
@@ -78,18 +78,27 @@ def load_incidents(conn, since, until, node=None) -> list[dict]:
     predates `since` is still returned from whatever transitions fall in the window -- with
     opened_ts recovered from the column the node stamps on every row, so a window that catches
     only the close still reports the true start."""
-    nf, np_ = _filt(node)
+    clauses = []
+    params = []
+    if uid:
+        clauses.append("uid=?")
+        params.append(uid)
+    if node:
+        clauses.append("node=?")
+        params.append(node)
+    clauses.append("ts BETWEEN ? AND ?")
+    params.extend([since, until])
+    nf = " WHERE " + " AND ".join(clauses)
     rows = _q(conn, "SELECT node,uid,ts,transition,signal,entity,severity,worst_value,"
               "opened_ts,duration_s,threshold,baseline,baseline_mad,z,detail,rule_hash "
-              "FROM incidents WHERE ts BETWEEN ? AND ?" + nf
-              + " ORDER BY ts", [since, until, *np_])
+              "FROM incidents" + nf + " ORDER BY ts", params)
     out: dict[tuple, dict] = {}
-    for (n, uid, ts, transition, signal, entity, severity, worst, opened, dur,
+    for (n, uid_, ts, transition, signal, entity, severity, worst, opened, dur,
          thresh, base, mad, z, detail, rhash) in rows:
-        inc = out.get((n, uid))
+        inc = out.get((n, uid_))
         if inc is None:
-            inc = out[(n, uid)] = {
-                "uid": uid, "node": n, "signal": signal, "entity": entity,
+            inc = out[(n, uid_)] = {
+                "uid": uid_, "node": n, "signal": signal, "entity": entity,
                 "severity": None, "opened_ts": opened if opened is not None else ts,
                 "ended_ts": None, "duration_s": None, "worst_value": None,
                 "threshold": None, "baseline": None, "baseline_mad": None, "z": None,

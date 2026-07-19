@@ -24,6 +24,54 @@ def _i(name: str, default: str) -> int:
     return int(os.environ.get(name, default))
 
 
+def _read_env_file(path: str) -> dict[str, str]:
+    """Read KEY=value lines from a systemd-style env file. Missing/unreadable file -> {}."""
+    env: dict[str, str] = {}
+    try:
+        with open(path) as f:
+            for line in f:
+                s = line.strip()
+                if not s or s.startswith("#") or "=" not in s:
+                    continue
+                k, _, v = s.partition("=")
+                env[k] = v
+    except OSError:
+        pass
+    return env
+
+
+def _set_env(key: str, val: str) -> None:
+    os.environ[key] = val
+
+
+def reload_hubs() -> None:
+    """Re-read ENV_FILE and refresh the in-process HUBS/HUB_SECRET/HUB_INSECURE state.
+
+    Used when the collector receives SIGHUP after `smoke hub` rewrites the env file,
+    so repointing a node does not require a process restart."""
+    global HUBS, HUB_URL, HUB_SECRET, HUB_INSECURE
+    env = _read_env_file(ENV_FILE)
+    if not env:
+        return
+    if "SMOKEMON_HUB_SECRET" in env:
+        HUB_SECRET = env["SMOKEMON_HUB_SECRET"]
+        _set_env("SMOKEMON_HUB_SECRET", HUB_SECRET)
+    if "SMOKEMON_HUB_SECRETS" in env:
+        _set_env("SMOKEMON_HUB_SECRETS", env["SMOKEMON_HUB_SECRETS"])
+    if "SMOKEMON_HUB_INSECURE" in env:
+        HUB_INSECURE = env["SMOKEMON_HUB_INSECURE"].strip().lower() not in ("0", "false", "no", "off")
+        _set_env("SMOKEMON_HUB_INSECURE", "1" if HUB_INSECURE else "0")
+    # _hubs() checks the list env var first, then falls back to the module-level HUB_URL.
+    if "SMOKEMON_HUB_URLS" in env:
+        _set_env("SMOKEMON_HUB_URLS", env["SMOKEMON_HUB_URLS"])
+        _set_env("SMOKEMON_HUB_URL", "")
+    elif "SMOKEMON_HUB_URL" in env:
+        HUB_URL = env["SMOKEMON_HUB_URL"]
+        _set_env("SMOKEMON_HUB_URL", HUB_URL)
+        os.environ.pop("SMOKEMON_HUB_URLS", None)
+    HUBS = _hubs()
+
+
 def _enabled(name: str, default: bool) -> bool:
     """Tri-state on/off: unset -> default (auto). '0/false/no/off' -> disabled, else on."""
     v = os.environ.get(name)
@@ -205,11 +253,10 @@ SHIP_INTERVAL = _f("SMOKEMON_SHIP_INTERVAL", "60")
 # and ignores the absence (UNIQUE(node,src_id) ingest never required any table).
 #
 # A small default set is excluded out of the box: tables the hub has no reader for, so shipping
-# and storing them hub-side is pure dead weight. synthetic_samples (DoH/captive-portal checks) is
-# written node-local but no hub surface queries it. SMOKEMON_SHIP_EXCLUDE (comma-separated) ADDS
+# and storing them hub-side is pure dead weight. SMOKEMON_SHIP_EXCLUDE (comma-separated) ADDS
 # to this default rather than replacing it, so adding your own never silently re-enables a known
 # dead-weight table. To force-ship a defaulted table, name it in SMOKEMON_SHIP_INCLUDE.
-_SHIP_EXCLUDE_DEFAULT = frozenset({"synthetic_samples"})
+_SHIP_EXCLUDE_DEFAULT: frozenset[str] = frozenset()
 SHIP_INCLUDE = frozenset(_list("SMOKEMON_SHIP_INCLUDE", ""))
 SHIP_EXCLUDE = (_SHIP_EXCLUDE_DEFAULT | frozenset(_list("SMOKEMON_SHIP_EXCLUDE", ""))) - SHIP_INCLUDE
 

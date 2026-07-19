@@ -18,6 +18,9 @@ _conn = None              # writer connection: ingest + housekeeping, guarded by
 _lock = threading.Lock()  # serialize writes to the single sqlite connection
 _ro_conn = None           # read-only connection: dashboard/API GETs, guarded by _read_lock
 _read_lock = threading.Lock()  # serialize reads among themselves; WAL lets them run beside ingest
+# Bounded number of in-flight HTTP requests so a spike cannot exhaust threads/RSS.
+_MAX_CONCURRENT = 100
+_request_sem = threading.Semaphore(_MAX_CONCURRENT)
 # Short-TTL memoization for the expensive aggregate endpoints. Keyed by path+params; a per-key
 # lock makes concurrent identical misses collapse into a single recompute (single-flight) so the
 # dashboard's polls/tabs/reloads/users share one result instead of each paying seconds.
@@ -186,17 +189,17 @@ def _cached(key: str, producer, ttl: float | None = None):
     ttl = config.HUB_CACHE_TTL_S if ttl is None else ttl
     if ttl <= 0:
         return producer()
-    hit = _resp_cache.get(key)
-    if hit and time.time() - hit[0] < ttl:
-        with _resp_meta_lock:
-            _resp_cache.move_to_end(key)  # mark as recently used so the LRU keeps it
-        return hit[1]
     with _resp_meta_lock:
+        hit = _resp_cache.get(key)
+        if hit and time.time() - hit[0] < ttl:
+            _resp_cache.move_to_end(key)
+            return hit[1]
         lock = _resp_cache_locks.setdefault(key, threading.Lock())
     with lock:
-        hit = _resp_cache.get(key)  # another thread may have refreshed while we waited
-        if hit and time.time() - hit[0] < ttl:
-            return hit[1]
+        with _resp_meta_lock:
+            hit = _resp_cache.get(key)  # another thread may have refreshed while we waited
+            if hit and time.time() - hit[0] < ttl:
+                return hit[1]
         val = producer()
         with _resp_meta_lock:
             _resp_cache[key] = (time.time(), val)
@@ -248,6 +251,14 @@ class Handler(BaseHTTPRequestHandler):
         self._write(code, data, content_type, extra=extra, no_store=True)
 
     def do_GET(self):  # noqa: N802
+        if not _request_sem.acquire(blocking=False):
+            return self._send(503, {"error": "server busy"})
+        try:
+            return self._do_get()
+        finally:
+            _request_sem.release()
+
+    def _do_get(self) -> None:
         """Read-only S2/S3 surfaces. Reads go through a dedicated read-only connection under
         _read_lock; WAL lets them run concurrently with ingest instead of queuing behind the
         writer's _lock, so the dashboard never competes with intake."""
@@ -256,8 +267,9 @@ class Handler(BaseHTTPRequestHandler):
         hours = _clamp_hours(qs)
         try:
             if u.path == "/metrics":
-                with _read_lock:
-                    text = hubapi.prometheus(_ro_conn)
+                text = _cached("metrics",
+                               lambda: _ro_call(hubapi.prometheus),
+                               ttl=10.0)
                 return self._send_text(200, text, "text/plain; version=0.0.4; charset=utf-8")
             if u.path == "/":
                 return self._send_text(200, hubapi.dashboard_html(), "text/html; charset=utf-8")
@@ -311,8 +323,10 @@ class Handler(BaseHTTPRequestHandler):
                 with _read_lock:
                     return self._send(200, hubapi.inventory(_ro_conn))
             if u.path == "/api/hub-health":
-                with _read_lock:
-                    return self._send(200, hubapi.hub_health(_ro_conn))
+                data = _cached("hub-health",
+                               lambda: _ro_call(hubapi.hub_health),
+                               ttl=10.0)
+                return self._send(200, data)
             if u.path == "/api/cost":
                 data = _cached(f"cost:{hours}", lambda: _ro_call(lambda c: hubapi.ship_volume(c, hours)))
                 return self._send(200, data)
@@ -327,6 +341,14 @@ class Handler(BaseHTTPRequestHandler):
         return self._send(404, {"error": "not found"})
 
     def do_POST(self):  # noqa: N802
+        if not _request_sem.acquire(blocking=False):
+            return self._send(503, {"error": "server busy"})
+        try:
+            return self._do_post()
+        finally:
+            _request_sem.release()
+
+    def _do_post(self) -> None:
         if self.path != "/ingest":
             return self._send(404, {"error": "not found"})
         # Fail closed: refuse ingest entirely when no real secret is configured, so an empty/

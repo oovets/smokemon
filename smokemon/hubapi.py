@@ -142,8 +142,10 @@ def incident_detail(conn, uid: str, now: float | None = None) -> dict | None:
     The samples are the whole point: baseline before the anomaly began, the onset, a decimated
     middle, and the recovery tail -- what an operator needs to judge it, and nothing about the
     hours of normal operation either side."""
+    if not uid:
+        return None
     now = time.time() if now is None else now
-    found = [i for i in query.load_incidents(conn, 0, now) if i["uid"] == uid]
+    found = query.load_incidents(conn, 0, now, uid=uid)
     if not found:
         return None
     inc = found[0]

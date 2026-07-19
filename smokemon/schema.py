@@ -77,6 +77,10 @@ def _node_ddl() -> str:
         parts.append(f"CREATE INDEX IF NOT EXISTS ix_{t}_ts ON {t}(ts);")
         if t in _IX:
             parts.append(f"CREATE INDEX IF NOT EXISTS ix_{t}_{_IX[t]}_ts ON {t}({_IX[t]}, ts);")
+    # The incident detail view loads transitions by uid alone, with no node predicate.
+    # The generic (signal, ts) index above cannot serve that: signal leads, so SQLite falls back
+    # to scanning every transition the node has ever received.
+    parts.append("CREATE INDEX IF NOT EXISTS ix_incidents_uid_ts ON incidents(uid, ts);")
     return "\n".join(parts)
 
 
@@ -100,6 +104,10 @@ def _hub_ddl() -> str:
     # (node, uid, ts) index above cannot serve that: node leads, so SQLite falls back to scanning
     # every sample the hub has ever received. This is the index that query actually needs.
     parts.append("CREATE INDEX IF NOT EXISTS ix_incident_samples_uid_ts ON incident_samples(uid, ts);")
+    # Same reasoning for the incident transitions themselves: hubapi.incident_detail selects
+    # every row for one uid, without a node filter, so the existing (node, signal, ts) index
+    # does not help.
+    parts.append("CREATE INDEX IF NOT EXISTS ix_incidents_uid_ts ON incidents(uid, ts);")
     return "\n".join(parts)
 
 
