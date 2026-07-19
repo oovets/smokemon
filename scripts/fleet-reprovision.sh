@@ -167,6 +167,31 @@ scp_to() {  # scp_to LOCAL_FILE HOST REMOTE_PATH
     scp $SSH_OPTS -q "$1" "$target:$3"
 }
 
+# Runs FIRST, before the installer is even copied up -- not just tidy but load-bearing. A
+# disk-full node fails at the scp step (no space to write the file, before remote_script gets
+# a chance to run), which is exactly what happened on aspace-prod-70: a host running low on
+# root disk cannot be reprovisioned until something is freed, and no other step in this script
+# runs early enough to do that.
+#
+# Three things, all standard and reversible: journald logs beyond 3 days (systemd usually caps
+# this itself via SystemMaxUse=, but not every image sets it, and journals grow unbounded
+# otherwise); apt's downloaded .deb cache (redownloaded on demand, never needed once installed);
+# and DISABLED snap revisions -- snapd keeps the last few revisions of every package by default
+# for rollback, and on a fleet running dozens of snaps (core22, go, snapd itself, ...) that is
+# the single largest reclaimable chunk on disk. `snap list --all` marks the currently-active
+# revision; only the others are removed.
+housekeeping_cmd() {
+    cat <<'HOUSEKEEPING'
+journalctl --vacuum-time=3d >/dev/null 2>&1 || true
+apt-get clean >/dev/null 2>&1 || true
+if command -v snap >/dev/null 2>&1; then
+    snap list --all 2>/dev/null | awk '/disabled/{print $1, $3}' | while read -r name rev; do
+        snap remove "$name" --revision="$rev" >/dev/null 2>&1 || true
+    done
+fi
+HOUSEKEEPING
+}
+
 # The remote teardown + verification, run under sudo bash. install.sh itself is scp'd up
 # separately and invoked by path -- embedding a few hundred lines of it inside a heredoc was
 # fragile to quote and added nothing an ordinary file copy does not already do better.
@@ -251,7 +276,7 @@ if [ "$YES" -ne 1 ]; then
     log ""
     summary
     log ""
-    log "For each host: scp $INSTALLER, then as root:"
+    log "For each host: housekeeping (journal/apt/snap cleanup), then scp $INSTALLER, then as root:"
     remote_script "<hostname>" | sed 's/^/    /' >&2
     exit 0
 fi
@@ -273,10 +298,12 @@ while [ "$i" -lt "${#NAMES[@]}" ]; do
         (
             name="${NAMES[$j]}"; addr="${ADDRS[$j]}"
             out=".fleet-logs/$name.log"
+            echo "-- housekeeping (logs, apt cache, disabled snap revisions)" >"$out"
+            housekeeping_cmd | ssh_to "$addr" "sudo bash -s" >>"$out" 2>&1 || true
             # scp lands in the login user's home (root has no writable /tmp over scp with
             # BatchMode in some sshd configs, home always works); the remote script sudo-moves
             # it before running so it works whether that user is root or not.
-            if scp_to "$INSTALLER" "$addr" "smokemon-install.sh" >"$out" 2>&1 \
+            if scp_to "$INSTALLER" "$addr" "smokemon-install.sh" >>"$out" 2>&1 \
                && remote_script "$name" | ssh_to "$addr" \
                     "sudo mv ~/smokemon-install.sh /tmp/smokemon-install.sh && sudo bash -s" \
                     >>"$out" 2>&1; then
