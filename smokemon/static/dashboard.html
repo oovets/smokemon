@@ -117,7 +117,8 @@ pre{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padd
   <section id="v-incidents" class="on">
     <h2>incidents — last <select id="hours">
       <option value="6">6h</option><option value="24" selected>24h</option>
-      <option value="168">7d</option><option value="720">30d</option></select></h2>
+      <option value="168">7d</option><option value="720">30d</option></select>
+      <span id="node-filter"></span></h2>
     <div id="inc-wrap"></div>
   </section>
 
@@ -156,7 +157,14 @@ const num = v => v == null ? "—" : (Math.round(v * 100) / 100);
 const get = async p => { const r = await fetch(p); if (!r.ok) throw new Error(r.status);
   return r.json(); };
 
-let HOURS = 24, VIEW = "incidents";
+let HOURS = 24, VIEW = "incidents", NODE_FILTER = null;
+
+function showView(name) {
+  document.querySelectorAll("nav button").forEach(b => b.classList.toggle("on", b.dataset.v === name));
+  document.querySelectorAll("main > section").forEach(s => s.classList.toggle("on", s.id === "v-" + name));
+  VIEW = name;
+  refresh();
+}
 
 /* ---------- fleet ---------- */
 
@@ -173,9 +181,19 @@ function nodeTile(n) {
     <div class="m">${hb.disk_used_pct != null ? "disk " + num(hb.disk_used_pct) + "%" : ""}
       ${hb.temp_c != null ? " · " + num(hb.temp_c) + "C" : ""}
       ${hb.db_mb != null ? " · db " + num(hb.db_mb) + "MB" : ""}</div>`;
+  // Clicking a node is a shortcut for "show me what's wrong here": jump to the incidents
+  // tab pre-filtered to this node. The hash makes the filtered view linkable/bookmarkable
+  // and survives a page reload, rather than being state that vanishes the moment you refresh.
   t.onclick = () => { location.hash = "#node=" + encodeURIComponent(n.node); };
   return t;
 }
+
+function applyHash() {
+  const m = /^#node=(.+)$/.exec(location.hash);
+  NODE_FILTER = m ? decodeURIComponent(m[1]) : null;
+  if (NODE_FILTER) showView("incidents"); else refresh();
+}
+window.addEventListener("hashchange", applyHash);
 
 async function loadFleet() {
   // The route wraps the list; tolerate a bare array too so the page does not go blank on a
@@ -214,11 +232,17 @@ function stateTag(i) {
 }
 
 async function loadIncidents() {
-  const d = await get(`/api/incidents?hours=${HOURS}`);
+  const nf = $("#node-filter");
+  nf.innerHTML = NODE_FILTER
+    ? ` · <span class="tag">${esc(NODE_FILTER)} <a href="#" onclick="clearNodeFilter();return false">×</a></span>`
+    : "";
+  const q = `/api/incidents?hours=${HOURS}` + (NODE_FILTER ? `&node=${encodeURIComponent(NODE_FILTER)}` : "");
+  const d = await get(q);
   const w = $("#inc-wrap");
   if (!d.incidents.length) {
+    const scope = NODE_FILTER ? ` for <b>${esc(NODE_FILTER)}</b>` : "";
     w.innerHTML = `<div class="empty"><b>Nothing to explain.</b><br>
-      No incidents in this window. Normal operation is not recorded.</div>`;
+      No incidents in this window${scope}. Normal operation is not recorded.</div>`;
     return;
   }
   const t = el("table");
@@ -404,19 +428,24 @@ async function refresh() {
   }
 }
 
-document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
-  document.querySelectorAll("nav button").forEach(x => x.classList.remove("on"));
-  document.querySelectorAll("section").forEach(s => s.classList.remove("on"));
-  b.classList.add("on");
-  VIEW = b.dataset.v;
-  $("#v-" + VIEW).classList.add("on");
+function clearNodeFilter() {
+  NODE_FILTER = null;
+  if (location.hash) history.replaceState(null, "", location.pathname + location.search);
   refresh();
+}
+
+// Explicit nav is "show me everything": it drops a node drill-down rather than leaving a
+// stale filter silently narrowing a tab the operator didn't ask to filter.
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
+  NODE_FILTER = null;
+  if (location.hash) history.replaceState(null, "", location.pathname + location.search);
+  showView(b.dataset.v);
 });
 $("#hours").onchange = e => { HOURS = +e.target.value; refresh(); };
 
 const params = new URLSearchParams(location.search);
 const every = Math.max(2, +(params.get("refresh") || 10)) * 1000;
-refresh();
+applyHash();
 setInterval(refresh, every);
 </script>
 </body></html>
