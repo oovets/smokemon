@@ -236,3 +236,6 @@ graphs/
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
+
+# per-host output from scripts/fleet-reprovision.sh
+.fleet-logs/
