@@ -98,8 +98,8 @@ def test_main_no_hub_returns_0(monkeypatch):
 def test_ship_exclude_default_is_empty():
     """Out of the box no tables are excluded from shipping; previously defaulted-out tables
     that have no hub-side reader have been removed from the codebase."""
-    assert config._SHIP_EXCLUDE_DEFAULT == frozenset()
-    assert config.SHIP_EXCLUDE == frozenset()
+    assert frozenset() == config._SHIP_EXCLUDE_DEFAULT
+    assert frozenset() == config.SHIP_EXCLUDE
 
 
 def test_ordered_tables_drops_default_exclusions(monkeypatch):

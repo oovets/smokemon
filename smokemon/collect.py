@@ -16,10 +16,10 @@ bounded memory window and writes only when a rule confirms an anomaly. A healthy
 periodic disk write is the heartbeat.
 """
 
+import signal
 import sqlite3
 import sys
 import time
-import signal
 
 from . import baseline, config, core, detect, events, governor, heartbeat, incidents, prune, schema, ship
 from .probes import host, inventory, logexcerpt, net, ping, wifi

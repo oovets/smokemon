@@ -78,6 +78,20 @@ def _cpu_linux() -> float | None:
     return pct
 
 
+def _cpu_throttle_linux() -> int | None:
+    """Sum of per-core thermal_throttle counters (x86 only; ARM has no such counter)."""
+    total = 0
+    found = False
+    for p in glob.glob("/sys/devices/system/cpu/cpu[0-9]*/thermal_throttle/core_throttle_count"):
+        try:
+            with open(p) as f:
+                total += int(f.read().strip())
+                found = True
+        except (OSError, ValueError, TypeError):
+            continue
+    return total if found else None
+
+
 # ---------- Memory / swap / OOM ----------
 
 def _meminfo() -> dict[str, int]:
