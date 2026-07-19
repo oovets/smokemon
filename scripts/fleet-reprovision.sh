@@ -160,8 +160,16 @@ ssh_to() {  # ssh_to HOST COMMAND...
     ssh $SSH_OPTS "$target" "$@"
 }
 
-# Everything that has to happen on the node, as one script so a dropped connection cannot leave
-# it half-done. Runs under sudo bash on the remote.
+scp_to() {  # scp_to LOCAL_FILE HOST REMOTE_PATH
+    local target="$2"
+    [ -n "$SSH_USER" ] && target="$SSH_USER@$2"
+    # shellcheck disable=SC2086
+    scp $SSH_OPTS -q "$1" "$target:$3"
+}
+
+# The remote teardown + verification, run under sudo bash. install.sh itself is scp'd up
+# separately and invoked by path -- embedding a few hundred lines of it inside a heredoc was
+# fragile to quote and added nothing an ordinary file copy does not already do better.
 remote_script() {
     local node="$1"
     cat <<REMOTE
@@ -196,11 +204,8 @@ done
 rm -rf /var/lib/smokemon
 
 echo "-- installing"
-cat > /tmp/smokemon-install.\$\$.sh <<'SMOKEMON_INSTALLER_EOF'
-$(cat "$INSTALLER")
-SMOKEMON_INSTALLER_EOF
-bash /tmp/smokemon-install.\$\$.sh --node "$node" --hub-url "$HUB_URL" --secret "$SECRET" $TARGETS_ARG
-rm -f /tmp/smokemon-install.\$\$.sh
+bash /tmp/smokemon-install.sh --node "$node" --hub-url "$HUB_URL" --secret "$SECRET" $TARGETS_ARG
+rm -f /tmp/smokemon-install.sh
 
 echo "-- verification"
 sleep 3
@@ -246,7 +251,7 @@ if [ "$YES" -ne 1 ]; then
     log ""
     summary
     log ""
-    log "On each host, as root:"
+    log "For each host: scp $INSTALLER, then as root:"
     remote_script "<hostname>" | sed 's/^/    /' >&2
     exit 0
 fi
@@ -268,7 +273,13 @@ while [ "$i" -lt "${#NAMES[@]}" ]; do
         (
             name="${NAMES[$j]}"; addr="${ADDRS[$j]}"
             out=".fleet-logs/$name.log"
-            if remote_script "$name" | ssh_to "$addr" "sudo bash -s" >"$out" 2>&1; then
+            # scp lands in the login user's home (root has no writable /tmp over scp with
+            # BatchMode in some sshd configs, home always works); the remote script sudo-moves
+            # it before running so it works whether that user is root or not.
+            if scp_to "$INSTALLER" "$addr" "smokemon-install.sh" >"$out" 2>&1 \
+               && remote_script "$name" | ssh_to "$addr" \
+                    "sudo mv ~/smokemon-install.sh /tmp/smokemon-install.sh && sudo bash -s" \
+                    >>"$out" 2>&1; then
                 log "  OK    $name"
             else
                 log "  FAIL  $name   (see $out)"
